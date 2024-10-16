@@ -1,6 +1,6 @@
 from typing import Dict, List, Union, Optional
-import tsn_sdk.generated_bindings.exports as tsn_sdk
-import tsn_sdk.generated_bindings.go as go
+import tsn_sdk.tsn_sdk_c_bindings.exports as tsn_sdk
+import tsn_sdk.tsn_sdk_c_bindings.go as go
 
 class TSNClient:
     def __init__(self, url: str, token: str):

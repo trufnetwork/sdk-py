@@ -1,18 +1,47 @@
-__pycache__
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
 
-# gopy binary generated files
+# C extensions and gopy binary generated files
 *.so
 *.h
 *.c
 
-# directory intended for manual exploration and development
-gitignore
+# Python distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# python
+# Python specific
 *.pyc
-*.egg-info
 /build
 
-.idea
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
-generated_bindings
+# IDE and development directories
+.idea
+gitignore
+tsn_sdk_c_bindings

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel", "setuptools_scm[toml]>=6.2"]
+requires = ["setuptools>=68", "wheel", "setuptools_scm[toml]>=6.2", "pybindgen"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,10 +13,6 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-dependencies = [
-    "pybindgen"
-]
-
 [project.urls]
 "Homepage" = "https://github.com/truflation/tsn-sdk-py"
 
@@ -24,5 +20,4 @@ dependencies = [
 packages = { find = { where = ["src"] } }
 include-package-data = true
 
-[tool.setuptools.package-data]
-tsn_sdk_c_bindings = ["*.so", "*.dll"] 
+package-data = { "*" = ["*.so", "*.dll"] }

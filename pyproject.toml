@@ -23,4 +23,7 @@ dependencies = [
 [tool.setuptools]
 packages = { find = { where = ["tsn_sdk"] } }
 include-package-data = true
-package-data = { generated_bindings = ["*.so", "*.dll"] }
+
+[tool.setuptools.package-data]
+tsn_sdk_c_bindings = ["*.so", "*.dll"] 
+

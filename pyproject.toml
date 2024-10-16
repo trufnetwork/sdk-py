@@ -1,4 +1,28 @@
-[tool.pytest.ini_options]
-addopts = [
-    "--import-mode=importlib",
+[build-system]
+requires = ["setuptools>=68", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tsn_sdk_py"
+version = "0.1.0"
+description = "A Python SDK for TSN"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
 ]
+
+dependencies = [
+    "pybindgen"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/truflation/tsn-sdk-py"
+
+[tool.setuptools]
+packages = { find = { where = ["src"] } }
+include-package-data = true
+
+[tool.setuptools.package-data]
+tsn_sdk_c_bindings = ["*.so", "*.dll"] 

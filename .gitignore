@@ -1,0 +1,18 @@
+__pycache__
+
+# gopy binary generated files
+*.so
+*.h
+*.c
+
+# directory intended for manual exploration and development
+gitignore
+
+# python
+*.pyc
+*.egg-info
+/build
+
+.idea
+
+generated_bindings

@@ -22,4 +22,10 @@ class CustomEggInfoCommand(egg_info):
         print("Building SDK egg info")
         egg_info.run(self)
 
-setuptools.setup()
+setuptools.setup(
+    cmdclass={
+        'install': CustomInstallCommand,
+        'develop': CustomDevelopCommand,
+        'egg_info': CustomEggInfoCommand,
+    },
+)

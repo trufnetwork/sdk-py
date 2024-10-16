@@ -133,4 +133,7 @@ class TSNClient:
             tsn_sdk.WaitForTx(self.client, insert_tx_hash)
         return insert_tx_hash
 
+    def wait_for_tx(self, tx_hash: str) -> None:
+        tsn_sdk.WaitForTx(self.client, tx_hash)
+
 

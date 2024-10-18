@@ -1,21 +1,33 @@
 from typing import Dict, List, Union, Optional
-import tsn_sdk.generated_bindings.exports as tsn_sdk
-import tsn_sdk.generated_bindings.go as go
+import tsn_sdk_c_bindings.exports as tsn_sdk
+import tsn_sdk_c_bindings.go as go
 
 class TSNClient:
     def __init__(self, url: str, token: str):
         self.client = tsn_sdk.NewClient(url, token)
 
-    """ 
+    def deploy_stream(self, stream_id: str, stream_type: int = tsn_sdk.StreamTypePrimitive, wait: bool = True) -> str:
+        """ 
         Deploy a stream with the given stream ID and stream type.
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
-    """
-    def deploy_stream(self, stream_id: str, stream_type: int = tsn_sdk.StreamTypePrimitive, wait: bool = True) -> str:
+        """
         deploy_tx_hash = tsn_sdk.DeployStream(self.client, stream_id, stream_type)
         if wait:
             tsn_sdk.WaitForTx(self.client, deploy_tx_hash)
         return deploy_tx_hash
+
+    def stream_exists(self, stream_id: str, data_provider: Optional[str] = None) -> bool:
+        """ 
+        Check if a stream with the given stream ID exists.
+        Returns True if the stream exists, False otherwise.
+        """
+
+        # workaround as can't accept nullable type
+        if data_provider is None:
+            data_provider = ""
+
+        return tsn_sdk.StreamExists(self.client, stream_id, data_provider)
 
     """ 
         Initialize a stream with the given stream ID.
@@ -28,12 +40,13 @@ class TSNClient:
             tsn_sdk.WaitForTx(self.client, init_tx_hash)
         return init_tx_hash
 
-    """ 
+
+    def insert_records(self, stream_id: str, records: List[Dict[str, Union[str, float, int]]], wait: bool = True) -> str:
+        """ 
         Insert records into a stream with the given stream ID.
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
-    """
-    def insert_records(self, stream_id: str, records: List[Dict[str, Union[str, float, int]]], wait: bool = True) -> str:
+        """
         dates = [record['date'] for record in records]
         values = [record['value'] for record in records]
         insert_tx_hash = tsn_sdk.InsertRecords(
@@ -46,7 +59,13 @@ class TSNClient:
             tsn_sdk.WaitForTx(self.client, insert_tx_hash)
         return insert_tx_hash
 
-    """ 
+    def get_records(self, stream_id: str,
+                    data_provider: Optional[str] = None,
+                    date_from: Optional[str] = None,
+                    date_to: Optional[str] = None,
+                    frozen_at: Optional[str] = None,
+                    base_date: Optional[str] = None) -> List[Dict[str, any]]:
+        """ 
         Get records from a stream with the given stream ID.
         Returns a list of records.
 
@@ -63,15 +82,8 @@ class TSNClient:
                 The frozen date used to get records from. Format: YYYY-MM-DD
             base_date: Optional[str]
                 The base date used to get records from. Format: YYYY-MM-DD
+        """
 
-                
-    """
-    def get_records(self, stream_id: str,
-                    data_provider: Optional[str] = None,
-                    date_from: Optional[str] = None,
-                    date_to: Optional[str] = None,
-                    frozen_at: Optional[str] = None,
-                    base_date: Optional[str] = None) -> List[Dict[str, any]]:
 
         # workaround as can't accept nullable type
         if data_provider is None:
@@ -94,7 +106,8 @@ class TSNClient:
         # as expected by the caller
         return result
 
-    """ 
+    def execute_procedure(self, stream_id: str, procedure: str, args: List[List[Union[str, float, int]]], wait: bool = True) -> str:
+        """ 
         Execute an arbitrary procedure with the given stream ID.
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
@@ -108,8 +121,8 @@ class TSNClient:
                 The arguments to pass to the procedure.
             wait: bool
                 Whether to wait for the transaction to be confirmed.
-    """
-    def execute_procedure(self, stream_id: str, procedure: str, args: List[List[Union[str, float, int]]], wait: bool = True) -> str:
+        """
+
         # transpose the args so that it's a list of lists of strings
         transposed_args = list(map(list, zip(*args)))
         # associate the type depending if it's a string, float or int
@@ -132,5 +145,8 @@ class TSNClient:
         if wait:
             tsn_sdk.WaitForTx(self.client, insert_tx_hash)
         return insert_tx_hash
+
+    def wait_for_tx(self, tx_hash: str) -> None:
+        tsn_sdk.WaitForTx(self.client, tx_hash)
 
 

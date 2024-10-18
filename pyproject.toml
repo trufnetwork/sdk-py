@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel", "setuptools_scm[toml]>=6.2"]
+requires = ["setuptools>=68", "wheel", "setuptools_scm[toml]>=6.2", "pybindgen"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -17,13 +17,7 @@ classifiers = [
 "Homepage" = "https://github.com/truflation/tsn-sdk-py"
 
 [tool.setuptools]
-packages = ["tsn_sdk"]
+packages = { find = { where = ["src"] } }
 include-package-data = true
 
-[tool.setuptools.package-data]
-tsn_sdk = ["*.so", "*.dll"]
-
-[tool.setuptools.cmdclass]
-install = "custom_commands.CustomInstallCommand"
-develop = "custom_commands.CustomDevelopCommand"
-egg_info = "custom_commands.CustomEggInfoCommand"
+package-data = { "*" = ["*.so", "*.dll"] }

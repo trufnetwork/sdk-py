@@ -27,12 +27,12 @@ func NewClient(provider string, privateKey string) (*tsnclient.Client, error) {
 	ctx := context.Background()
 	signer, err := createSigner(privateKey)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "error creating signer")
 	}
 
 	client, err := tsnclient.NewClient(ctx, provider, tsnclient.WithSigner(signer))
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "error creating client")
 	}
 	return client, nil
 }
@@ -56,10 +56,13 @@ func GenerateStreamId(name string) string {
 // DeployStream deploys a stream with the given stream ID and stream type.
 func DeployStream(client *tsnclient.Client, streamId string, streamType types.StreamType) (string, error) {
 	ctx := context.Background()
-	streamIdTyped := util.GenerateStreamId(streamId)
-	deployTxHash, err := client.DeployStream(ctx, streamIdTyped, streamType)
+	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "error creating stream id")
+	}
+	deployTxHash, err := client.DeployStream(ctx, *streamIdTyped, streamType)
+	if err != nil {
+		return "", errors.Wrap(err, "error deploying stream")
 	}
 	return deployTxHash.Hex(), nil
 }
@@ -67,10 +70,13 @@ func DeployStream(client *tsnclient.Client, streamId string, streamType types.St
 // DestroyStream destroys the stream with the given stream ID.
 func DestroyStream(client *tsnclient.Client, streamId string) (string, error) {
 	ctx := context.Background()
-	streamIdTyped := util.GenerateStreamId(streamId)
-	destroyTxHash, err := client.DestroyStream(ctx, streamIdTyped)
+	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "error creating stream id")
+	}
+	destroyTxHash, err := client.DestroyStream(ctx, *streamIdTyped)
+	if err != nil {
+		return "", errors.Wrap(err, "error destroying stream")
 	}
 	return destroyTxHash.Hex(), nil
 }
@@ -78,15 +84,18 @@ func DestroyStream(client *tsnclient.Client, streamId string) (string, error) {
 // InitStream initializes the stream with the given stream ID.
 func InitStream(client *tsnclient.Client, streamId string) (string, error) {
 	ctx := context.Background()
-	streamIdTyped := util.GenerateStreamId(streamId)
-	streamLocator := client.OwnStreamLocator(streamIdTyped)
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return "", errors.Wrap(err, "error creating stream id")
+	}
+	streamLocator := client.OwnStreamLocator(*streamIdTyped)
 	stream, err := client.LoadStream(streamLocator)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "error loading stream")
 	}
 	txHash, err := stream.InitializeStream(ctx)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "error initializing stream")
 	}
 	return txHash.Hex(), nil
 }
@@ -98,19 +107,22 @@ func InsertRecords(client *tsnclient.Client, streamId string, inputDates []strin
 	// Process the inputs
 	processedInputs, err := processInsertInputs(inputDates, inputValues)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "error processing insert inputs")
 	}
 
-	streamIdTyped := util.GenerateStreamId(streamId)
-	streamLocator := client.OwnStreamLocator(streamIdTyped)
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return "", errors.Wrap(err, "error creating stream id")
+	}
+	streamLocator := client.OwnStreamLocator(*streamIdTyped)
 	primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "error loading primitive stream")
 	}
 
 	txHash, err := primitiveStream.InsertRecords(ctx, processedInputs)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "error inserting records")
 	}
 	return txHash.Hex(), nil
 }
@@ -119,14 +131,14 @@ func InsertRecords(client *tsnclient.Client, streamId string, inputDates []strin
 func processInsertInputs(inputDates []string, inputValues []float64) ([]types.InsertRecordInput, error) {
 	// Check that the lengths of the input dates and values are the same
 	if len(inputDates) != len(inputValues) {
-		return nil, fmt.Errorf("input dates and values must have the same length")
+		return nil, errors.New("input dates and values must have the same length")
 	}
 
 	var processedInputs []types.InsertRecordInput
 	for i, inputDate := range inputDates {
 		dateTime, err := time.Parse("2006-01-02", inputDate)
 		if err != nil {
-			return nil, fmt.Errorf("invalid date format '%s': %w", inputDate, err)
+			return nil, errors.Wrap(err, fmt.Sprintf("invalid date format '%s'", inputDate))
 		}
 
 		processedInputs = append(processedInputs, types.InsertRecordInput{
@@ -140,11 +152,14 @@ func processInsertInputs(inputDates []string, inputValues []float64) ([]types.In
 // ExecuteProcedure executes a procedure on the stream with the given stream ID.
 func ExecuteProcedure(client *tsnclient.Client, streamId string, procedure string, args ...ProcedureArgs) (string, error) {
 	ctx := context.Background()
-	streamIdTyped := util.GenerateStreamId(streamId)
-	streamLocator := client.OwnStreamLocator(streamIdTyped)
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return "", errors.Wrap(err, "error creating stream id")
+	}
+	streamLocator := client.OwnStreamLocator(*streamIdTyped)
 	stream, err := client.LoadStream(streamLocator)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "error loading stream")
 	}
 
 	// Transpose the args to match expected format
@@ -152,7 +167,7 @@ func ExecuteProcedure(client *tsnclient.Client, streamId string, procedure strin
 	transposedArgs := make([][]any, expectedBatchLength)
 	for _, arg := range args {
 		if len(arg) != expectedBatchLength {
-			return "", fmt.Errorf("all slices must have the same length")
+			return "", errors.New("all slices must have the same length")
 		}
 		for i, argSlice := range arg {
 			transposedArgs[i] = append(transposedArgs[i], argSlice)
@@ -161,9 +176,34 @@ func ExecuteProcedure(client *tsnclient.Client, streamId string, procedure strin
 
 	txHash, err := stream.ExecuteProcedure(ctx, procedure, transposedArgs)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "error executing procedure")
 	}
 	return txHash.Hex(), nil
+}
+
+func StreamExists(client *tsnclient.Client, streamId string, dataProvider string) (bool, error) {
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return false, errors.Wrap(err, "error creating stream id")
+	}
+
+	// if there's no data provider, use the client's own data provider
+	var dataProviderTyped util.EthereumAddress
+	if dataProvider == "" {
+		dataProviderTyped = client.Address()
+	} else {
+		dataProviderTyped, err = util.NewEthereumAddressFromString(dataProvider)
+		if err != nil {
+			return false, errors.Wrap(err, "error creating data provider")
+		}
+	}
+
+	streamLocator := types.StreamLocator{
+		StreamId:     *streamIdTyped,
+		DataProvider: dataProviderTyped,
+	}
+	_, err = client.LoadStream(streamLocator)
+	return err == nil, nil
 }
 
 // GetRecords retrieves records from the stream with the given stream ID.

@@ -16,10 +16,16 @@ class CustomDevelopCommand(develop):
         print("Building SDK develop")
         develop.run(self)
 
+class CustomEggInfoCommand(egg_info):
+    def run(self):
+        os.system('make gopy_build')
+        print("Building SDK egg_info")
+        egg_info.run(self)
 
 setuptools.setup(
     cmdclass={
         'install': CustomInstallCommand,
         'develop': CustomDevelopCommand,
+        'egg_info': CustomEggInfoCommand,
     },
 )

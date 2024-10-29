@@ -3,7 +3,6 @@ from setuptools.command.install import install
 from setuptools.command.develop import develop
 from setuptools.command.egg_info import egg_info
 import os
-import sys
 
 # Check if we're installing from source
 IS_SOURCE_INSTALL = os.path.exists('Makefile')  # or any other repo-specific file
@@ -20,7 +19,7 @@ def check_dependencies():
             "golang is not installed. Please install Go first.\n"
             "Visit https://golang.org/doc/install for installation instructions."
         )
-    
+
     # Check if gopy is installed
     if os.system('which gopy >/dev/null 2>&1') != 0:
         raise RuntimeError(

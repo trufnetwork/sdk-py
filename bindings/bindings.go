@@ -17,20 +17,20 @@ import (
 	"github.com/kwilteam/kwil-db/core/types/decimal"
 	"github.com/kwilteam/kwil-db/core/types/transactions"
 	"github.com/pkg/errors"
-	"github.com/truflation/tsn-sdk/core/tsnclient"
-	"github.com/truflation/tsn-sdk/core/types"
-	"github.com/truflation/tsn-sdk/core/util"
+	"github.com/trufnetwork/sdk-go/core/tnclient"
+	"github.com/trufnetwork/sdk-go/core/types"
+	"github.com/trufnetwork/sdk-go/core/util"
 )
 
-// NewClient creates a new TSN client with the given provider and private key.
-func NewClient(provider string, privateKey string) (*tsnclient.Client, error) {
+// NewClient creates a new TN client with the given provider and private key.
+func NewClient(provider string, privateKey string) (*tnclient.Client, error) {
 	ctx := context.Background()
 	signer, err := createSigner(privateKey)
 	if err != nil {
 		return nil, errors.Wrap(err, "error creating signer")
 	}
 
-	client, err := tsnclient.NewClient(ctx, provider, tsnclient.WithSigner(signer))
+	client, err := tnclient.NewClient(ctx, provider, tnclient.WithSigner(signer))
 	if err != nil {
 		return nil, errors.Wrap(err, "error creating client")
 	}
@@ -54,7 +54,7 @@ func GenerateStreamId(name string) string {
 }
 
 // DeployStream deploys a stream with the given stream ID and stream type.
-func DeployStream(client *tsnclient.Client, streamId string, streamType types.StreamType) (string, error) {
+func DeployStream(client *tnclient.Client, streamId string, streamType types.StreamType) (string, error) {
 	ctx := context.Background()
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
@@ -68,7 +68,7 @@ func DeployStream(client *tsnclient.Client, streamId string, streamType types.St
 }
 
 // DestroyStream destroys the stream with the given stream ID.
-func DestroyStream(client *tsnclient.Client, streamId string) (string, error) {
+func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 	ctx := context.Background()
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
@@ -82,7 +82,7 @@ func DestroyStream(client *tsnclient.Client, streamId string) (string, error) {
 }
 
 // InitStream initializes the stream with the given stream ID.
-func InitStream(client *tsnclient.Client, streamId string) (string, error) {
+func InitStream(client *tnclient.Client, streamId string) (string, error) {
 	ctx := context.Background()
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
@@ -101,7 +101,7 @@ func InitStream(client *tsnclient.Client, streamId string) (string, error) {
 }
 
 // InsertRecords inserts records into the stream with the given stream ID.
-func InsertRecords(client *tsnclient.Client, streamId string, inputDates []string, inputValues []float64) (string, error) {
+func InsertRecords(client *tnclient.Client, streamId string, inputDates []string, inputValues []float64) (string, error) {
 	ctx := context.Background()
 
 	// Process the inputs
@@ -150,7 +150,7 @@ func processInsertInputs(inputDates []string, inputValues []float64) ([]types.In
 }
 
 // ExecuteProcedure executes a procedure on the stream with the given stream ID.
-func ExecuteProcedure(client *tsnclient.Client, streamId string, procedure string, args ...ProcedureArgs) (string, error) {
+func ExecuteProcedure(client *tnclient.Client, streamId string, procedure string, args ...ProcedureArgs) (string, error) {
 	ctx := context.Background()
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
@@ -181,7 +181,7 @@ func ExecuteProcedure(client *tsnclient.Client, streamId string, procedure strin
 	return txHash.Hex(), nil
 }
 
-func StreamExists(client *tsnclient.Client, streamId string, dataProvider string) (bool, error) {
+func StreamExists(client *tnclient.Client, streamId string, dataProvider string) (bool, error) {
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
 		return false, errors.Wrap(err, "error creating stream id")
@@ -208,7 +208,7 @@ func StreamExists(client *tsnclient.Client, streamId string, dataProvider string
 
 // GetRecords retrieves records from the stream with the given stream ID.
 func GetRecords(
-	client *tsnclient.Client,
+	client *tnclient.Client,
 	streamId string,
 	dataProvider string,
 	dateFrom string,
@@ -318,7 +318,7 @@ const (
 )
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.
-func WaitForTx(client *tsnclient.Client, txHashHex string) error {
+func WaitForTx(client *tnclient.Client, txHashHex string) error {
 	ctx := context.Background()
 
 	// Normalize txHash as bytes

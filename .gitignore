@@ -44,4 +44,4 @@ venv.bak/
 # IDE and development directories
 .idea
 gitignore
-tsn_sdk_c_bindings
+trufnetwork_sdk_c_bindings

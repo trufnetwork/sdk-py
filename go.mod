@@ -1,4 +1,4 @@
-module github.com/truflation/tsn-sdk-binding
+module github.com/trufnetwork/truf-sdk-binding
 
 go 1.22.1
 
@@ -8,7 +8,7 @@ require (
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9
 	github.com/kwilteam/kwil-db/core v0.2.2-0.20240731225936-dc8d6befe577
 	github.com/pkg/errors v0.9.1
-	github.com/truflation/tsn-sdk v0.1.1-0.20241014124305-6d0ae1dfb654
+	github.com/trufnetwork/sdk-go v0.1.1-0.20241128175253-01af4b945d4c
 )
 
 require (

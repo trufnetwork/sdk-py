@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel", "setuptools_scm[toml]>=6.2", "pybindgen"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tsn_sdk_py"
+name = "trufnetwork_sdk_py"
 version = "0.1.0"
-description = "A Python SDK for TSN"
+description = "A Python SDK for Truf Network"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -14,7 +14,7 @@ classifiers = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/truflation/tsn-sdk-py"
+"Homepage" = "https://github.com/trufnetwork/sdk-py"
 
 [tool.setuptools]
 packages = { find = { where = ["src"] } }

@@ -149,14 +149,27 @@ func processInsertInputs(inputDates []string, inputValues []float64) ([]types.In
 	return processedInputs, nil
 }
 
-// ExecuteProcedure executes a procedure on the stream with the given stream ID.
-func ExecuteProcedure(client *tnclient.Client, streamId string, procedure string, args ...ProcedureArgs) (string, error) {
+// ExecuteProcedure executes a procedure on the stream with the given stream ID, data provider, and procedure.
+func ExecuteProcedure(client *tnclient.Client, streamId string, dataProvider string, procedure string, args ...ProcedureArgs) (string, error) {
 	ctx := context.Background()
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
 		return "", errors.Wrap(err, "error creating stream id")
 	}
-	streamLocator := client.OwnStreamLocator(*streamIdTyped)
+
+	var dataProviderTyped util.EthereumAddress
+	if dataProvider == "" {
+		dataProviderTyped = client.Address()
+	} else {
+		dataProviderTyped, err = util.NewEthereumAddressFromString(dataProvider)
+		if err != nil {
+			return "", errors.Wrap(err, "error creating data provider")
+		}
+	}
+	streamLocator := types.StreamLocator{
+		StreamId:     *streamIdTyped,
+		DataProvider: dataProviderTyped,
+	}
 	stream, err := client.LoadStream(streamLocator)
 	if err != nil {
 		return "", errors.Wrap(err, "error loading stream")

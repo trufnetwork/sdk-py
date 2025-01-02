@@ -2,12 +2,18 @@ from typing import Dict, List, Union, Optional
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
+
 class TNClient:
     def __init__(self, url: str, token: str):
         self.client = truf_sdk.NewClient(url, token)
 
-    def deploy_stream(self, stream_id: str, stream_type: int = truf_sdk.StreamTypePrimitive, wait: bool = True) -> str:
-        """ 
+    def deploy_stream(
+        self,
+        stream_id: str,
+        stream_type: int = truf_sdk.StreamTypePrimitive,
+        wait: bool = True,
+    ) -> str:
+        """
         Deploy a stream with the given stream ID and stream type.
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
@@ -17,8 +23,10 @@ class TNClient:
             truf_sdk.WaitForTx(self.client, deploy_tx_hash)
         return deploy_tx_hash
 
-    def stream_exists(self, stream_id: str, data_provider: Optional[str] = None) -> bool:
-        """ 
+    def stream_exists(
+        self, stream_id: str, data_provider: Optional[str] = None
+    ) -> bool:
+        """
         Check if a stream with the given stream ID exists.
         Returns True if the stream exists, False otherwise.
         """
@@ -34,38 +42,43 @@ class TNClient:
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
     """
+
     def init_stream(self, stream_id: str, wait: bool = True) -> str:
         init_tx_hash = truf_sdk.InitStream(self.client, stream_id)
         if wait:
             truf_sdk.WaitForTx(self.client, init_tx_hash)
         return init_tx_hash
 
-
-    def insert_records(self, stream_id: str, records: List[Dict[str, Union[str, float, int]]], wait: bool = True) -> str:
-        """ 
+    def insert_records(
+        self,
+        stream_id: str,
+        records: List[Dict[str, Union[str, float, int]]],
+        wait: bool = True,
+    ) -> str:
+        """
         Insert records into a stream with the given stream ID.
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
         """
-        dates = [record['date'] for record in records]
-        values = [record['value'] for record in records]
+        dates = [record["date"] for record in records]
+        values = [record["value"] for record in records]
         insert_tx_hash = truf_sdk.InsertRecords(
-            self.client,
-            stream_id,
-            go.Slice_string(dates),
-            go.Slice_float64(values)
+            self.client, stream_id, go.Slice_string(dates), go.Slice_float64(values)
         )
         if wait:
             truf_sdk.WaitForTx(self.client, insert_tx_hash)
         return insert_tx_hash
 
-    def get_records(self, stream_id: str,
-                    data_provider: Optional[str] = None,
-                    date_from: Optional[str] = None,
-                    date_to: Optional[str] = None,
-                    frozen_at: Optional[str] = None,
-                    base_date: Optional[str] = None) -> List[Dict[str, any]]:
-        """ 
+    def get_records(
+        self,
+        stream_id: str,
+        data_provider: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        frozen_at: Optional[str] = None,
+        base_date: Optional[str] = None,
+    ) -> List[Dict[str, any]]:
+        """
         Get records from a stream with the given stream ID.
         Returns a list of records.
 
@@ -84,7 +97,6 @@ class TNClient:
                 The base date used to get records from. Format: YYYY-MM-DD
         """
 
-
         # workaround as can't accept nullable type
         if data_provider is None:
             data_provider = ""
@@ -98,7 +110,15 @@ class TNClient:
             base_date = ""
 
         # convert goSliceOfMaps to list of dicts
-        goSliceOfMaps = truf_sdk.GetRecords(self.client, stream_id, data_provider, date_from, date_to, frozen_at, base_date)
+        goSliceOfMaps = truf_sdk.GetRecords(
+            self.client,
+            stream_id,
+            data_provider,
+            date_from,
+            date_to,
+            frozen_at,
+            base_date,
+        )
         result = []
         for record in goSliceOfMaps:
             result.append(dict(record.items()))
@@ -106,8 +126,15 @@ class TNClient:
         # as expected by the caller
         return result
 
-    def execute_procedure(self, stream_id: str, procedure: str, args: List[List[Union[str, float, int]]], wait: bool = True) -> str:
-        """ 
+    def execute_procedure(
+        self,
+        stream_id: str,
+        data_provider: str,
+        procedure: str,
+        args: List[List[Union[str, float, int]]],
+        wait: bool = True,
+    ) -> str:
+        """
         Execute an arbitrary procedure with the given stream ID.
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
@@ -137,10 +164,7 @@ class TNClient:
                 raise ValueError(f"Unsupported argument type: {arg}")
 
         insert_tx_hash = truf_sdk.ExecuteProcedure(
-            self.client,
-            stream_id,
-            procedure,
-            *variadic_args
+            self.client, stream_id, data_provider, procedure, *variadic_args
         )
         if wait:
             truf_sdk.WaitForTx(self.client, insert_tx_hash)
@@ -148,5 +172,3 @@ class TNClient:
 
     def wait_for_tx(self, tx_hash: str) -> None:
         truf_sdk.WaitForTx(self.client, tx_hash)
-
-

@@ -12,6 +12,12 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/trufnetwork/sdk-py"
@@ -19,5 +25,10 @@ classifiers = [
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
 include-package-data = true
-
 package-data = { "*" = ["*.so", "*.dll"] }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

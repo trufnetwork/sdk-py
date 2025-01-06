@@ -27,6 +27,7 @@ import (
 const (
 	StreamTypeComposed  types.StreamType = types.StreamTypeComposed
 	StreamTypePrimitive types.StreamType = types.StreamTypePrimitive
+	StreamTypePrimitiveUnix types.StreamType = types.StreamTypePrimitiveUnix
 )
 
 // ProcedureArgs represents a slice of arguments for a procedure.
@@ -163,6 +164,33 @@ func InsertRecords(client *tnclient.Client, streamId string, inputDates []string
 	return txHash.Hex(), nil
 }
 
+// InsertRecordsUnix inserts records into the stream with the given stream ID using Unix timestamps.
+func InsertRecordsUnix(client *tnclient.Client, streamId string, inputDates []int, inputValues []float64) (string, error) {
+	ctx := context.Background()
+
+	processedInputs, err := processInsertInputsUnix(inputDates, inputValues)
+	if err != nil {
+		return "", errors.Wrap(err, "error processing insert inputs")
+	}
+
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return "", errors.Wrap(err, "error creating stream id")
+	}
+
+	streamLocator := client.OwnStreamLocator(*streamIdTyped)
+	primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
+	if err != nil {
+		return "", errors.Wrap(err, "error loading primitive stream")
+	}
+
+	txHash, err := primitiveStream.InsertRecordsUnix(ctx, processedInputs)
+	if err != nil {
+		return "", errors.Wrap(err, "error inserting records")
+	}
+	return txHash.Hex(), nil
+}
+
 // processInsertInputs processes the input dates and values and returns a slice of InsertRecordInput.
 func processInsertInputs(inputDates []string, inputValues []float64) ([]types.InsertRecordInput, error) {
 	if len(inputDates) != len(inputValues) {
@@ -178,6 +206,24 @@ func processInsertInputs(inputDates []string, inputValues []float64) ([]types.In
 
 		processedInputs = append(processedInputs, types.InsertRecordInput{
 			DateValue: civil.DateOf(dateTime),
+			Value:     inputValues[i],
+		})
+	}
+	return processedInputs, nil
+}
+
+// processInsertInputsUnix processes the input dates and values and returns a slice of InsertRecordUnixInput.
+func processInsertInputsUnix(inputDates []int, inputValues []float64) ([]types.InsertRecordUnixInput, error) {
+	if len(inputDates) != len(inputValues) {
+		return nil, errors.New("input dates and values must have the same length")
+	}
+
+	var processedInputs []types.InsertRecordUnixInput
+	for i, inputDate := range inputDates {
+		dateTime := time.Unix(int64(inputDate), 0)
+
+		processedInputs = append(processedInputs, types.InsertRecordUnixInput{
+			DateValue: int(dateTime.Unix()),
 			Value:     inputValues[i],
 		})
 	}

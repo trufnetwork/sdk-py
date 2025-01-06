@@ -131,6 +131,25 @@ class TNClient:
             truf_sdk.WaitForTx(self.client, insert_tx_hash)
         return insert_tx_hash
 
+    def insert_records_unix(
+        self,
+        stream_id: str,
+        records: List[Dict[str, Union[str, float, int]]],
+        wait: bool = True,
+    ) -> str:
+        """
+        Insert records into a stream with the given stream ID using Unix timestamps.
+        """
+        dates = [record["date"] for record in records]
+        values = [record["value"] for record in records]
+
+        insert_tx_hash = truf_sdk.InsertRecordsUnix(
+            self.client, stream_id, go.Slice_int(dates), go.Slice_float64([float(v) for v in values])
+        )
+        if wait:
+            truf_sdk.WaitForTx(self.client, insert_tx_hash)
+        return insert_tx_hash
+
     def get_records(
         self,
         stream_id: str,
@@ -283,3 +302,14 @@ class TNClient:
         Wait for a transaction to be confirmed given its hash.
         """
         truf_sdk.WaitForTx(self.client, tx_hash)
+
+    def destroy_stream(self, stream_id: str, wait: bool = True) -> str:
+        """
+        Destroy a stream with the given stream ID.
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+        """
+        destroy_tx_hash = truf_sdk.DestroyStream(self.client, stream_id)
+        if wait:
+            truf_sdk.WaitForTx(self.client, destroy_tx_hash)
+        return destroy_tx_hash

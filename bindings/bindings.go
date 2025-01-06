@@ -14,6 +14,7 @@ import (
 	"github.com/golang-sql/civil"
 	"github.com/kwilteam/kwil-db/core/crypto"
 	"github.com/kwilteam/kwil-db/core/crypto/auth"
+	"github.com/kwilteam/kwil-db/core/types/client"
 	"github.com/kwilteam/kwil-db/core/types/decimal"
 	"github.com/kwilteam/kwil-db/core/types/transactions"
 	"github.com/pkg/errors"
@@ -22,9 +23,37 @@ import (
 	"github.com/trufnetwork/sdk-go/core/util"
 )
 
+// StreamType constants.
+const (
+	StreamTypeComposed  types.StreamType = types.StreamTypeComposed
+	StreamTypePrimitive types.StreamType = types.StreamTypePrimitive
+)
+
+// ProcedureArgs represents a slice of arguments for a procedure.
+type ProcedureArgs []any
+
+// ArgsFromStrings converts a slice of strings to ProcedureArgs.
+func ArgsFromStrings(values []string) ProcedureArgs {
+	var anySlice []any
+	for _, v := range values {
+		anySlice = append(anySlice, v)
+	}
+	return anySlice
+}
+
+// ArgsFromFloats converts a slice of floats to ProcedureArgs.
+func ArgsFromFloats(values []float64) ProcedureArgs {
+	var anySlice []any
+	for _, v := range values {
+		anySlice = append(anySlice, v)
+	}
+	return anySlice
+}
+
 // NewClient creates a new TN client with the given provider and private key.
 func NewClient(provider string, privateKey string) (*tnclient.Client, error) {
 	ctx := context.Background()
+
 	signer, err := createSigner(privateKey)
 	if err != nil {
 		return nil, errors.Wrap(err, "error creating signer")
@@ -56,10 +85,12 @@ func GenerateStreamId(name string) string {
 // DeployStream deploys a stream with the given stream ID and stream type.
 func DeployStream(client *tnclient.Client, streamId string, streamType types.StreamType) (string, error) {
 	ctx := context.Background()
+
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
 		return "", errors.Wrap(err, "error creating stream id")
 	}
+
 	deployTxHash, err := client.DeployStream(ctx, *streamIdTyped, streamType)
 	if err != nil {
 		return "", errors.Wrap(err, "error deploying stream")
@@ -70,10 +101,12 @@ func DeployStream(client *tnclient.Client, streamId string, streamType types.Str
 // DestroyStream destroys the stream with the given stream ID.
 func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 	ctx := context.Background()
+
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
 		return "", errors.Wrap(err, "error creating stream id")
 	}
+
 	destroyTxHash, err := client.DestroyStream(ctx, *streamIdTyped)
 	if err != nil {
 		return "", errors.Wrap(err, "error destroying stream")
@@ -84,15 +117,18 @@ func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 // InitStream initializes the stream with the given stream ID.
 func InitStream(client *tnclient.Client, streamId string) (string, error) {
 	ctx := context.Background()
+
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
 		return "", errors.Wrap(err, "error creating stream id")
 	}
+
 	streamLocator := client.OwnStreamLocator(*streamIdTyped)
 	stream, err := client.LoadStream(streamLocator)
 	if err != nil {
 		return "", errors.Wrap(err, "error loading stream")
 	}
+
 	txHash, err := stream.InitializeStream(ctx)
 	if err != nil {
 		return "", errors.Wrap(err, "error initializing stream")
@@ -104,7 +140,6 @@ func InitStream(client *tnclient.Client, streamId string) (string, error) {
 func InsertRecords(client *tnclient.Client, streamId string, inputDates []string, inputValues []float64) (string, error) {
 	ctx := context.Background()
 
-	// Process the inputs
 	processedInputs, err := processInsertInputs(inputDates, inputValues)
 	if err != nil {
 		return "", errors.Wrap(err, "error processing insert inputs")
@@ -114,6 +149,7 @@ func InsertRecords(client *tnclient.Client, streamId string, inputDates []string
 	if err != nil {
 		return "", errors.Wrap(err, "error creating stream id")
 	}
+
 	streamLocator := client.OwnStreamLocator(*streamIdTyped)
 	primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
 	if err != nil {
@@ -129,7 +165,6 @@ func InsertRecords(client *tnclient.Client, streamId string, inputDates []string
 
 // processInsertInputs processes the input dates and values and returns a slice of InsertRecordInput.
 func processInsertInputs(inputDates []string, inputValues []float64) ([]types.InsertRecordInput, error) {
-	// Check that the lengths of the input dates and values are the same
 	if len(inputDates) != len(inputValues) {
 		return nil, errors.New("input dates and values must have the same length")
 	}
@@ -152,38 +187,40 @@ func processInsertInputs(inputDates []string, inputValues []float64) ([]types.In
 // ExecuteProcedure executes a procedure on the stream with the given stream ID, data provider, and procedure.
 func ExecuteProcedure(client *tnclient.Client, streamId string, dataProvider string, procedure string, args ...ProcedureArgs) (string, error) {
 	ctx := context.Background()
+
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
 		return "", errors.Wrap(err, "error creating stream id")
 	}
 
-	var dataProviderTyped util.EthereumAddress
-	if dataProvider == "" {
-		dataProviderTyped = client.Address()
-	} else {
-		dataProviderTyped, err = util.NewEthereumAddressFromString(dataProvider)
-		if err != nil {
-			return "", errors.Wrap(err, "error creating data provider")
-		}
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return "", errors.Wrap(err, "error creating data provider")
 	}
+
 	streamLocator := types.StreamLocator{
 		StreamId:     *streamIdTyped,
 		DataProvider: dataProviderTyped,
 	}
+
 	stream, err := client.LoadStream(streamLocator)
 	if err != nil {
 		return "", errors.Wrap(err, "error loading stream")
 	}
 
-	// Transpose the args to match expected format
+	// Transpose arguments so the procedure sees them in the expected format.
+	if len(args) == 0 {
+		return "", errors.New("no procedure arguments provided")
+	}
 	expectedBatchLength := len(args[0])
 	transposedArgs := make([][]any, expectedBatchLength)
+
 	for _, arg := range args {
 		if len(arg) != expectedBatchLength {
 			return "", errors.New("all slices must have the same length")
 		}
-		for i, argSlice := range arg {
-			transposedArgs[i] = append(transposedArgs[i], argSlice)
+		for i, item := range arg {
+			transposedArgs[i] = append(transposedArgs[i], item)
 		}
 	}
 
@@ -194,27 +231,50 @@ func ExecuteProcedure(client *tnclient.Client, streamId string, dataProvider str
 	return txHash.Hex(), nil
 }
 
-func StreamExists(client *tnclient.Client, streamId string, dataProvider string) (bool, error) {
+// CallProcedure calls a procedure on the stream with the given stream ID, data provider, and procedure.
+func CallProcedure(client *tnclient.Client, streamId string, dataProvider string, procedure string, args ...any) (*client.Records, error) {
+	ctx := context.Background()
+
 	streamIdTyped, err := util.NewStreamId(streamId)
 	if err != nil {
-		return false, errors.Wrap(err, "error creating stream id")
+		return nil, errors.Wrap(err, "error creating stream id")
 	}
 
-	// if there's no data provider, use the client's own data provider
-	var dataProviderTyped util.EthereumAddress
-	if dataProvider == "" {
-		dataProviderTyped = client.Address()
-	} else {
-		dataProviderTyped, err = util.NewEthereumAddressFromString(dataProvider)
-		if err != nil {
-			return false, errors.Wrap(err, "error creating data provider")
-		}
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return nil, errors.Wrap(err, "error creating data provider")
 	}
 
 	streamLocator := types.StreamLocator{
 		StreamId:     *streamIdTyped,
 		DataProvider: dataProviderTyped,
 	}
+
+	stream, err := client.LoadStream(streamLocator)
+	if err != nil {
+		return nil, errors.Wrap(err, "error loading stream")
+	}
+
+	return stream.CallProcedure(ctx, procedure, args)
+}
+
+// StreamExists checks if the stream with the given ID (and optional data provider) exists.
+func StreamExists(client *tnclient.Client, streamId string, dataProvider string) (bool, error) {
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return false, errors.Wrap(err, "error creating stream id")
+	}
+
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return false, errors.Wrap(err, "error creating data provider")
+	}
+
+	streamLocator := types.StreamLocator{
+		StreamId:     *streamIdTyped,
+		DataProvider: dataProviderTyped,
+	}
+
 	_, err = client.LoadStream(streamLocator)
 	return err == nil, nil
 }
@@ -229,7 +289,7 @@ func GetRecords(
 	frozenAt string,
 	baseDate string,
 ) ([]map[string]string, error) {
-	// Parse dates
+
 	dateFromTyped, err := parseDate(dateFrom)
 	if err != nil {
 		return nil, err
@@ -240,23 +300,21 @@ func GetRecords(
 	}
 
 	ctx := context.Background()
+
+	// For retrieving, we generate a StreamId from the string. 
+	// If your usage requires an existing ID, use `util.NewStreamId` instead.
 	streamIdTyped := util.GenerateStreamId(streamId)
 
-	// If dataProvider is empty, use the client's own data provider
-	var dataProviderTyped util.EthereumAddress
-	if dataProvider == "" {
-		dataProviderTyped = client.Address()
-	} else {
-		dataProviderTyped, err = util.NewEthereumAddressFromString(dataProvider)
-		if err != nil {
-			return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-		}
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
 	}
 
 	streamLocator := types.StreamLocator{
 		StreamId:     streamIdTyped,
 		DataProvider: dataProviderTyped,
 	}
+
 	stream, err := client.LoadPrimitiveStream(streamLocator)
 	if err != nil {
 		return nil, err
@@ -265,27 +323,141 @@ func GetRecords(
 	records, err := stream.GetRecord(ctx, types.GetRecordInput{
 		DateFrom: dateFromTyped,
 		DateTo:   dateToTyped,
+		// frozenAt and baseDate are not used here. 
+		// If needed, add them to GetRecordInput in the SDK & pass them here.
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert records to map[string]string
-	// independently of the type of the record and the fields
-	result := make([]map[string]string, len(records))
-	for i, record := range records {
-		m := make(map[string]string)
-		val := reflect.ValueOf(record)
-		typ := val.Type()
-		for j := 0; j < val.NumField(); j++ {
-			field := typ.Field(j)
-			valAsStr := convertToString(val.Field(j).Interface())
-			m[field.Name] = valAsStr
-		}
-		result[i] = m
+	return recordsToMapSlice(records), nil
+}
+
+// GetRecordsUnix retrieves records from the stream with the given stream ID using Unix timestamps.
+func GetRecordsUnix(
+	client *tnclient.Client,
+	streamId string,
+	dataProvider string,
+	dateFrom int,
+	dateTo int,
+	frozenAt int,
+	baseDate int,
+) ([]map[string]string, error) {
+
+	ctx := context.Background()
+
+	streamIdTyped := util.GenerateStreamId(streamId)
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
 	}
 
-	return result, nil
+	streamLocator := types.StreamLocator{
+		StreamId:     streamIdTyped,
+		DataProvider: dataProviderTyped,
+	}
+
+	stream, err := client.LoadPrimitiveStream(streamLocator)
+	if err != nil {
+		return nil, err
+	}
+
+	frozenAtTime, err := parseUnixTime(frozenAt)
+	if err != nil {
+		return nil, err
+	}
+
+	records, err := stream.GetRecordUnix(ctx, types.GetRecordUnixInput{
+		DateFrom: intOrNil(dateFrom),
+		DateTo:   intOrNil(dateTo),
+		FrozenAt: frozenAtTime, // pointer or nil
+		BaseDate: intOrNil(baseDate),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return recordsToMapSlice(records), nil
+}
+
+// GetIndexUnix retrieves an index from the stream with the given stream ID using Unix timestamps.
+func GetIndexUnix(
+	client *tnclient.Client,
+	streamId string,
+	dataProvider string,
+	dateFrom int,
+	dateTo int,
+	frozenAt int,
+	baseDate int,
+) ([]map[string]string, error) {
+
+	ctx := context.Background()
+
+	streamIdTyped := util.GenerateStreamId(streamId)
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
+	}
+
+	streamLocator := types.StreamLocator{
+		StreamId:     streamIdTyped,
+		DataProvider: dataProviderTyped,
+	}
+
+	stream, err := client.LoadPrimitiveStream(streamLocator)
+	if err != nil {
+		return nil, err
+	}
+
+	frozenAtTime, err := parseUnixTime(frozenAt)
+	if err != nil {
+		return nil, err
+	}
+
+	index, err := stream.GetIndexUnix(ctx, types.GetIndexUnixInput{
+		DateFrom: intOrNil(dateFrom),
+		DateTo:   intOrNil(dateTo),
+		FrozenAt: frozenAtTime,
+		BaseDate: intOrNil(baseDate),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return recordsToMapSlice(index), nil
+}
+
+// WaitForTx waits for the transaction with the given hash to be confirmed.
+func WaitForTx(client *tnclient.Client, txHashHex string) error {
+	ctx := context.Background()
+
+	txHash, err := hex.DecodeString(strings.TrimPrefix(txHashHex, "0x"))
+	if err != nil {
+		return fmt.Errorf("invalid transaction hash '%s': %w", txHashHex, err)
+	}
+
+	tx, err := client.WaitForTx(ctx, txHash, 1*time.Second)
+	if err != nil {
+		return err
+	}
+
+	// Check if tx was successful
+	if tx.TxResult.Code != uint32(transactions.CodeOk) {
+		return fmt.Errorf("transaction failed: %s", tx.TxResult.Log)
+	}
+	return nil
+}
+
+/*****************************************
+ *            Helper Functions           *
+ *****************************************/
+
+// parseDataProvider checks if dataProvider is empty; if so, returns client's own address.
+func parseDataProvider(client *tnclient.Client, dataProvider string) (util.EthereumAddress, error) {
+	if dataProvider == "" {
+		return client.Address(), nil
+	}
+	return util.NewEthereumAddressFromString(dataProvider)
 }
 
 // parseDate parses a date string in YYYY-MM-DD format and returns a *civil.Date.
@@ -298,6 +470,55 @@ func parseDate(dateStr string) (*civil.Date, error) {
 		return nil, fmt.Errorf("invalid date format '%s': %w", dateStr, err)
 	}
 	return &date, nil
+}
+
+// parseUnixTime parses a Unix timestamp (int). If value is -1, it returns nil.
+func parseUnixTime(value int) (*time.Time, error) {
+	if value == -1 {
+		return nil, nil
+	}
+	t := time.Unix(int64(value), 0)
+	return &t, nil
+}
+
+// intOrNil returns a pointer to value unless it's -1, in which case it returns nil.
+func intOrNil(value int) *int {
+	if value == -1 {
+		return nil
+	}
+	return &value
+}
+
+// recordsToMapSlice converts a slice of records (structs) to a slice of map[string]string.
+func recordsToMapSlice(records interface{}) []map[string]string {
+	v := reflect.ValueOf(records)
+	if v.Kind() != reflect.Slice {
+		return nil
+	}
+
+	length := v.Len()
+	out := make([]map[string]string, length)
+
+	for i := 0; i < length; i++ {
+		recordVal := v.Index(i)
+		out[i] = structToMapString(recordVal.Interface())
+	}
+
+	return out
+}
+
+// structToMapString converts a struct to a map[string]string by reflecting over its fields.
+func structToMapString(record any) map[string]string {
+	result := make(map[string]string)
+	val := reflect.ValueOf(record)
+	typ := val.Type()
+
+	for i := 0; i < val.NumField(); i++ {
+		field := typ.Field(i)
+		valAsStr := convertToString(val.Field(i).Interface())
+		result[field.Name] = valAsStr
+	}
+	return result
 }
 
 // convertToString converts various data types to a string representation.
@@ -318,57 +539,7 @@ func convertToString(val any) string {
 	case fmt.Stringer:
 		return v.String()
 	default:
-		// Log a warning and return the default string representation
 		log.Printf("Warning: Failed to convert argument to string from type %T: %v\n", val, val)
 		return fmt.Sprintf("%v", val)
 	}
-}
-
-// StreamType constants.
-const (
-	StreamTypeComposed  types.StreamType = types.StreamTypeComposed
-	StreamTypePrimitive types.StreamType = types.StreamTypePrimitive
-)
-
-// WaitForTx waits for the transaction with the given hash to be confirmed.
-func WaitForTx(client *tnclient.Client, txHashHex string) error {
-	ctx := context.Background()
-
-	// Normalize txHash as bytes
-	txHash, err := hex.DecodeString(strings.TrimPrefix(txHashHex, "0x"))
-	if err != nil {
-		return fmt.Errorf("invalid transaction hash '%s': %w", txHashHex, err)
-	}
-
-	tx, err := client.WaitForTx(ctx, txHash, 1*time.Second)
-	if err != nil {
-		return err
-	}
-
-	// Check if tx has success code
-	if tx.TxResult.Code != uint32(transactions.CodeOk) {
-		return fmt.Errorf("transaction failed: %s", tx.TxResult.Log)
-	}
-	return nil
-}
-
-// ProcedureArgs represents a slice of arguments for a procedure.
-type ProcedureArgs []any
-
-// ArgsFromStrings converts a slice of strings to ProcedureArgs.
-func ArgsFromStrings(values []string) ProcedureArgs {
-	var anySlice []any
-	for _, v := range values {
-		anySlice = append(anySlice, v)
-	}
-	return anySlice
-}
-
-// ArgsFromFloats converts a slice of floats to ProcedureArgs.
-func ArgsFromFloats(values []float64) ProcedureArgs {
-	var anySlice []any
-	for _, v := range values {
-		anySlice = append(anySlice, v)
-	}
-	return anySlice
 }

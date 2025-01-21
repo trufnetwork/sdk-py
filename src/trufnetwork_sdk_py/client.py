@@ -1,7 +1,15 @@
-from typing import Dict, List, Union, Optional, Any
+from typing import Dict, List, Union, Optional, Any, TypedDict
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
+
+class UnixRecord(TypedDict):
+    date: int
+    value: float
+
+class UnixRecordBatch(TypedDict):
+    stream_id: str
+    inputs: List[UnixRecord]
 
 class TNClient:
     def __init__(self, url: str, token: str):
@@ -149,6 +157,55 @@ class TNClient:
         if wait:
             truf_sdk.WaitForTx(self.client, insert_tx_hash)
         return insert_tx_hash
+
+    def batch_insert_records_unix(
+        self,
+        batches: List[UnixRecordBatch],
+        wait: bool = True,
+    ) -> List[str]:
+        """
+        Insert multiple batches of records into different streams using Unix timestamps.
+        Each batch should be a dictionary containing:
+            - stream_id: str
+            - inputs: List[Dict[str, Union[int, float]]] where each dict has:
+                - date: int (Unix timestamp)
+                - value: float
+
+        Parameters:
+            - batches: List of batch dictionaries
+            - wait: bool - Whether to wait for transactions to be confirmed
+
+        Returns:
+            List of transaction hashes in the same order as the input batches
+        """
+        # Create a Go slice of UnixBatch structs
+        batches_list = []
+            
+        for _, batch in enumerate(batches):
+            # Create a Go slice for inputs
+            inputs = batch["inputs"]
+            input_list = []
+            
+            for j, record in enumerate(inputs):
+                # Create InsertRecordUnixInput struct
+                go_input = truf_sdk.NewInsertRecordUnixInput(record["date"], record["value"])
+                input_list.append(go_input)
+            
+            # Create UnixBatch struct
+            go_input_list = truf_sdk.Slice_s2_types_InsertRecordUnixInput(input_list)
+            go_batch = truf_sdk.NewUnixBatch(batch["stream_id"], go_input_list)
+            batches_list.append(go_batch)
+
+        # Call the Go function with the typed batches
+        go_batches = truf_sdk.Slice_exports_UnixBatch(batches_list)
+        tx_hashes = truf_sdk.BatchInsertRecordsUnix(self.client, go_batches)
+        
+        if wait:
+            for tx_hash in tx_hashes:
+                truf_sdk.WaitForTx(self.client, tx_hash)
+        
+        # Convert Go slice to Python list
+        return list(tx_hashes)
 
     def get_records(
         self,

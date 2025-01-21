@@ -31,8 +31,14 @@ class TNClient:
 
     def _coalesce_int(self, val: Optional[int], default: int = -1) -> int:
         """
-        Helper to coalesce an optional integer into a sentinel value (default=-1).
-        If val is None, return default; otherwise return val.
+        Helper to coalesce an optional integer into a sentinel value.
+        
+        Args:
+            val: The optional integer value
+            default: The default value to use if val is None (-1 by default)
+            
+        Returns:
+            The non-None integer value
         """
         return val if val is not None else default
 
@@ -41,6 +47,12 @@ class TNClient:
     ) -> List[Dict[str, Any]]:
         """
         Helper to convert a Go slice of maps into a Python list of dicts.
+        
+        Args:
+            go_slice: The Go slice object returned from the bindings
+            
+        Returns:
+            A list of Python dictionaries
         """
         result = []
         for record in go_slice:
@@ -125,6 +137,9 @@ class TNClient:
         Each record is expected to have:
           - "date": str (YYYY-MM-DD) 
           - "value": float or int
+
+        Note: Do not use this for inserting multiple records rapidly. Use batch inserts instead.
+        Or else you can have nonce errors.
         """
         dates = [record["date"] for record in records]
         values = [record["value"] for record in records]
@@ -147,6 +162,9 @@ class TNClient:
     ) -> str:
         """
         Insert records into a stream with the given stream ID using Unix timestamps.
+
+        Note: Do not use this for inserting multiple records rapidly. Use batch inserts instead.
+        Or else you can have nonce errors.
         """
         dates = [record["date"] for record in records]
         values = [record["value"] for record in records]

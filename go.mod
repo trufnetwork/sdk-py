@@ -8,7 +8,7 @@ require (
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9
 	github.com/kwilteam/kwil-db/core v0.2.2-0.20240731225936-dc8d6befe577
 	github.com/pkg/errors v0.9.1
-	github.com/trufnetwork/sdk-go v0.1.1-0.20250106185816-f6579e21b5a3
+	github.com/trufnetwork/sdk-go v0.1.1-0.20250121180308-4c28f05a8499
 )
 
 require (

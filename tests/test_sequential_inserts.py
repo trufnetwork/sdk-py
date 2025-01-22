@@ -57,7 +57,7 @@ def test_batch_small_batches(client):
             ))
         
         # Insert all batches at once
-        tx_hashes = client.batch_insert_records_unix(batches, wait=False)
+        tx_hashes = client.batch_insert_records_unix(batches, wait=False)['tx_hashes']
         assert len(tx_hashes) == NUM_BATCHES
 
         insert_duration = time.time() - insert_start
@@ -125,7 +125,7 @@ def test_batch_large_batches(client):
             ))
         
         # Insert all batches at once
-        tx_hashes = client.batch_insert_records_unix(batches, wait=False)
+        tx_hashes = client.batch_insert_records_unix(batches, wait=False)['tx_hashes']
         assert len(tx_hashes) == NUM_BATCHES
 
         insert_duration = time.time() - insert_start
@@ -182,7 +182,7 @@ def test_batch_single_record_inserts(client):
             ))
         
         # Insert all records at once
-        tx_hashes = client.batch_insert_records_unix(batches, wait=False)
+        tx_hashes = client.batch_insert_records_unix(batches, wait=False)['tx_hashes']
         assert len(tx_hashes) == NUM_RECORDS
 
         insert_duration = time.time() - insert_start

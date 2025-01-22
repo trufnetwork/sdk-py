@@ -11,6 +11,12 @@ class UnixRecordBatch(TypedDict):
     stream_id: str
     inputs: List[UnixRecord]
 
+class BatchInsertResults(TypedDict):
+    tx_hashes: List[str]
+    next_nonce: int
+    failed_batch_indices: List[int]
+    failed_batch_errors: List[Exception]
+
 class TNClient:
     def __init__(self, url: str, token: str):
         """
@@ -180,7 +186,7 @@ class TNClient:
         self,
         batches: List[UnixRecordBatch],
         wait: bool = True,
-    ) -> List[str]:
+    ) -> BatchInsertResults:
         """
         Insert multiple batches of records into different streams using Unix timestamps.
         Each batch should be a dictionary containing:
@@ -216,14 +222,20 @@ class TNClient:
 
         # Call the Go function with the typed batches
         go_batches = truf_sdk.Slice_exports_UnixBatch(batches_list)
-        tx_hashes = truf_sdk.BatchInsertRecordsUnix(self.client, go_batches)
-        
+        results = truf_sdk.BatchInsertRecordsUnix(self.client, go_batches)
+
+        python_results = BatchInsertResults(
+            tx_hashes=list(results.TxHashes),
+            next_nonce=results.NextNonce,
+            failed_batch_indices=list(results.FailedBatchIndices),
+            failed_batch_errors=list(results.FailedBatchErrors),
+        )
+
         if wait:
-            for tx_hash in tx_hashes:
+            for tx_hash in python_results["tx_hashes"]:
                 truf_sdk.WaitForTx(self.client, tx_hash)
         
-        # Convert Go slice to Python list
-        return list(tx_hashes)
+        return python_results
 
     def get_records(
         self,

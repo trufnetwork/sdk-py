@@ -228,36 +228,54 @@ func NewInsertRecordUnixInput(dateVal int, val float64) types.InsertRecordUnixIn
 	}
 }
 
-func BatchInsertRecordsUnix(client *tnclient.Client, batches []UnixBatch) ([]string, error) {
+type BatchInsertResults struct {
+	TxHashes           []string
+	NextNonce          int64
+	FailedBatchIndices []int
+	FailedBatchErrors  []error
+}
+
+func BatchInsertRecordsUnix(client *tnclient.Client, batches []UnixBatch) (BatchInsertResults, error) {
 	ctx := context.Background()
 	txHashes := make([]string, len(batches))
-
+	results := BatchInsertResults{
+		TxHashes:           txHashes,
+		NextNonce:          0,
+		FailedBatchIndices: []int{},
+		FailedBatchErrors:  []error{},
+	}
 	nextNonce, err := GetNextNonce(client)
 	if err != nil {
-		return nil, errors.Wrap(err, "error getting next nonce")
+		return results, errors.Wrap(err, "error getting next nonce")
 	}
 
 	for i, batch := range batches {
 		streamIdTyped, err := util.NewStreamId(batch.StreamId)
 		if err != nil {
-			return nil, errors.Wrap(err, "error creating stream id")
+			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
+			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error creating stream id"))
+			continue
 		}
 
 		streamLocator := client.OwnStreamLocator(*streamIdTyped)
 		primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
 		if err != nil {
-			return nil, errors.Wrap(err, "error loading primitive stream")
+			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
+			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error loading primitive stream"))
+			continue
 		}
 
 		txHash, err := primitiveStream.InsertRecordsUnix(ctx, batch.Inputs, kwilClientType.WithNonce(int64(nextNonce)))
 		if err != nil {
-			return nil, errors.Wrap(err, "error inserting records")
+			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
+			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error inserting records"))
+			continue
 		}
 		txHashes[i] = txHash.Hex()
 		nextNonce++
 	}
 
-	return txHashes, nil
+	return results, nil
 }
 
 // processInsertInputs processes the input dates and values and returns a slice of InsertRecordInput.

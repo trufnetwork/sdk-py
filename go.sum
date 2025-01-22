@@ -150,6 +150,10 @@ github.com/trufnetwork/sdk-go v0.1.1-0.20250106182118-51a3555c1dde h1:0tV3Y2k0xp
 github.com/trufnetwork/sdk-go v0.1.1-0.20250106182118-51a3555c1dde/go.mod h1:xfGmTkamZxyAOG331+P2oceLFxR7u/4lIoELyYEeCR4=
 github.com/trufnetwork/sdk-go v0.1.1-0.20250106185816-f6579e21b5a3 h1:x+gn93Up1YuLY3mys+/YgFxaFqOTeEs3atpPM95U/aQ=
 github.com/trufnetwork/sdk-go v0.1.1-0.20250106185816-f6579e21b5a3/go.mod h1:xfGmTkamZxyAOG331+P2oceLFxR7u/4lIoELyYEeCR4=
+github.com/trufnetwork/sdk-go v0.1.1-0.20250121180308-4c28f05a8499 h1:mhcUSGOTpkQUKJzWx5SG/P0l6jWgmsN4bh/6dB3x96U=
+github.com/trufnetwork/sdk-go v0.1.1-0.20250121180308-4c28f05a8499/go.mod h1:xfGmTkamZxyAOG331+P2oceLFxR7u/4lIoELyYEeCR4=
+github.com/trufnetwork/sdk-go v0.1.1-0.20250121184707-3a141ca16bcb h1:+0jQxkAoHsuUHIc+F/AOfR7VL8rPum4oBbIdSL1J4ms=
+github.com/trufnetwork/sdk-go v0.1.1-0.20250121184707-3a141ca16bcb/go.mod h1:xfGmTkamZxyAOG331+P2oceLFxR7u/4lIoELyYEeCR4=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=

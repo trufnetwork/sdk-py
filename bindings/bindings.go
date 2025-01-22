@@ -14,7 +14,9 @@ import (
 	"github.com/golang-sql/civil"
 	"github.com/kwilteam/kwil-db/core/crypto"
 	"github.com/kwilteam/kwil-db/core/crypto/auth"
+	kwilTypes "github.com/kwilteam/kwil-db/core/types"
 	"github.com/kwilteam/kwil-db/core/types/client"
+	kwilClientType "github.com/kwilteam/kwil-db/core/types/client"
 	"github.com/kwilteam/kwil-db/core/types/decimal"
 	"github.com/kwilteam/kwil-db/core/types/transactions"
 	"github.com/pkg/errors"
@@ -25,8 +27,8 @@ import (
 
 // StreamType constants.
 const (
-	StreamTypeComposed  types.StreamType = types.StreamTypeComposed
-	StreamTypePrimitive types.StreamType = types.StreamTypePrimitive
+	StreamTypeComposed      types.StreamType = types.StreamTypeComposed
+	StreamTypePrimitive     types.StreamType = types.StreamTypePrimitive
 	StreamTypePrimitiveUnix types.StreamType = types.StreamTypePrimitiveUnix
 )
 
@@ -65,6 +67,20 @@ func NewClient(provider string, privateKey string) (*tnclient.Client, error) {
 		return nil, errors.Wrap(err, "error creating client")
 	}
 	return client, nil
+}
+
+func GetCurrentAccount(client *tnclient.Client) (string, error) {
+	address := client.Address()
+	return address.Address(), nil
+}
+
+func GetNextNonce(client *tnclient.Client) (int64, error) {
+	kwilClient := client.GetKwilClient()
+	acct, err := kwilClient.GetAccount(context.Background(), client.Signer.Identity(), kwilTypes.AccountStatusPending)
+	if err != nil {
+		return 0, err
+	}
+	return acct.Nonce + 1, nil
 }
 
 // createSigner creates an EthPersonalSigner from a private key.
@@ -189,6 +205,77 @@ func InsertRecordsUnix(client *tnclient.Client, streamId string, inputDates []in
 		return "", errors.Wrap(err, "error inserting records")
 	}
 	return txHash.Hex(), nil
+}
+
+type UnixBatch struct {
+	StreamId string                        `json:"stream_id"`
+	Inputs   []types.InsertRecordUnixInput `json:"inputs"`
+}
+
+// NewUnixBatch creates a new UnixBatch struct
+func NewUnixBatch(streamId string, inputs []types.InsertRecordUnixInput) UnixBatch {
+	return UnixBatch{
+		StreamId: streamId,
+		Inputs:   inputs,
+	}
+}
+
+// NewInsertRecordUnixInput creates a new InsertRecordUnixInput struct
+func NewInsertRecordUnixInput(dateVal int, val float64) types.InsertRecordUnixInput {
+	return types.InsertRecordUnixInput{
+		DateValue: dateVal,
+		Value:     val,
+	}
+}
+
+type BatchInsertResults struct {
+	TxHashes           []string
+	NextNonce          int64
+	FailedBatchIndices []int
+	FailedBatchErrors  []error
+}
+
+func BatchInsertRecordsUnix(client *tnclient.Client, batches []UnixBatch) (BatchInsertResults, error) {
+	ctx := context.Background()
+	txHashes := make([]string, len(batches))
+	results := BatchInsertResults{
+		TxHashes:           txHashes,
+		NextNonce:          0,
+		FailedBatchIndices: []int{},
+		FailedBatchErrors:  []error{},
+	}
+	nextNonce, err := GetNextNonce(client)
+	if err != nil {
+		return results, errors.Wrap(err, "error getting next nonce")
+	}
+
+	for i, batch := range batches {
+		streamIdTyped, err := util.NewStreamId(batch.StreamId)
+		if err != nil {
+			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
+			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error creating stream id"))
+			continue
+		}
+
+		streamLocator := client.OwnStreamLocator(*streamIdTyped)
+		primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
+		if err != nil {
+			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
+			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error loading primitive stream"))
+			continue
+		}
+
+		txHash, err := primitiveStream.InsertRecordsUnix(ctx, batch.Inputs, kwilClientType.WithNonce(int64(nextNonce)))
+		if err != nil {
+			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
+			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error inserting records"))
+			continue
+		}
+		txHashes[i] = txHash.Hex()
+		nextNonce++
+	}
+
+	return results, nil
 }
 
 // processInsertInputs processes the input dates and values and returns a slice of InsertRecordInput.
@@ -347,7 +434,7 @@ func GetRecords(
 
 	ctx := context.Background()
 
-	// For retrieving, we generate a StreamId from the string. 
+	// For retrieving, we generate a StreamId from the string.
 	// If your usage requires an existing ID, use `util.NewStreamId` instead.
 	streamIdTyped := util.GenerateStreamId(streamId)
 
@@ -369,7 +456,7 @@ func GetRecords(
 	records, err := stream.GetRecord(ctx, types.GetRecordInput{
 		DateFrom: dateFromTyped,
 		DateTo:   dateToTyped,
-		// frozenAt and baseDate are not used here. 
+		// frozenAt and baseDate are not used here.
 		// If needed, add them to GetRecordInput in the SDK & pass them here.
 	})
 	if err != nil {

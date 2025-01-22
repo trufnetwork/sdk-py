@@ -1,7 +1,21 @@
-from typing import Dict, List, Union, Optional, Any
+from typing import Dict, List, Union, Optional, Any, TypedDict
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
+
+class UnixRecord(TypedDict):
+    date: int
+    value: float
+
+class UnixRecordBatch(TypedDict):
+    stream_id: str
+    inputs: List[UnixRecord]
+
+class BatchInsertResults(TypedDict):
+    tx_hashes: List[str]
+    next_nonce: int
+    failed_batch_indices: List[int]
+    failed_batch_errors: List[Exception]
 
 class TNClient:
     def __init__(self, url: str, token: str):
@@ -23,8 +37,14 @@ class TNClient:
 
     def _coalesce_int(self, val: Optional[int], default: int = -1) -> int:
         """
-        Helper to coalesce an optional integer into a sentinel value (default=-1).
-        If val is None, return default; otherwise return val.
+        Helper to coalesce an optional integer into a sentinel value.
+        
+        Args:
+            val: The optional integer value
+            default: The default value to use if val is None (-1 by default)
+            
+        Returns:
+            The non-None integer value
         """
         return val if val is not None else default
 
@@ -33,6 +53,12 @@ class TNClient:
     ) -> List[Dict[str, Any]]:
         """
         Helper to convert a Go slice of maps into a Python list of dicts.
+        
+        Args:
+            go_slice: The Go slice object returned from the bindings
+            
+        Returns:
+            A list of Python dictionaries
         """
         result = []
         for record in go_slice:
@@ -117,6 +143,9 @@ class TNClient:
         Each record is expected to have:
           - "date": str (YYYY-MM-DD) 
           - "value": float or int
+
+        Note: Do not use this for inserting multiple records rapidly. Use batch inserts instead.
+        Or else you can have nonce errors.
         """
         dates = [record["date"] for record in records]
         values = [record["value"] for record in records]
@@ -139,6 +168,9 @@ class TNClient:
     ) -> str:
         """
         Insert records into a stream with the given stream ID using Unix timestamps.
+
+        Note: Do not use this for inserting multiple records rapidly. Use batch inserts instead.
+        Or else you can have nonce errors.
         """
         dates = [record["date"] for record in records]
         values = [record["value"] for record in records]
@@ -149,6 +181,61 @@ class TNClient:
         if wait:
             truf_sdk.WaitForTx(self.client, insert_tx_hash)
         return insert_tx_hash
+
+    def batch_insert_records_unix(
+        self,
+        batches: List[UnixRecordBatch],
+        wait: bool = True,
+    ) -> BatchInsertResults:
+        """
+        Insert multiple batches of records into different streams using Unix timestamps.
+        Each batch should be a dictionary containing:
+            - stream_id: str
+            - inputs: List[Dict[str, Union[int, float]]] where each dict has:
+                - date: int (Unix timestamp)
+                - value: float
+
+        Parameters:
+            - batches: List of batch dictionaries
+            - wait: bool - Whether to wait for transactions to be confirmed
+
+        Returns:
+            List of transaction hashes in the same order as the input batches
+        """
+        # Create a Go slice of UnixBatch structs
+        batches_list = []
+            
+        for _, batch in enumerate(batches):
+            # Create a Go slice for inputs
+            inputs = batch["inputs"]
+            input_list = []
+            
+            for j, record in enumerate(inputs):
+                # Create InsertRecordUnixInput struct
+                go_input = truf_sdk.NewInsertRecordUnixInput(record["date"], record["value"])
+                input_list.append(go_input)
+            
+            # Create UnixBatch struct
+            go_input_list = truf_sdk.Slice_s2_types_InsertRecordUnixInput(input_list)
+            go_batch = truf_sdk.NewUnixBatch(batch["stream_id"], go_input_list)
+            batches_list.append(go_batch)
+
+        # Call the Go function with the typed batches
+        go_batches = truf_sdk.Slice_exports_UnixBatch(batches_list)
+        results = truf_sdk.BatchInsertRecordsUnix(self.client, go_batches)
+
+        python_results = BatchInsertResults(
+            tx_hashes=list(results.TxHashes),
+            next_nonce=results.NextNonce,
+            failed_batch_indices=list(results.FailedBatchIndices),
+            failed_batch_errors=list(results.FailedBatchErrors),
+        )
+
+        if wait:
+            for tx_hash in python_results["tx_hashes"]:
+                truf_sdk.WaitForTx(self.client, tx_hash)
+        
+        return python_results
 
     def get_records(
         self,

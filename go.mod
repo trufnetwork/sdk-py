@@ -6,9 +6,9 @@ require (
 	github.com/cockroachdb/apd/v3 v3.2.1
 	github.com/go-python/gopy v0.4.10
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9
-	github.com/kwilteam/kwil-db/core v0.2.2-0.20240731225936-dc8d6befe577
+	github.com/kwilteam/kwil-db/core v0.3.1-0.20241118220427-bd35ded7db55
 	github.com/pkg/errors v0.9.1
-	github.com/trufnetwork/sdk-go v0.1.1-0.20250121184707-3a141ca16bcb
+	github.com/trufnetwork/sdk-go v0.1.1-0.20250205152842-fe17228c88ef
 )
 
 require (
@@ -27,7 +27,8 @@ require (
 	github.com/go-playground/validator/v10 v10.22.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/holiman/uint256 v1.2.4 // indirect
-	github.com/kwilteam/kwil-db/parse v0.2.4-0.20240731225936-dc8d6befe577 // indirect
+	github.com/jrick/logrotate v1.1.2 // indirect
+	github.com/kwilteam/kwil-db/parse v0.3.1-0.20241118220427-bd35ded7db55 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/mmcloughlin/addchain v0.4.0 // indirect

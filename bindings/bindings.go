@@ -16,7 +16,6 @@ import (
 	"github.com/kwilteam/kwil-db/core/crypto/auth"
 	kwilTypes "github.com/kwilteam/kwil-db/core/types"
 	"github.com/kwilteam/kwil-db/core/types/client"
-	kwilClientType "github.com/kwilteam/kwil-db/core/types/client"
 	"github.com/kwilteam/kwil-db/core/types/decimal"
 	"github.com/kwilteam/kwil-db/core/types/transactions"
 	"github.com/pkg/errors"
@@ -244,11 +243,8 @@ func BatchInsertRecordsUnix(client *tnclient.Client, batches []UnixBatch) (Batch
 		FailedBatchIndices: []int{},
 		FailedBatchErrors:  []error{},
 	}
-	nextNonce, err := GetNextNonce(client)
-	if err != nil {
-		return results, errors.Wrap(err, "error getting next nonce")
-	}
 
+	var helperBatchInputs types.TnRecordUnixBatch
 	for i, batch := range batches {
 		streamIdTyped, err := util.NewStreamId(batch.StreamId)
 		if err != nil {
@@ -258,22 +254,33 @@ func BatchInsertRecordsUnix(client *tnclient.Client, batches []UnixBatch) (Batch
 		}
 
 		streamLocator := client.OwnStreamLocator(*streamIdTyped)
-		primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
-		if err != nil {
-			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
-			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error loading primitive stream"))
-			continue
-		}
 
-		txHash, err := primitiveStream.InsertRecordsUnix(ctx, batch.Inputs, kwilClientType.WithNonce(int64(nextNonce)))
-		if err != nil {
-			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
-			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error inserting records"))
-			continue
+		for _, input := range batch.Inputs {
+			helperBatchInputs.Rows = append(helperBatchInputs.Rows, types.TNRecordUnixRow{
+				DateValue:    convertToString(input.DateValue),
+				Value:        convertToString(input.Value),
+				StreamID:     streamLocator.StreamId.String(),
+				DataProvider: streamLocator.DataProvider.Address(),
+			})
 		}
-		txHashes[i] = txHash.Hex()
-		nextNonce++
 	}
+
+	helperStreamId, err := util.NewStreamId("helper_contract")
+	if err != nil {
+		return results, errors.Wrap(err, "error creating stream id")
+	}
+	helperStreamLocator := client.OwnStreamLocator(*helperStreamId)
+
+	helperStream, err := client.LoadHelperStream(helperStreamLocator)
+	if err != nil {
+		return results, errors.Wrap(err, "error loading helper stream")
+	}
+
+	txHash, err := helperStream.InsertRecordsUnix(ctx, helperBatchInputs)
+	if err != nil {
+		return results, errors.Wrap(err, "error inserting records")
+	}
+	results.TxHashes = append(results.TxHashes, txHash.Hex())
 
 	return results, nil
 }

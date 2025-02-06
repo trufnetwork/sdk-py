@@ -234,9 +234,26 @@ type BatchInsertResults struct {
 	FailedBatchErrors  []error
 }
 
-func BatchInsertRecordsUnix(client *tnclient.Client, batches []UnixBatch) (BatchInsertResults, error) {
+type BatchInsertRecordsUnixArgs struct {
+	Batches                    []UnixBatch
+	HelperContractStreamId     string
+	HelperContractDataProvider string
+}
+
+func BatchInsertRecordsUnix(client *tnclient.Client, args BatchInsertRecordsUnixArgs) (BatchInsertResults, error) {
 	ctx := context.Background()
-	txHashes := make([]string, len(batches))
+	txHashes := make([]string, len(args.Batches))
+
+	helperContractStreamId := args.HelperContractStreamId
+	if helperContractStreamId == "" {
+		helperContractStreamId = "helper_contract" // Default stream ID for the helper contract
+	}
+
+	helperContractDataProvider := args.HelperContractDataProvider
+	if helperContractDataProvider == "" {
+		helperContractDataProvider = "4710a8d8f0d845da110086812a32de6d90d7ff5c" // Default data provider for the helper contract
+	}
+
 	results := BatchInsertResults{
 		TxHashes:           txHashes,
 		NextNonce:          0,
@@ -245,7 +262,7 @@ func BatchInsertRecordsUnix(client *tnclient.Client, batches []UnixBatch) (Batch
 	}
 
 	var helperBatchInputs types.TnRecordUnixBatch
-	for i, batch := range batches {
+	for i, batch := range args.Batches {
 		streamIdTyped, err := util.NewStreamId(batch.StreamId)
 		if err != nil {
 			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
@@ -265,11 +282,18 @@ func BatchInsertRecordsUnix(client *tnclient.Client, batches []UnixBatch) (Batch
 		}
 	}
 
-	helperStreamId, err := util.NewStreamId("helper_contract")
+	helperStreamId, err := util.NewStreamId(helperContractStreamId)
 	if err != nil {
 		return results, errors.Wrap(err, "error creating stream id")
 	}
-	helperStreamLocator := client.OwnStreamLocator(*helperStreamId)
+	ethAddress, err := util.NewEthereumAddressFromString(helperContractDataProvider)
+	if err != nil {
+		return results, errors.Wrap(err, "error creating ethereum address")
+	}
+	helperStreamLocator := types.StreamLocator{
+		StreamId:     *helperStreamId,
+		DataProvider: ethAddress,
+	}
 
 	helperStream, err := client.LoadHelperStream(helperStreamLocator)
 	if err != nil {

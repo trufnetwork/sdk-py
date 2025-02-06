@@ -222,7 +222,11 @@ class TNClient:
 
         # Call the Go function with the typed batches
         go_batches = truf_sdk.Slice_exports_UnixBatch(batches_list)
-        results = truf_sdk.BatchInsertRecordsUnix(self.client, go_batches)
+
+        # Put the Go batches into the args struct of Batches
+        go_args = truf_sdk.BatchInsertRecordsUnixArgs(Batches=go_batches)
+
+        results = truf_sdk.BatchInsertRecordsUnix(self.client, go_args)
 
         python_results = BatchInsertResults(
             tx_hashes=list(results.TxHashes),

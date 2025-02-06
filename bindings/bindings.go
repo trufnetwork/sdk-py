@@ -16,7 +16,6 @@ import (
 	"github.com/kwilteam/kwil-db/core/crypto/auth"
 	kwilTypes "github.com/kwilteam/kwil-db/core/types"
 	"github.com/kwilteam/kwil-db/core/types/client"
-	kwilClientType "github.com/kwilteam/kwil-db/core/types/client"
 	"github.com/kwilteam/kwil-db/core/types/decimal"
 	"github.com/kwilteam/kwil-db/core/types/transactions"
 	"github.com/pkg/errors"
@@ -235,21 +234,35 @@ type BatchInsertResults struct {
 	FailedBatchErrors  []error
 }
 
-func BatchInsertRecordsUnix(client *tnclient.Client, batches []UnixBatch) (BatchInsertResults, error) {
+type BatchInsertRecordsUnixArgs struct {
+	Batches                    []UnixBatch
+	HelperContractStreamId     string
+	HelperContractDataProvider string
+}
+
+func BatchInsertRecordsUnix(client *tnclient.Client, args BatchInsertRecordsUnixArgs) (BatchInsertResults, error) {
 	ctx := context.Background()
-	txHashes := make([]string, len(batches))
+	txHashes := make([]string, len(args.Batches))
+
+	helperContractStreamId := args.HelperContractStreamId
+	if helperContractStreamId == "" {
+		helperContractStreamId = "helper_contract" // Default stream ID for the helper contract
+	}
+
+	helperContractDataProvider := args.HelperContractDataProvider
+	if helperContractDataProvider == "" {
+		helperContractDataProvider = "4710a8d8f0d845da110086812a32de6d90d7ff5c" // Default data provider for the helper contract
+	}
+
 	results := BatchInsertResults{
 		TxHashes:           txHashes,
 		NextNonce:          0,
 		FailedBatchIndices: []int{},
 		FailedBatchErrors:  []error{},
 	}
-	nextNonce, err := GetNextNonce(client)
-	if err != nil {
-		return results, errors.Wrap(err, "error getting next nonce")
-	}
 
-	for i, batch := range batches {
+	var helperBatchInputs types.TnRecordUnixBatch
+	for i, batch := range args.Batches {
 		streamIdTyped, err := util.NewStreamId(batch.StreamId)
 		if err != nil {
 			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
@@ -258,22 +271,40 @@ func BatchInsertRecordsUnix(client *tnclient.Client, batches []UnixBatch) (Batch
 		}
 
 		streamLocator := client.OwnStreamLocator(*streamIdTyped)
-		primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
-		if err != nil {
-			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
-			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error loading primitive stream"))
-			continue
-		}
 
-		txHash, err := primitiveStream.InsertRecordsUnix(ctx, batch.Inputs, kwilClientType.WithNonce(int64(nextNonce)))
-		if err != nil {
-			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
-			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error inserting records"))
-			continue
+		for _, input := range batch.Inputs {
+			helperBatchInputs.Rows = append(helperBatchInputs.Rows, types.TNRecordUnixRow{
+				DateValue:    convertToString(input.DateValue),
+				Value:        convertToString(input.Value),
+				StreamID:     streamLocator.StreamId.String(),
+				DataProvider: streamLocator.DataProvider.Address(),
+			})
 		}
-		txHashes[i] = txHash.Hex()
-		nextNonce++
 	}
+
+	helperStreamId, err := util.NewStreamId(helperContractStreamId)
+	if err != nil {
+		return results, errors.Wrap(err, "error creating stream id")
+	}
+	ethAddress, err := util.NewEthereumAddressFromString(helperContractDataProvider)
+	if err != nil {
+		return results, errors.Wrap(err, "error creating ethereum address")
+	}
+	helperStreamLocator := types.StreamLocator{
+		StreamId:     *helperStreamId,
+		DataProvider: ethAddress,
+	}
+
+	helperStream, err := client.LoadHelperStream(helperStreamLocator)
+	if err != nil {
+		return results, errors.Wrap(err, "error loading helper stream")
+	}
+
+	txHash, err := helperStream.InsertRecordsUnix(ctx, helperBatchInputs)
+	if err != nil {
+		return results, errors.Wrap(err, "error inserting records")
+	}
+	results.TxHashes = append(results.TxHashes, txHash.Hex())
 
 	return results, nil
 }

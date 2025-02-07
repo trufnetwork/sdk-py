@@ -12,10 +12,7 @@ class UnixRecordBatch(TypedDict):
     inputs: List[UnixRecord]
 
 class BatchInsertResults(TypedDict):
-    tx_hashes: List[str]
-    next_nonce: int
-    failed_batch_indices: List[int]
-    failed_batch_errors: List[Exception]
+    tx_hash: str
 
 class TNClient:
     def __init__(self, url: str, token: str):
@@ -185,6 +182,8 @@ class TNClient:
     def batch_insert_records_unix(
         self,
         batches: List[UnixRecordBatch],
+        helper_contract_stream_id: Optional[str] = None,
+        helper_contract_data_provider: Optional[str] = None,
         wait: bool = True,
     ) -> BatchInsertResults:
         """
@@ -226,18 +225,27 @@ class TNClient:
         # Put the Go batches into the args struct of Batches
         go_args = truf_sdk.BatchInsertRecordsUnixArgs(Batches=go_batches)
 
-        results = truf_sdk.BatchInsertRecordsUnix(self.client, go_args)
+        if helper_contract_stream_id:
+            go_args.HelperContractStreamId = helper_contract_stream_id
 
+        if helper_contract_data_provider:
+            go_args.HelperContractDataProvider = helper_contract_data_provider
+
+        try:
+            results = truf_sdk.BatchInsertRecordsUnix(self.client, go_args)
+        except Exception as e:
+            error_str = str(e)
+            if "failed to estimate price" in error_str:
+                raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
+            raise e
+
+        # Convert Go results to Python results, filtering out empty strings
         python_results = BatchInsertResults(
-            tx_hashes=list(results.TxHashes),
-            next_nonce=results.NextNonce,
-            failed_batch_indices=list(results.FailedBatchIndices),
-            failed_batch_errors=list(results.FailedBatchErrors),
+            tx_hash=results.TxHash,
         )
 
         if wait:
-            for tx_hash in python_results["tx_hashes"]:
-                truf_sdk.WaitForTx(self.client, tx_hash)
+            truf_sdk.WaitForTx(self.client, python_results["tx_hash"])
         
         return python_results
 
@@ -393,6 +401,15 @@ class TNClient:
         Wait for a transaction to be confirmed given its hash.
         """
         truf_sdk.WaitForTx(self.client, tx_hash)
+
+    def get_current_account(self) -> str:
+        """
+        Get the current account address associated with this client.
+        
+        Returns:
+            str: The hex-encoded address of the current account
+        """
+        return truf_sdk.GetCurrentAccount(self.client)
 
     def destroy_stream(self, stream_id: str, wait: bool = True) -> str:
         """

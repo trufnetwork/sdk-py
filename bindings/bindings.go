@@ -28,8 +28,10 @@ import (
 // StreamType constants.
 const (
 	StreamTypeComposed      types.StreamType = types.StreamTypeComposed
+	StreamTypeComposedUnix  types.StreamType = types.StreamTypeComposedUnix
 	StreamTypePrimitive     types.StreamType = types.StreamTypePrimitive
 	StreamTypePrimitiveUnix types.StreamType = types.StreamTypePrimitiveUnix
+	StreamTypeHelper        types.StreamType = types.StreamTypeHelper
 )
 
 // ProcedureArgs represents a slice of arguments for a procedure.
@@ -229,10 +231,7 @@ func NewInsertRecordUnixInput(dateVal int, val float64) types.InsertRecordUnixIn
 }
 
 type BatchInsertResults struct {
-	TxHashes           []string
-	NextNonce          int64
-	FailedBatchIndices []int
-	FailedBatchErrors  []error
+	TxHash string
 }
 
 type BatchInsertRecordsUnixArgs struct {
@@ -243,7 +242,6 @@ type BatchInsertRecordsUnixArgs struct {
 
 func BatchInsertRecordsUnix(client *tnclient.Client, args BatchInsertRecordsUnixArgs) (BatchInsertResults, error) {
 	ctx := context.Background()
-	txHashes := make([]string, len(args.Batches))
 
 	helperContractStreamId := args.HelperContractStreamId
 	if helperContractStreamId == "" {
@@ -256,19 +254,14 @@ func BatchInsertRecordsUnix(client *tnclient.Client, args BatchInsertRecordsUnix
 	}
 
 	results := BatchInsertResults{
-		TxHashes:           txHashes,
-		NextNonce:          0,
-		FailedBatchIndices: []int{},
-		FailedBatchErrors:  []error{},
+		TxHash: "",
 	}
 
 	var helperBatchInputs types.TnRecordUnixBatch
-	for i, batch := range args.Batches {
+	for _, batch := range args.Batches {
 		streamIdTyped, err := util.NewStreamId(batch.StreamId)
 		if err != nil {
-			results.FailedBatchIndices = append(results.FailedBatchIndices, i)
-			results.FailedBatchErrors = append(results.FailedBatchErrors, errors.Wrap(err, "error creating stream id"))
-			continue
+			return results, errors.Wrap(err, "error creating stream id: "+batch.StreamId)
 		}
 
 		streamLocator := client.OwnStreamLocator(*streamIdTyped)
@@ -305,7 +298,7 @@ func BatchInsertRecordsUnix(client *tnclient.Client, args BatchInsertRecordsUnix
 	if err != nil {
 		return results, errors.Wrap(err, "error inserting records")
 	}
-	results.TxHashes = append(results.TxHashes, txHash.Hex())
+	results.TxHash = txHash.Hex()
 
 	return results, nil
 }

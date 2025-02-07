@@ -112,4 +112,99 @@ def test_insert_and_retrieve_records_unix(client):
 
     finally:
         # Clean up
-        client.destroy_stream(stream_id) 
+        client.destroy_stream(stream_id)
+
+def test_get_first_record(client):
+    """Test getting the first record from a stream."""
+    stream_id = generate_stream_id("test_get_first_record")
+    
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream_id)
+    except Exception:
+        pass
+        
+    # First deploy a stream
+    deploy_tx = client.deploy_stream(stream_id)
+    assert deploy_tx is not None
+    
+    # Initialize the stream
+    init_tx = client.init_stream(stream_id)
+    assert init_tx is not None
+    
+    # Insert some records
+    records = [
+        {"date": "2024-01-01", "value": 100.0},
+        {"date": "2024-01-02", "value": 200.0},
+        {"date": "2024-01-03", "value": 300.0},
+    ]
+    insert_tx = client.insert_records(stream_id, records)
+    assert insert_tx is not None
+    
+    # Test getting first record with no parameters
+    first_record = client.get_first_record(stream_id)
+    assert first_record is not None
+    assert first_record["date"] == "2024-01-01"
+    assert first_record["value"] == 100.0
+    
+    # Test getting first record after a specific date
+    first_after = client.get_first_record(stream_id, after_date="2024-01-02")
+    assert first_after is not None
+    assert first_after["date"] == "2024-01-02"
+    assert first_after["value"] == 200.0
+    
+    # Test getting first record with non-existent date
+    first_nonexistent = client.get_first_record(stream_id, after_date="2024-12-31")
+    assert first_nonexistent is None
+    
+    # Clean up
+    destroy_tx = client.destroy_stream(stream_id)
+    assert destroy_tx is not None
+
+def test_get_first_record_unix(client):
+    """Test getting the first record from a stream using Unix timestamps."""
+    stream_id = generate_stream_id("test_get_first_record_unix")
+    
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream_id)
+    except Exception:
+        pass
+        
+    # First deploy a stream with Unix timestamp type
+    deploy_tx = client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitiveUnix)
+    assert deploy_tx is not None
+    
+    # Initialize the stream
+    init_tx = client.init_stream(stream_id)
+    assert init_tx is not None
+    
+    # Insert some records
+    records = [
+        {"date": 1704067200, "value": 100.0},  # 2024-01-01
+        {"date": 1704153600, "value": 200.0},  # 2024-01-02
+        {"date": 1704240000, "value": 300.0},  # 2024-01-03
+    ]
+    insert_tx = client.insert_records_unix(stream_id, records)
+    assert insert_tx is not None
+    
+    # Test getting first record with no parameters
+    first_record = client.get_first_record_unix(stream_id)
+    assert first_record is not None
+    assert first_record["date"] == 1704067200
+    assert first_record["value"] == 100.0
+    
+    # Test getting first record after a specific date
+    first_after = client.get_first_record_unix(stream_id, after_date=1704153600)
+    assert first_after is not None
+    
+    assert first_after["date"] == 1704153600
+    assert first_after["value"] == 200.0
+    
+    # Test getting first record with non-existent date
+    first_nonexistent = client.get_first_record_unix(stream_id, after_date=1735689600)  # 2025-01-01
+    assert first_nonexistent is None
+    
+    # Clean up
+    destroy_tx = client.destroy_stream(stream_id)
+    assert destroy_tx is not None 

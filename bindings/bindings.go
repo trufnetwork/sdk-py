@@ -19,6 +19,7 @@ import (
 	"github.com/kwilteam/kwil-db/core/types/decimal"
 	"github.com/kwilteam/kwil-db/core/types/transactions"
 	"github.com/pkg/errors"
+	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
 	"github.com/trufnetwork/sdk-go/core/util"
@@ -467,7 +468,10 @@ func GetRecords(
 
 	// For retrieving, we generate a StreamId from the string.
 	// If your usage requires an existing ID, use `util.NewStreamId` instead.
-	streamIdTyped := util.GenerateStreamId(streamId)
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
+	}
 
 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
 	if err != nil {
@@ -475,7 +479,7 @@ func GetRecords(
 	}
 
 	streamLocator := types.StreamLocator{
-		StreamId:     streamIdTyped,
+		StreamId:     *streamIdTyped,
 		DataProvider: dataProviderTyped,
 	}
 
@@ -510,14 +514,17 @@ func GetRecordsUnix(
 
 	ctx := context.Background()
 
-	streamIdTyped := util.GenerateStreamId(streamId)
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
+	}
 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
 	if err != nil {
 		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
 	}
 
 	streamLocator := types.StreamLocator{
-		StreamId:     streamIdTyped,
+		StreamId:     *streamIdTyped,
 		DataProvider: dataProviderTyped,
 	}
 
@@ -557,14 +564,17 @@ func GetIndexUnix(
 
 	ctx := context.Background()
 
-	streamIdTyped := util.GenerateStreamId(streamId)
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
+	}
 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
 	if err != nil {
 		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
 	}
 
 	streamLocator := types.StreamLocator{
-		StreamId:     streamIdTyped,
+		StreamId:     *streamIdTyped,
 		DataProvider: dataProviderTyped,
 	}
 
@@ -589,6 +599,136 @@ func GetIndexUnix(
 	}
 
 	return recordsToMapSlice(index), nil
+}
+
+// GetFirstRecordInput represents the input parameters for GetFirstRecord
+type GetFirstRecordInput struct {
+	AfterDate string
+	FrozenAt  string
+}
+
+// GetFirstRecord gets the first record of a stream after a given date
+func GetFirstRecord(client *tnclient.Client, streamId string, dataProvider string, afterDate string, frozenAt string) (map[string]string, error) {
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
+	}
+
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
+	}
+
+	streamLocator := types.StreamLocator{
+		StreamId:     *streamIdTyped,
+		DataProvider: dataProviderTyped,
+	}
+
+	stream, err := client.LoadPrimitiveStream(streamLocator)
+	if err != nil {
+		return nil, err
+	}
+
+	input := types.GetFirstRecordInput{}
+
+	afterDateParsed, err := parseDate(afterDate)
+	if err != nil {
+		return nil, err
+	}
+	input.AfterDate = afterDateParsed
+
+	if frozenAt != "" {
+		t, err := time.Parse("2006-01-02", frozenAt)
+		if err != nil {
+			return nil, fmt.Errorf("invalid date format '%s': %w", frozenAt, err)
+		}
+		input.FrozenAt = &t
+	}
+
+	record, err := stream.GetFirstRecord(context.Background(), input)
+	if record == nil {
+		return nil, nil
+	}
+	if err != nil {
+		if err == contractsapi.ErrorRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	result := make(map[string]string)
+	result["date"] = record.DateValue.String()
+	value, err := record.Value.Float64()
+	if err != nil {
+		return nil, fmt.Errorf("error converting value to float64: %w", err)
+	}
+	result["value"] = strconv.FormatFloat(value, 'f', -1, 64)
+
+	return result, nil
+}
+
+// GetFirstRecordUnixInput represents the input parameters for GetFirstRecordUnix
+type GetFirstRecordUnixInput struct {
+	AfterDate int
+	FrozenAt  int
+}
+
+// GetFirstRecordUnix gets the first record of a stream after a given Unix timestamp
+func GetFirstRecordUnix(client *tnclient.Client, streamId string, dataProvider string, afterDate int, frozenAt int) (map[string]string, error) {
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
+	}
+
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
+	}
+
+	streamLocator := types.StreamLocator{
+		StreamId:     *streamIdTyped,
+		DataProvider: dataProviderTyped,
+	}
+
+	stream, err := client.LoadPrimitiveStream(streamLocator)
+	if err != nil {
+		return nil, err
+	}
+
+	input := types.GetFirstRecordUnixInput{}
+
+	if afterDate != -1 {
+		input.AfterDate = &afterDate
+	}
+
+	if frozenAt != -1 {
+		frozenAtTime, err := parseUnixTime(frozenAt)
+		if err != nil {
+			return nil, err
+		}
+		input.FrozenAt = frozenAtTime
+	}
+
+	record, err := stream.GetFirstRecordUnix(context.Background(), input)
+	if record == nil {
+		return nil, nil
+	}
+	if err != nil {
+		if err == contractsapi.ErrorRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	result := make(map[string]string)
+	result["date"] = strconv.FormatInt(int64(record.DateValue), 10)
+	value, err := record.Value.Float64()
+	if err != nil {
+		return nil, fmt.Errorf("error converting value to float64: %w", err)
+	}
+	result["value"] = strconv.FormatFloat(value, 'f', -1, 64)
+
+	return result, nil
 }
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.

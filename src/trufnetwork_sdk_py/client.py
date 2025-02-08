@@ -12,10 +12,7 @@ class UnixRecordBatch(TypedDict):
     inputs: List[UnixRecord]
 
 class BatchInsertResults(TypedDict):
-    tx_hashes: List[str]
-    next_nonce: int
-    failed_batch_indices: List[int]
-    failed_batch_errors: List[Exception]
+    tx_hash: str
 
 class TNClient:
     def __init__(self, url: str, token: str):
@@ -185,6 +182,8 @@ class TNClient:
     def batch_insert_records_unix(
         self,
         batches: List[UnixRecordBatch],
+        helper_contract_stream_id: Optional[str] = None,
+        helper_contract_data_provider: Optional[str] = None,
         wait: bool = True,
     ) -> BatchInsertResults:
         """
@@ -226,18 +225,27 @@ class TNClient:
         # Put the Go batches into the args struct of Batches
         go_args = truf_sdk.BatchInsertRecordsUnixArgs(Batches=go_batches)
 
-        results = truf_sdk.BatchInsertRecordsUnix(self.client, go_args)
+        if helper_contract_stream_id:
+            go_args.HelperContractStreamId = helper_contract_stream_id
 
+        if helper_contract_data_provider:
+            go_args.HelperContractDataProvider = helper_contract_data_provider
+
+        try:
+            results = truf_sdk.BatchInsertRecordsUnix(self.client, go_args)
+        except Exception as e:
+            error_str = str(e)
+            if "failed to estimate price" in error_str:
+                raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
+            raise e
+
+        # Convert Go results to Python results, filtering out empty strings
         python_results = BatchInsertResults(
-            tx_hashes=list(results.TxHashes),
-            next_nonce=results.NextNonce,
-            failed_batch_indices=list(results.FailedBatchIndices),
-            failed_batch_errors=list(results.FailedBatchErrors),
+            tx_hash=results.TxHash,
         )
 
         if wait:
-            for tx_hash in python_results["tx_hashes"]:
-                truf_sdk.WaitForTx(self.client, tx_hash)
+            truf_sdk.WaitForTx(self.client, python_results["tx_hash"])
         
         return python_results
 
@@ -394,6 +402,15 @@ class TNClient:
         """
         truf_sdk.WaitForTx(self.client, tx_hash)
 
+    def get_current_account(self) -> str:
+        """
+        Get the current account address associated with this client.
+        
+        Returns:
+            str: The hex-encoded address of the current account
+        """
+        return truf_sdk.GetCurrentAccount(self.client)
+
     def destroy_stream(self, stream_id: str, wait: bool = True) -> str:
         """
         Destroy a stream with the given stream ID.
@@ -404,3 +421,88 @@ class TNClient:
         if wait:
             truf_sdk.WaitForTx(self.client, destroy_tx_hash)
         return destroy_tx_hash
+
+    def get_first_record(
+        self,
+        stream_id: str,
+        data_provider: Optional[str] = None,
+        after_date: Optional[str] = None,
+        frozen_at: Optional[str] = None,
+    ) -> Optional[Dict[str, Union[str, float]]]:
+        """
+        Get the first record of a stream after a given date.
+        
+        Parameters:
+            - stream_id: str
+            - data_provider: Optional[str] (hex string)
+            - after_date: Optional[str] (YYYY-MM-DD)
+            - frozen_at: Optional[str] (YYYY-MM-DD)
+            
+        Returns:
+            Optional[Dict[str, Union[str, float]]] - A dictionary containing 'date' and 'value' if found, None otherwise
+        """
+        data_provider = self._coalesce_str(data_provider)
+        after_date = self._coalesce_str(after_date)
+        frozen_at = self._coalesce_str(frozen_at)
+
+        result = truf_sdk.GetFirstRecord(
+            self.client,
+            stream_id,
+            data_provider,
+            after_date,
+            frozen_at,
+        )
+        
+        # Convert the result to a Python dict and convert the value to float
+        record = dict(result.items())
+        # nil from go is an empty map, not None
+        if not record:
+            return None
+        record["value"] = float(record["value"])
+        return record
+
+    def get_first_record_unix(
+        self,
+        stream_id: str,
+        data_provider: Optional[str] = None,
+        after_date: Optional[int] = None,
+        frozen_at: Optional[int] = None,
+    ) -> Optional[Dict[str, Union[int, float]]]:
+        """
+        Get the first record of a stream after a given Unix timestamp.
+        
+        Parameters:
+            - stream_id: str
+            - data_provider: Optional[str] (hex string)
+            - after_date: Optional[int] (Unix timestamp)
+            - frozen_at: Optional[int] (Unix timestamp)
+            
+        Returns:
+            Optional[Dict[str, Union[int, float]]] - A dictionary containing 'date' (Unix timestamp) and 'value' if found, None otherwise
+        """
+        data_provider = self._coalesce_str(data_provider)
+        after_date = self._coalesce_int(after_date)
+        frozen_at = self._coalesce_int(frozen_at)
+
+        result = truf_sdk.GetFirstRecordUnix(
+            self.client,
+            stream_id,
+            data_provider,
+            after_date,
+            frozen_at,
+        )
+        
+        # If no record found, result will be None or an empty map
+        if result is None or not result:
+            return None
+            
+        try:
+            # Convert the result to a Python dict and convert the values
+            record = dict(result.items())
+            # Convert string values to appropriate types
+            record["date"] = int(record["date"])
+            record["value"] = float(record["value"])
+            return record
+        except (AttributeError, KeyError, ValueError) as e:
+            # If any conversion fails, return None
+            return None

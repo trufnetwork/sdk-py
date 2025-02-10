@@ -165,7 +165,6 @@ def test_batch_small_batches_non_unix(client, helper_contract_id, current_accoun
         retrieved_records = client.get_records(
             stream_id,
             date_from="2023-01-01",
-            date_to="2028-01-01"  # Fetch a wide range to ensure all records are retrieved.
         )
         assert len(retrieved_records) == total_records
 
@@ -365,8 +364,7 @@ def test_batch_single_record_inserts_non_unix(client, helper_contract_id, curren
         # Verify all records were inserted
         retrieved_records = client.get_records(
             stream_id,
-            date_from="2023-01-01",
-            date_to="2028-01-01" # broad date range
+            date_from="2023-01-01"
         )
         assert len(retrieved_records) == NUM_RECORDS
 

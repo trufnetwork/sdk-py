@@ -435,6 +435,17 @@ class TNClient:
                 variadic_args.append(
                     truf_sdk.ArgsFromFloats(go.Slice_float64(float_list))
                 )
+            # now for array of arrays
+            elif all_is_list_of_strings(arg_list):
+                all_slices = [go.Slice_string(item) for item in arg_list]
+                variadic_args.append(
+                    truf_sdk.ArgsFromStringsSlice(*all_slices)
+                )
+            elif all_is_list_of_floats(arg_list):
+                all_slices = [go.Slice_float64(item) for item in arg_list]
+                variadic_args.append(
+                    truf_sdk.ArgsFromFloatsSlice(*all_slices)
+                )
             else:
                 raise ValueError(f"Unsupported argument types in {arg_list}")
 
@@ -586,3 +597,10 @@ class TNClient:
         except (AttributeError, KeyError, ValueError) as e:
             # If any conversion fails, return None
             return None
+
+def all_is_list_of_strings(arg_list: List[Any]) -> bool:
+    return all(isinstance(item, list) and all(isinstance(item, str) for item in arg_list) for item in arg_list)
+
+def all_is_list_of_floats(arg_list: List[Any]) -> bool:
+    return all(isinstance(item, list) and all(isinstance(item, (float, int)) for item in arg_list) for item in arg_list)
+

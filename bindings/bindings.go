@@ -368,10 +368,7 @@ func BatchInsertRecords(client *tnclient.Client, args BatchInsertRecordsArgs) (B
 		}
 	}
 
-	helperStreamId, err := util.NewStreamId(helperContractStreamId)
-	if err != nil {
-		return results, errors.Wrap(err, "error creating stream id")
-	}
+	helperStreamId := util.NewRawStreamId(helperContractStreamId)
 	ethAddress, err := util.NewEthereumAddressFromString(helperContractDataProvider)
 	if err != nil {
 		return results, errors.Wrap(err, "error creating ethereum address")

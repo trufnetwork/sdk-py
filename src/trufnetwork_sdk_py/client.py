@@ -404,7 +404,7 @@ class TNClient:
         stream_id: str,
         data_provider: str,
         procedure: str,
-        args: List[List[Union[str, float, int]]],
+        args: list[list[Union[str, float, int, list[str], list[float]]]],
         wait: bool = True,
     ) -> str:
         """
@@ -416,7 +416,7 @@ class TNClient:
             - stream_id: str
             - data_provider: str (hex string)
             - procedure: str
-            - args: List[List[Union[str, float, int]]]
+            - args: List[List[Union[str, float, int, list[str], list[float]]]]
             - wait: bool
         """
         # Transpose the 2D args
@@ -598,9 +598,9 @@ class TNClient:
             # If any conversion fails, return None
             return None
 
-def all_is_list_of_strings(arg_list: List[Any]) -> bool:
-    return all(isinstance(item, list) and all(isinstance(item, str) for item in arg_list) for item in arg_list)
+def all_is_list_of_strings(arg_list: list[Any]) -> bool:
+    return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)
 
-def all_is_list_of_floats(arg_list: List[Any]) -> bool:
-    return all(isinstance(item, list) and all(isinstance(item, (float, int)) for item in arg_list) for item in arg_list)
+def all_is_list_of_floats(arg_list: list[Any]) -> bool:
+    return all(isinstance(arg, list) and all(isinstance(item, (float, int)) for item in arg) for arg in arg_list)
 

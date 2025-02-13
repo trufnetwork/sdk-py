@@ -55,6 +55,24 @@ func ArgsFromFloats(values []float64) ProcedureArgs {
 	return anySlice
 }
 
+// using variadic to make it easier to consume from python
+func ArgsFromStringsSlice(values ...[]string) ProcedureArgs {
+	var anySlice []any
+	for _, v := range values {
+		anySlice = append(anySlice, v)
+	}
+	return anySlice
+}
+
+// using variadic to make it easier to consume from python
+func ArgsFromFloatsSlice(values ...[]float64) ProcedureArgs {
+	var anySlice []any
+	for _, v := range values {
+		anySlice = append(anySlice, v)
+	}
+	return anySlice
+}
+
 // NewClient creates a new TN client with the given provider and private key.
 func NewClient(provider string, privateKey string) (*tnclient.Client, error) {
 	ctx := context.Background()

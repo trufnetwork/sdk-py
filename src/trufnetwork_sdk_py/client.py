@@ -478,14 +478,31 @@ class TNClient:
         if args is None:
             args = []
 
+        call_procedure_args = truf_sdk.NewCallProcedureArgs()
+        for arg in args:
+            if isinstance(arg, str):
+                call_procedure_args.AddString(arg)
+            elif isinstance(arg, float):
+                call_procedure_args.AddFloat(arg)
+            elif isinstance(arg, int):
+                call_procedure_args.AddInt(arg)
+
         records = truf_sdk.CallProcedure(
             self.client,
             stream_id,
             data_provider,
             procedure,
-            *args
+            call_procedure_args
         )
         return self._records_handle_to_list_of_dicts(records)
+
+    def get_type(self, stream_id: str, data_provider: Optional[str] = None) -> str:
+        """
+        Get the type of a stream with the given stream ID.
+        Returns the type of the stream.
+        """
+        data_provider = self._coalesce_str(data_provider)
+        return truf_sdk.GetType(self.client, stream_id, data_provider)
 
     def wait_for_tx(self, tx_hash: str) -> None:
         """

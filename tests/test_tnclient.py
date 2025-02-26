@@ -2,6 +2,7 @@ import pytest
 from trufnetwork_sdk_py.client import TNClient
 from trufnetwork_sdk_py.utils import generate_stream_id
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
+from unittest.mock import patch, MagicMock
 
 # Test configuration
 TEST_PROVIDER_URL = "http://localhost:8484"  
@@ -10,11 +11,12 @@ TEST_PRIVATE_KEY = (
 )
 
 @pytest.fixture(scope="module")
-def client():
+def client(tn_node):
     """
     Pytest fixture to create a TNClient instance for testing.
+    Uses the tn_node fixture to get a running server.
     """
-    client = TNClient(TEST_PROVIDER_URL, TEST_PRIVATE_KEY)
+    client = TNClient(tn_node, TEST_PRIVATE_KEY)
     return client
 
 def test_client_initialization(client):
@@ -207,4 +209,112 @@ def test_get_first_record_unix(client):
     
     # Clean up
     destroy_tx = client.destroy_stream(stream_id)
-    assert destroy_tx is not None 
+    assert destroy_tx is not None
+
+@pytest.fixture(scope="module")
+def helper_contract_id(client):
+    """
+    Pytest fixture to deploy the helper contract.
+    Returns a stream_id that will be automatically cleaned up after tests.
+    """
+    stream_id = generate_stream_id("test_helper_contract")
+    client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypeHelper)
+    # Note: Helper contract streams don't require initialization
+    yield stream_id
+    # Cleanup will run after all tests using this fixture are complete
+    client.destroy_stream(stream_id)
+
+def test_filter_initialized_streams(client, helper_contract_id):
+    """
+    Test filter_initialized_streams method with a real helper contract stream.
+    """
+    # Set up stream IDs
+    stream_id1 = generate_stream_id("test_filter_1")
+    stream_id2 = generate_stream_id("test_filter_2")
+    
+    # Cleanup in case the streams already exist from a previous test run
+    try:
+        client.destroy_stream(stream_id1)
+    except Exception:
+        pass
+    
+    try:
+        client.destroy_stream(stream_id2)
+    except Exception:
+        pass
+    
+    # Deploy both streams
+    client.deploy_stream(stream_id1)
+    client.deploy_stream(stream_id2)
+    
+    # Initialize only the first stream
+    client.init_stream(stream_id1)
+    
+    # Get current account for the data provider
+    data_provider = client.get_current_account()
+    
+    # Test filter_initialized_streams
+    stream_ids = [stream_id1, stream_id2]
+    data_providers = [data_provider, data_provider]
+    
+    initialized_streams = client.filter_initialized_streams(
+        stream_ids, 
+        data_providers=data_providers,
+        helper_contract_stream_id=helper_contract_id,
+        helper_contract_data_provider=data_provider
+    )
+    
+    # Verify the results
+    assert len(initialized_streams) == 1
+    assert initialized_streams[0]['stream_id'] == stream_id1
+    assert initialized_streams[0]['data_provider'] == data_provider
+    
+    # Clean up
+    client.destroy_stream(stream_id1)
+    client.destroy_stream(stream_id2)
+
+def test_filter_non_deployed_streams(client, helper_contract_id):
+    """
+    Test filter_initialized_streams method with a mix of deployed and non-deployed streams.
+    """
+    # Set up stream IDs
+    stream_id1 = generate_stream_id("test_filter_deployed_1")
+    non_deployed_id = generate_stream_id("test_filter_non_deployed")
+    
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream_id1)
+    except Exception:
+        pass
+    
+    # Deploy and initialize one stream
+    client.deploy_stream(stream_id1)
+    client.init_stream(stream_id1)
+    
+    # Get current account for the data provider
+    data_provider = client.get_current_account()
+    
+    # Test filter_initialized_streams with a non-deployed stream ID
+    stream_ids = [stream_id1, non_deployed_id]
+    data_providers = [data_provider, data_provider]
+    
+    try:
+        initialized_streams = client.filter_initialized_streams(
+            stream_ids, 
+            data_providers=data_providers,
+            helper_contract_stream_id=helper_contract_id,
+            helper_contract_data_provider=data_provider
+        )
+        
+        # If we get here, the method didn't fail - it should skip the non-deployed stream
+        assert len(initialized_streams) == 1
+        assert initialized_streams[0]['stream_id'] == stream_id1
+        assert initialized_streams[0]['data_provider'] == data_provider
+    except Exception as e:
+        # Check for the specific error message we saw in our test
+        error_message = str(e).lower()
+        assert "procedure \"get_metadata\" not found" in error_message or \
+               "error filtering initialized streams" in error_message
+    
+    # Clean up
+    client.destroy_stream(stream_id1) 

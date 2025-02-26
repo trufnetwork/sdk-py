@@ -317,4 +317,56 @@ def test_filter_non_deployed_streams(client, helper_contract_id):
                "error filtering initialized streams" in error_message
     
     # Clean up
-    client.destroy_stream(stream_id1) 
+    client.destroy_stream(stream_id1)
+
+def test_stream_exists(client):
+    """Test the stream_exists function with both existing and non-existing streams."""
+    # Generate a unique stream ID
+    stream_id = generate_stream_id("test_stream_exists")
+    non_existent_stream_id = generate_stream_id("non_existent_stream")
+    
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream_id)
+    except Exception:
+        pass
+    
+    # Initially, the stream should not exist
+    assert not client.stream_exists(stream_id), "Stream should not exist before deployment"
+    
+    # Deploy the stream
+    deploy_tx = client.deploy_stream(stream_id)
+    assert deploy_tx is not None
+    
+    # After deployment, the stream should exist
+    assert client.stream_exists(stream_id), "Stream should exist after deployment"
+    
+    # Initialize the stream
+    init_tx = client.init_stream(stream_id)
+    assert init_tx is not None
+    
+    # After initialization, the stream should still exist
+    assert client.stream_exists(stream_id), "Stream should exist after initialization"
+    
+    # Non-existent stream should return False
+    assert not client.stream_exists(non_existent_stream_id), "Non-existent stream should return False"
+    
+    # Test with the current account as data provider
+    data_provider = client.get_current_account()
+    assert client.stream_exists(stream_id, data_provider), "Stream should exist with explicit data provider"
+    
+    # Test with empty string as data provider (should use the default)
+    assert client.stream_exists(stream_id, ""), "Stream should exist with empty string data provider"
+    
+    # Negative test with empty string as data provider
+    assert not client.stream_exists(non_existent_stream_id, ""), "Non-existent stream should return False with empty string data provider"
+    
+    # Clean up
+    destroy_tx = client.destroy_stream(stream_id)
+    assert destroy_tx is not None
+    
+    # After destruction, the stream should no longer exist
+    assert not client.stream_exists(stream_id), "Stream should not exist after destruction"
+    
+    # After destruction, the stream should not exist with empty string data provider
+    assert not client.stream_exists(stream_id, ""), "Stream should not exist after destruction with empty string data provider" 

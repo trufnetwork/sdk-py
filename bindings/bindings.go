@@ -994,3 +994,53 @@ func convertToString(val any) string {
 		return fmt.Sprintf("%v", val)
 	}
 }
+
+// FilterInitialized filters out non-initialized streams from a list of stream IDs and data providers.
+func FilterInitialized(client *tnclient.Client, streamIds []string, dataProviders []string, helperContractStreamId string, helperContractDataProvider string) ([]map[string]string, error) {
+	ctx := context.Background()
+
+	// Use default helper contract stream ID if not provided
+	if helperContractStreamId == "" {
+		helperContractStreamId = "helper_contract" // Default stream ID for the helper contract
+	}
+
+	// Use default helper contract data provider if not provided
+	if helperContractDataProvider == "" {
+		helperContractDataProvider = "4710a8d8f0d845da110086812a32de6d90d7ff5c" // Default data provider for the helper contract
+	}
+
+	helperStreamId := util.NewRawStreamId(helperContractStreamId)
+	ethAddress, err := util.NewEthereumAddressFromString(helperContractDataProvider)
+	if err != nil {
+		return nil, errors.Wrap(err, "error creating ethereum address")
+	}
+	helperStreamLocator := types.StreamLocator{
+		StreamId:     *helperStreamId,
+		DataProvider: ethAddress,
+	}
+
+	helperStream, err := client.LoadHelperStream(helperStreamLocator)
+	if err != nil {
+		return nil, errors.Wrap(err, "error loading helper stream")
+	}
+
+	filterInput := types.FilterInitializedInput{
+		StreamIDs:     streamIds,
+		DataProviders: dataProviders,
+	}
+
+	results, err := helperStream.FilterInitialized(ctx, filterInput)
+	if err != nil {
+		return nil, errors.Wrap(err, "error filtering initialized streams")
+	}
+
+	output := make([]map[string]string, len(results))
+	for i, result := range results {
+		output[i] = map[string]string{
+			"stream_id":     result.StreamID,
+			"data_provider": result.DataProvider,
+		}
+	}
+
+	return output, nil
+}

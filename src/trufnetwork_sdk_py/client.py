@@ -510,6 +510,51 @@ class TNClient:
         """
         truf_sdk.WaitForTx(self.client, tx_hash)
 
+    def filter_initialized_streams(
+        self, 
+        stream_ids: List[str], 
+        data_providers: Optional[List[str]] = None,
+        helper_contract_stream_id: Optional[str] = None,
+        helper_contract_data_provider: Optional[str] = None
+    ) -> List[Dict[str, str]]:
+        """
+        Filter out non-initialized streams from a list of stream IDs and data providers.
+        
+        Parameters:
+            - stream_ids: List[str] - List of stream IDs to filter
+            - data_providers: Optional[List[str]] - List of data providers corresponding to the stream IDs
+              If None, the default data provider is used for all stream IDs.
+            - helper_contract_stream_id: Optional[str] - The stream ID of the helper contract
+              If None, the default helper contract stream ID is used.
+            - helper_contract_data_provider: Optional[str] - The data provider of the helper contract
+              If None, the default helper contract data provider is used.
+            
+        Returns:
+            List[Dict[str, str]] - A list of dictionaries containing the initialized streams,
+            each with keys 'stream_id' and 'data_provider'.
+        """
+        # Prepare data providers list if provided
+        if data_providers is None:
+            data_providers = [""] * len(stream_ids)
+        
+        # Convert Python lists to Go slices
+        go_stream_ids = go.Slice_string(stream_ids)
+        go_data_providers = go.Slice_string(data_providers)
+        
+        # Call the FilterInitialized function
+        helper_stream_id = self._coalesce_str(helper_contract_stream_id)
+        helper_provider = self._coalesce_str(helper_contract_data_provider)
+        
+        go_slice_of_maps = truf_sdk.FilterInitialized(
+            self.client,
+            go_stream_ids,
+            go_data_providers,
+            helper_stream_id,
+            helper_provider
+        )
+        
+        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
+
     def get_current_account(self) -> str:
         """
         Get the current account address associated with this client.

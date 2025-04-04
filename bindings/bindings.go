@@ -12,17 +12,16 @@ import (
 
 	"github.com/cockroachdb/apd/v3"
 	"github.com/golang-sql/civil"
+	"github.com/kwilteam/kwil-db/core/client"
 	"github.com/kwilteam/kwil-db/core/crypto"
 	"github.com/kwilteam/kwil-db/core/crypto/auth"
 	kwilTypes "github.com/kwilteam/kwil-db/core/types"
-	"github.com/kwilteam/kwil-db/core/types/client"
-	"github.com/kwilteam/kwil-db/core/types/decimal"
-	"github.com/kwilteam/kwil-db/core/types/transactions"
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
 	"github.com/trufnetwork/sdk-go/core/util"
+	"google.golang.org/genproto/googleapis/type/decimal"
 )
 
 // StreamType constants.
@@ -132,7 +131,7 @@ func DeployStream(client *tnclient.Client, streamId string, streamType types.Str
 	if err != nil {
 		return "", errors.Wrap(err, "error deploying stream")
 	}
-	return deployTxHash.Hex(), nil
+	return deployTxHash.String(), nil
 }
 
 // DestroyStream destroys the stream with the given stream ID.
@@ -148,30 +147,31 @@ func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "error destroying stream")
 	}
-	return destroyTxHash.Hex(), nil
+	return destroyTxHash.String(), nil
 }
 
 // InitStream initializes the stream with the given stream ID.
-func InitStream(client *tnclient.Client, streamId string) (string, error) {
-	ctx := context.Background()
+// func InitStream(client *tnclient.Client, streamId string) (string, error) {
+// 	ctx := context.Background()
 
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return "", errors.Wrap(err, "error creating stream id")
-	}
+// 	streamIdTyped, err := util.NewStreamId(streamId)
+// 	if err != nil {
+// 		return "", errors.Wrap(err, "error creating stream id")
+// 	}
 
-	streamLocator := client.OwnStreamLocator(*streamIdTyped)
-	stream, err := client.LoadStream(streamLocator)
-	if err != nil {
-		return "", errors.Wrap(err, "error loading stream")
-	}
+// 	streamLocator := client.OwnStreamLocator(*streamIdTyped)
+// 	stream, err := client.LoadActions()
+// 	if err != nil {
+// 		return "", errors.Wrap(err, "error loading stream")
+// 	}
 
-	txHash, err := stream.InitializeStream(ctx)
-	if err != nil {
-		return "", errors.Wrap(err, "error initializing stream")
-	}
-	return txHash.Hex(), nil
-}
+// 	txHash, err := stream.InitializeStream(ctx)
+// 	if err != nil {
+// 		return "", errors.Wrap(err, "error initializing stream")
+// 	}
+
+// 	return txHash.Hex(), nil
+// }
 
 // InsertRecords inserts records into the stream with the given stream ID.
 func InsertRecords(client *tnclient.Client, streamId string, inputDates []string, inputValues []float64) (string, error) {
@@ -893,7 +893,7 @@ func WaitForTx(client *tnclient.Client, txHashHex string) error {
 	}
 
 	// Check if tx was successful
-	if tx.TxResult.Code != uint32(transactions.CodeOk) {
+	if tx.TxResult.Code != uint32(transaction.CodeOk) {
 		return fmt.Errorf("transaction failed: %s", tx.TxResult.Log)
 	}
 	return nil

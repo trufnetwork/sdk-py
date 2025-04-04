@@ -99,6 +99,7 @@ def run_docker_command(args: list[str], check: bool = False) -> subprocess.Compl
     """
     command = ["docker", *args]
     logger.debug(f"Running docker command: {' '.join(command)}")
+    print(command)
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=check)
         if result.stderr:
@@ -175,7 +176,7 @@ def start_container(spec: ContainerSpec, network: str) -> bool:
     # First ensure container doesn't exist
     run_docker_command(["rm", "-f", spec.name])
 
-    args = ["run", "--rm", "--name", spec.name, "--network", network, "-d"]
+    args = ["run",  "--name", spec.name, "--network", network, "-d"]
 
     if spec.tmpfs_path:
         args.extend(["--tmpfs", spec.tmpfs_path])
@@ -305,12 +306,12 @@ def tn_node(docker_network):
 
     logger.info("Starting TSN-DB container...")
     if not start_container(TSN_DB_CONTAINER, docker_network):
-        stop_container(POSTGRES_CONTAINER.name)
+        #stop_container(POSTGRES_CONTAINER.name)
         pytest.fail("Failed to start TSN-DB container")
 
     logger.info("Waiting for TSN-DB node to be healthy...")
     if not wait_for_tsn_health():
-        stop_container(TSN_DB_CONTAINER.name)
+        #stop_container(TSN_DB_CONTAINER.name)
         stop_container(POSTGRES_CONTAINER.name)
         pytest.fail("TSN-DB node failed to become healthy")
 
@@ -318,7 +319,7 @@ def tn_node(docker_network):
         yield "http://localhost:8484"
     finally:
         logger.info("Cleaning up containers...")
-        stop_container(TSN_DB_CONTAINER.name)
+        #stop_container(TSN_DB_CONTAINER.name)
         stop_container(POSTGRES_CONTAINER.name)
 
 

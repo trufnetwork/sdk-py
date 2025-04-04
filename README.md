@@ -24,8 +24,10 @@ make
 
 ### Test
 
-1. Before running the tests, make sure the TN Node is not running. The tests will start a TN Node in the background and stop it after the tests are finished.
-2. Then, run the tests with the following command:
+1. Build the TN Node container image by running the `task compose` command on `node` repository.
+2. Stop the TN Node container if it is running, but do not remove the image as it is needed.
+3. Before running the tests, make sure the TN Node is not running. The tests will start a TN Node in the background and stop it after the tests are finished.
+4. Then, run the tests with the following command:
 ```bash
 python -m pytest tests/<test_file>.py
 ```

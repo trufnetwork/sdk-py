@@ -2,9 +2,14 @@ package exports
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/kwilteam/kwil-db/core/crypto"
 	"github.com/kwilteam/kwil-db/core/crypto/auth"
+	kwilTypes "github.com/kwilteam/kwil-db/core/types"
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
@@ -865,26 +870,26 @@ func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 // 	return result, nil
 // }
 
-// // WaitForTx waits for the transaction with the given hash to be confirmed.
-// func WaitForTx(client *tnclient.Client, txHashHex string) error {
-// 	ctx := context.Background()
+// WaitForTx waits for the transaction with the given hash to be confirmed.
+func WaitForTx(client *tnclient.Client, txHashHex string) error {
+	ctx := context.Background()
 
-// 	txHash, err := hex.DecodeString(strings.TrimPrefix(txHashHex, "0x"))
-// 	if err != nil {
-// 		return fmt.Errorf("invalid transaction hash '%s': %w", txHashHex, err)
-// 	}
+	txHash, err := hex.DecodeString(strings.TrimPrefix(txHashHex, "0x"))
+	if err != nil {
+		return fmt.Errorf("invalid transaction hash '%s': %w", txHashHex, err)
+	}
 
-// 	tx, err := client.WaitForTx(ctx, txHash, 1*time.Second)
-// 	if err != nil {
-// 		return err
-// 	}
+	tx, err := client.WaitForTx(ctx, kwilTypes.HashBytes(txHash), 1*time.Second)
+	if err != nil {
+		return err
+	}
 
-// 	// Check if tx was successful
-// 	if tx.TxResult.Code != uint32(transaction.CodeOk) {
-// 		return fmt.Errorf("transaction failed: %s", tx.TxResult.Log)
-// 	}
-// 	return nil
-// }
+	// Check if tx was successful
+	if tx.Result.Code != uint32(kwilTypes.CodeOk) {
+		return fmt.Errorf("transaction failed: %s", tx.Result.Log)
+	}
+	return nil
+}
 
 // /*****************************************
 //  *            Helper Functions           *

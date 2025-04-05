@@ -44,7 +44,7 @@ POSTGRES_CONTAINER = ContainerSpec(
     name="test-kwil-postgres",
     image="kwildb/postgres:latest",
     tmpfs_path="/var/lib/postgresql/data",
-    env_vars=["POSTGRES_HOST_AUTH_METHOD=trust"],
+    env_vars=["POSTGRES_HOST_AUTH_METHOD=trust"]
 )
 
 TSN_DB_CONTAINER = ContainerSpec(
@@ -53,21 +53,10 @@ TSN_DB_CONTAINER = ContainerSpec(
     tmpfs_path="/root/.kwild",
     entrypoint="/app/kwild",
     args=[
+        "start",
         "--autogen",
-        "--app.pg-db-host",
-        "test-kwil-postgres",
-        "--app.hostname",
-        "test-tsn-db",
-        "--chain.p2p.external-address",
-        "http://test-tsn-db:26656",
-        "--chain.consensus.timeout-propose",
-        "100ms",
-        "--chain.consensus.timeout-prevote",
-        "100ms",
-        "--chain.consensus.timeout-precommit",
-        "100ms",
-        "--chain.consensus.timeout-commit",
-        "100ms",
+        "--db.host",
+        "test-kwil-postgres"
     ],
     env_vars=[
         "CONFIG_PATH=/root/.kwild",
@@ -175,7 +164,7 @@ def start_container(spec: ContainerSpec, network: str) -> bool:
     # First ensure container doesn't exist
     run_docker_command(["rm", "-f", spec.name])
 
-    args = ["run", "--rm", "--name", spec.name, "--network", network, "-d"]
+    args = ["run",  "--rm", "--name", spec.name, "--network", network, "-d"]
 
     if spec.tmpfs_path:
         args.extend(["--tmpfs", spec.tmpfs_path])
@@ -305,21 +294,21 @@ def tn_node(docker_network):
 
     logger.info("Starting TSN-DB container...")
     if not start_container(TSN_DB_CONTAINER, docker_network):
-        stop_container(POSTGRES_CONTAINER.name)
+        #stop_container(POSTGRES_CONTAINER.name)
         pytest.fail("Failed to start TSN-DB container")
 
     logger.info("Waiting for TSN-DB node to be healthy...")
     if not wait_for_tsn_health():
-        stop_container(TSN_DB_CONTAINER.name)
-        stop_container(POSTGRES_CONTAINER.name)
+        #stop_container(TSN_DB_CONTAINER.name)
+        #stop_container(POSTGRES_CONTAINER.name)
         pytest.fail("TSN-DB node failed to become healthy")
 
     try:
         yield "http://localhost:8484"
     finally:
         logger.info("Cleaning up containers...")
-        stop_container(TSN_DB_CONTAINER.name)
-        stop_container(POSTGRES_CONTAINER.name)
+        #stop_container(TSN_DB_CONTAINER.name)
+        #stop_container(POSTGRES_CONTAINER.name)
 
 
 class TrufNetworkProvider:

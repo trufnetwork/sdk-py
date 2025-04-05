@@ -123,16 +123,16 @@ class TNClient:
         data_provider = self._coalesce_str(data_provider)
         return truf_sdk.StreamExists(self.client, stream_id, data_provider)
 
-    def init_stream(self, stream_id: str, wait: bool = True) -> str:
-        """
-        Initialize a stream with the given stream ID.
-        If wait is True, it will wait for the transaction to be confirmed.
-        Returns the transaction hash.
-        """
-        init_tx_hash = truf_sdk.InitStream(self.client, stream_id)
-        if wait:
-            truf_sdk.WaitForTx(self.client, init_tx_hash)
-        return init_tx_hash
+    # def init_stream(self, stream_id: str, wait: bool = True) -> str:
+    #     """
+    #     Initialize a stream with the given stream ID.
+    #     If wait is True, it will wait for the transaction to be confirmed.
+    #     Returns the transaction hash.
+    #     """
+    #     init_tx_hash = truf_sdk.InitStream(self.client, stream_id)
+    #     if wait:
+    #         truf_sdk.WaitForTx(self.client, init_tx_hash)
+    #     return init_tx_hash
 
     def insert_records(
         self,

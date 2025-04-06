@@ -2,9 +2,7 @@ package exports
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/kwilteam/kwil-db/core/crypto"
@@ -874,12 +872,12 @@ func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 func WaitForTx(client *tnclient.Client, txHashHex string) error {
 	ctx := context.Background()
 
-	txHash, err := hex.DecodeString(strings.TrimPrefix(txHashHex, "0x"))
+	txHash, err := kwilTypes.NewHashFromString(txHashHex)
 	if err != nil {
 		return fmt.Errorf("invalid transaction hash '%s': %w", txHashHex, err)
 	}
 
-	tx, err := client.WaitForTx(ctx, kwilTypes.HashBytes(txHash), 1*time.Second)
+	tx, err := client.WaitForTx(ctx, txHash, 1*time.Second)
 	if err != nil {
 		return err
 	}

@@ -55,8 +55,10 @@ TSN_DB_CONTAINER = ContainerSpec(
     args=[
         "start",
         "--autogen",
+        "--db-owner",
+        "0x4710A8D8F0D845da110086812a32De6d90d7ff5C",
         "--db.host",
-        "test-kwil-postgres"
+        "test-kwil-postgres",
     ],
     env_vars=[
         "CONFIG_PATH=/root/.kwild",

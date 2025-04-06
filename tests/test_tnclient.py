@@ -25,7 +25,7 @@ def test_client_initialization(client):
     """
     assert client.client is not None
 
-def test_deploy_and_initialize_stream(client):
+def test_deploy_stream(client):
     """
     Test deploying and initializing a stream.
     """

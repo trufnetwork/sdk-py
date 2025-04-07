@@ -154,28 +154,6 @@ class TNClient:
             truf_sdk.WaitForTx(self.client, insert_tx_hash)
         return insert_tx_hash
 
-    def insert_records_unix(
-        self,
-        stream_id: str,
-        records: List[Dict[str, Union[str, float, int]]],
-        wait: bool = True,
-    ) -> str:
-        """
-        Insert records into a stream with the given stream ID using Unix timestamps.
-
-        Note: Do not use this for inserting multiple records rapidly. Use batch inserts instead.
-        Or else you can have nonce errors.
-        """
-        dates = [record["date"] for record in records]
-        values = [record["value"] for record in records]
-
-        insert_tx_hash = truf_sdk.InsertRecordsUnix(
-            self.client, stream_id, go.Slice_int(dates), go.Slice_float64([float(v) for v in values])
-        )
-        if wait:
-            truf_sdk.WaitForTx(self.client, insert_tx_hash)
-        return insert_tx_hash
-
     def batch_insert_records_unix(
         self,
         batches: List[UnixRecordBatch],
@@ -333,7 +311,7 @@ class TNClient:
 
         Parameters:
             - stream_id: str
-            - data_provider: Optional[str] (hex string)
+            - data_provider: (hex string)
             - date_from: Optional[str] (YYYY-MM-DD)
             - date_to: Optional[str] (YYYY-MM-DD)
             - frozen_at: Optional[str] (YYYY-MM-DD)
@@ -346,37 +324,6 @@ class TNClient:
         base_date = self._coalesce_str(base_date)
 
         go_slice_of_maps = truf_sdk.GetRecords(
-            self.client,
-            stream_id,
-            data_provider,
-            date_from,
-            date_to,
-            frozen_at,
-            base_date,
-        )
-
-        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
-
-    def get_records_unix(
-        self,
-        stream_id: str,
-        data_provider: Optional[str] = None,
-        date_from: Optional[int] = None,
-        date_to: Optional[int] = None,
-        frozen_at: Optional[int] = None,
-        base_date: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get records from a stream with the given stream ID using Unix timestamps.
-        Returns a list of records.
-        """
-        data_provider = self._coalesce_str(data_provider)
-        date_from = self._coalesce_int(date_from)
-        date_to = self._coalesce_int(date_to)
-        frozen_at = self._coalesce_int(frozen_at)
-        base_date = self._coalesce_int(base_date)
-
-        go_slice_of_maps = truf_sdk.GetRecordsUnix(
             self.client,
             stream_id,
             data_provider,

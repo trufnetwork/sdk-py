@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import pytest
 from trufnetwork_sdk_py.client import TNClient
 from trufnetwork_sdk_py.utils import generate_stream_id
@@ -65,12 +66,14 @@ def test_insert_and_retrieve_records(client):
     insert_tx_hash = client.insert_records(stream_id, records_to_insert)
     assert insert_tx_hash is not None
 
+    data_provider = client.get_current_account()
+
     retrieved_records = client.get_records(
-        stream_id, date_from="2023-01-01", date_to="2023-01-03"
+        stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
     )
     assert len(retrieved_records) == len(records_to_insert)
     for i, record in enumerate(retrieved_records):
-        assert record["DateValue"] == records_to_insert[i]["date"]
+        assert record["EventTime"] == str(date_string_to_unix(records_to_insert[i]["date"], "%Y-%m-%d"))
         assert float(record["Value"]) == records_to_insert[i]["value"]
 
     # Clean up
@@ -330,3 +333,8 @@ def test_stream_exists(client):
     
     # After destruction, the stream should not exist with empty string data provider
     assert not client.stream_exists(stream_id, ""), "Stream should not exist after destruction with empty string data provider" 
+
+def date_string_to_unix(date_str, date_format="%Y-%m-%d %H:%M:%S"):
+    """Convert a date string to a Unix timestamp (integer)."""
+    dt = datetime.strptime(date_str, date_format).replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())

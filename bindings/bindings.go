@@ -150,7 +150,7 @@ func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 func InsertRecords(client *tnclient.Client, streamId string, inputDates []string, inputValues []float64) (string, error) {
 	ctx := context.Background()
 
-	processedInputs, err := processInsertInputs(inputDates, inputValues)
+	processedInputs, err := processInsertInputs(client, streamId, inputDates, inputValues)
 	if err != nil {
 		return "", errors.Wrap(err, "error processing insert inputs")
 	}
@@ -378,9 +378,14 @@ func InsertRecords(client *tnclient.Client, streamId string, inputDates []string
 // }
 
 // processInsertInputs processes the input dates and values and returns a slice of InsertRecordInput.
-func processInsertInputs(inputDates []string, inputValues []float64) ([]types.InsertRecordInput, error) {
+func processInsertInputs(client *tnclient.Client, streamId string, inputDates []string, inputValues []float64) ([]types.InsertRecordInput, error) {
 	if len(inputDates) != len(inputValues) {
 		return nil, errors.New("input dates and values must have the same length")
+	}
+
+	dataProvider, err := GetCurrentAccount(client)
+	if err != nil {
+		return nil, err
 	}
 
 	var processedInputs []types.InsertRecordInput
@@ -391,8 +396,10 @@ func processInsertInputs(inputDates []string, inputValues []float64) ([]types.In
 		}
 
 		processedInputs = append(processedInputs, types.InsertRecordInput{
-			EventTime: int(civil.DateOf(dateTime).In(time.UTC).Unix()),
-			Value:     inputValues[i],
+			DataProvider: dataProvider,
+			StreamId:     streamId,
+			EventTime:    int(civil.DateOf(dateTime).In(time.UTC).Unix()),
+			Value:        inputValues[i],
 		})
 	}
 	return processedInputs, nil
@@ -560,8 +567,10 @@ func GetRecords(
 	}
 
 	records, err := stream.GetRecord(ctx, types.GetRecordInput{
-		From: dateFromTyped,
-		To:   dateToTyped,
+		DataProvider: dataProvider,
+		StreamId:     streamId,
+		From:         dateFromTyped,
+		To:           dateToTyped,
 		// frozenAt and baseDate are not used here.
 		// If needed, add them to GetRecordInput in the SDK & pass them here.
 	})

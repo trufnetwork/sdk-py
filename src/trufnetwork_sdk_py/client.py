@@ -468,52 +468,6 @@ class TNClient:
         record["value"] = float(record["value"])
         return record
 
-    def get_first_record_unix(
-        self,
-        stream_id: str,
-        data_provider: Optional[str] = None,
-        after_date: Optional[int] = None,
-        frozen_at: Optional[int] = None,
-    ) -> Optional[Dict[str, Union[int, float]]]:
-        """
-        Get the first record of a stream after a given Unix timestamp.
-        
-        Parameters:
-            - stream_id: str
-            - data_provider: Optional[str] (hex string)
-            - after_date: Optional[int] (Unix timestamp)
-            - frozen_at: Optional[int] (Unix timestamp)
-            
-        Returns:
-            Optional[Dict[str, Union[int, float]]] - A dictionary containing 'date' (Unix timestamp) and 'value' if found, None otherwise
-        """
-        data_provider = self._coalesce_str(data_provider)
-        after_date = self._coalesce_int(after_date)
-        frozen_at = self._coalesce_int(frozen_at)
-
-        result = truf_sdk.GetFirstRecordUnix(
-            self.client,
-            stream_id,
-            data_provider,
-            after_date,
-            frozen_at,
-        )
-        
-        # If no record found, result will be None or an empty map
-        if result is None or not result:
-            return None
-            
-        try:
-            # Convert the result to a Python dict and convert the values
-            record = dict(result.items())
-            # Convert string values to appropriate types
-            record["date"] = int(record["date"])
-            record["value"] = float(record["value"])
-            return record
-        except (AttributeError, KeyError, ValueError) as e:
-            # If any conversion fails, return None
-            return None
-
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)
 

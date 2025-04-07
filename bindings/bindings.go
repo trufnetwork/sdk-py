@@ -226,6 +226,7 @@ func BatchInsertRecords(client *tnclient.Client, args BatchInsertRecordsArgs) ([
 	if err != nil {
 		return nil, err
 	}
+	//
 
 	txHashes := make([]kwilTypes.Hash, len(args.Batches))
 	for _, batch := range args.Batches {

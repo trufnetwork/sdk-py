@@ -19,9 +19,6 @@ class RecordBatch(TypedDict):
     stream_id: str
     inputs: List[Record]
 
-class BatchInsertResults(TypedDict):
-    tx_hash: str
-
 class TNClient:
     def __init__(self, url: str, token: str):
         """
@@ -122,6 +119,31 @@ class TNClient:
         """
         data_provider = self._coalesce_str(data_provider)
         return truf_sdk.StreamExists(self.client, stream_id, data_provider)
+    
+    def insert_record(
+        self,
+        stream_id: str,
+        record: Dict[str, Union[str, float, int]],
+        wait: bool = True
+    ) -> str:
+        """
+        Insert a single record into a stream with the given stream ID.
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Record is expected to have:
+          - "date": str (YYYY-MM-DD) 
+          - "value": float or int
+        """
+        go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
+        insert_tx_hash = truf_sdk.InsertRecord(self.client, go_input)
+
+        print(insert_tx_hash)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, insert_tx_hash)
+
+        return insert_tx_hash
 
     def insert_records(
         self,
@@ -141,96 +163,29 @@ class TNClient:
         Note: Do not use this for inserting multiple records rapidly. Use batch inserts instead.
         Or else you can have nonce errors.
         """
-        dates = [record["date"] for record in records]
-        values = [record["value"] for record in records]
+
+        input_list = []
+        for i, record in enumerate(records):
+            # Create InsertRecordInput struct
+            go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
+            input_list.append(go_input)
+        
+        go_input_list = truf_sdk.Slice_types_InsertRecordInput(input_list)
 
         insert_tx_hash = truf_sdk.InsertRecords(
             self.client,
-            stream_id,
-            go.Slice_string(dates),
-            go.Slice_float64([float(v) for v in values]),
+            go_input_list
         )
         if wait:
             truf_sdk.WaitForTx(self.client, insert_tx_hash)
+
         return insert_tx_hash
-
-    def batch_insert_records_unix(
-        self,
-        batches: List[UnixRecordBatch],
-        helper_contract_stream_id: Optional[str] = None,
-        helper_contract_data_provider: Optional[str] = None,
-        wait: bool = True,
-    ) -> BatchInsertResults:
-        """
-        Insert multiple batches of records into different streams using Unix timestamps.
-        Each batch should be a dictionary containing:
-            - stream_id: str
-            - inputs: List[Dict[str, Union[int, float]]] where each dict has:
-                - date: int (Unix timestamp)
-                - value: float
-
-        Parameters:
-            - batches: List of batch dictionaries
-            - wait: bool - Whether to wait for transactions to be confirmed
-
-        Returns:
-            List of transaction hashes in the same order as the input batches
-        """
-        # Create a Go slice of UnixBatch structs
-        batches_list = []
-            
-        for _, batch in enumerate(batches):
-            # Create a Go slice for inputs
-            inputs = batch["inputs"]
-            input_list = []
-            
-            for j, record in enumerate(inputs):
-                # Create InsertRecordUnixInput struct
-                go_input = truf_sdk.NewInsertRecordUnixInput(record["date"], record["value"])
-                input_list.append(go_input)
-            
-            # Create UnixBatch struct
-            go_input_list = truf_sdk.Slice_types_InsertRecordUnixInput(input_list)
-            go_batch = truf_sdk.NewUnixBatch(batch["stream_id"], go_input_list)
-            batches_list.append(go_batch)
-
-        # Call the Go function with the typed batches
-        go_batches = truf_sdk.Slice_exports_UnixBatch(batches_list)
-
-        # Put the Go batches into the args struct of Batches
-        go_args = truf_sdk.BatchInsertRecordsUnixArgs(Batches=go_batches)
-
-        if helper_contract_stream_id:
-            go_args.HelperContractStreamId = helper_contract_stream_id
-
-        if helper_contract_data_provider:
-            go_args.HelperContractDataProvider = helper_contract_data_provider
-
-        try:
-            results = truf_sdk.BatchInsertRecordsUnix(self.client, go_args)
-        except Exception as e:
-            error_str = str(e)
-            if "failed to estimate price" in error_str:
-                raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
-            raise e
-
-        # Convert Go results to Python results, filtering out empty strings
-        python_results = BatchInsertResults(
-            tx_hash=results.TxHash,
-        )
-
-        if wait:
-            truf_sdk.WaitForTx(self.client, python_results["tx_hash"])
-        
-        return python_results
 
     def batch_insert_records(
         self,
         batches: List[RecordBatch],
-        helper_contract_stream_id: Optional[str] = None,
-        helper_contract_data_provider: Optional[str] = None,
         wait: bool = True,
-    ) -> BatchInsertResults:
+    ) -> List[str]:
         """
         Insert multiple batches of records into different streams.
         Each batch should be a dictionary containing:
@@ -241,12 +196,10 @@ class TNClient:
 
         Parameters:
             - batches: List of batch dictionaries
-            - helper_contract_stream_id: Optional[str] - The stream ID of the helper contract
-            - helper_contract_data_provider: Optional[str] - The data provider of the helper contract
             - wait: bool - Whether to wait for transactions to be confirmed
 
         Returns:
-            BatchInsertResults containing the transaction hash
+            String array containing the transaction hashes
         """
         # Create a Go slice of Batch structs
         batches_list = []
@@ -258,7 +211,7 @@ class TNClient:
             
             for j, record in enumerate(inputs):
                 # Create InsertRecordInput struct
-                go_input = truf_sdk.NewInsertRecordInput(record["date"], record["value"])
+                go_input = truf_sdk.NewInsertRecordInput(batch["stream_id"], record["date"], record["value"])
                 input_list.append(go_input)
             
             # Create Batch struct
@@ -272,29 +225,19 @@ class TNClient:
         # Put the Go batches into the args struct
         go_args = truf_sdk.BatchInsertRecordsArgs(Batches=go_batches)
 
-        if helper_contract_stream_id:
-            go_args.HelperContractStreamId = helper_contract_stream_id
-
-        if helper_contract_data_provider:
-            go_args.HelperContractDataProvider = helper_contract_data_provider
-
         try:
-            results = truf_sdk.BatchInsertRecords(self.client, go_args)
+            tx_hashes = truf_sdk.BatchInsertRecords(self.client, go_args)
         except Exception as e:
             error_str = str(e)
             if "failed to estimate price" in error_str:
                 raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
             raise e
 
-        # Convert Go results to Python results
-        python_results = BatchInsertResults(
-            tx_hash=results.TxHash,
-        )
-
         if wait:
-            truf_sdk.WaitForTx(self.client, python_results["tx_hash"])
-        
-        return python_results
+            for tx_hash in tx_hashes:
+                truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hashes
 
     def get_records(
         self,

@@ -44,6 +44,37 @@ def test_deploy_stream(client):
     # Clean up
     client.destroy_stream(stream_id)
 
+def test_insert_single_record(client):
+    """
+    Test inserting single record.
+    """
+    stream_id = generate_stream_id("test_stream_record")
+
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream_id)
+    except Exception:
+        pass
+
+    client.deploy_stream(stream_id)
+    
+    record_to_insert = {"date": "2023-01-01", "value": 10.5}
+
+    insert_tx_hash = client.insert_record(stream_id, record_to_insert)
+    assert insert_tx_hash is not None
+
+    retrieved_records = client.get_records(
+        stream_id, date_from="2023-01-01", date_to="2023-01-03"
+    )
+    assert len(retrieved_records) == 1
+    for i, record in enumerate(retrieved_records):
+        assert record["EventTime"] == str(date_string_to_unix(record_to_insert["date"]))
+        assert float(record["Value"]) == record_to_insert["value"]
+
+    # Clean up
+    client.destroy_stream(stream_id)
+
+
 def test_insert_and_retrieve_records(client):
     """
     Test inserting and retrieving records.

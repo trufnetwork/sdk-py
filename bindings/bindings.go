@@ -140,32 +140,32 @@ func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 	return destroyTxHash.String(), nil
 }
 
-// // InsertRecords inserts records into the stream with the given stream ID.
-// func InsertRecords(client *tnclient.Client, streamId string, inputDates []string, inputValues []float64) (string, error) {
-// 	ctx := context.Background()
+// InsertRecords inserts records into the stream with the given stream ID.
+func InsertRecords(client *tnclient.Client, streamId string, inputDates []string, inputValues []float64) (string, error) {
+	ctx := context.Background()
 
-// 	processedInputs, err := processInsertInputs(inputDates, inputValues)
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error processing insert inputs")
-// 	}
+	processedInputs, err := processInsertInputs(inputDates, inputValues)
+	if err != nil {
+		return "", errors.Wrap(err, "error processing insert inputs")
+	}
 
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error creating stream id")
-// 	}
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return "", errors.Wrap(err, "error creating stream id")
+	}
 
-// 	streamLocator := client.OwnStreamLocator(*streamIdTyped)
-// 	primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error loading primitive stream")
-// 	}
+	streamLocator := client.OwnStreamLocator(*streamIdTyped)
+	primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
+	if err != nil {
+		return "", errors.Wrap(err, "error loading primitive stream")
+	}
 
-// 	txHash, err := primitiveStream.InsertRecords(ctx, processedInputs)
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error inserting records")
-// 	}
-// 	return txHash.Hex(), nil
-// }
+	txHash, err := primitiveStream.InsertRecords(ctx, processedInputs)
+	if err != nil {
+		return "", errors.Wrap(err, "error inserting records")
+	}
+	return txHash.Hex(), nil
+}
 
 // // InsertRecordsUnix inserts records into the stream with the given stream ID using Unix timestamps.
 // func InsertRecordsUnix(client *tnclient.Client, streamId string, inputDates []int, inputValues []float64) (string, error) {
@@ -533,62 +533,62 @@ func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 // 	return err == nil, nil
 // }
 
-// // GetRecords retrieves records from the stream with the given stream ID.
-// func GetRecords(
-// 	client *tnclient.Client,
-// 	streamId string,
-// 	dataProvider string,
-// 	dateFrom string,
-// 	dateTo string,
-// 	frozenAt string,
-// 	baseDate string,
-// ) ([]map[string]string, error) {
+// GetRecords retrieves records from the stream with the given stream ID.
+func GetRecords(
+	client *tnclient.Client,
+	streamId string,
+	dataProvider string,
+	dateFrom string,
+	dateTo string,
+	frozenAt string,
+	baseDate string,
+) ([]map[string]string, error) {
 
-// 	dateFromTyped, err := parseDate(dateFrom)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	dateToTyped, err := parseDate(dateTo)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	dateFromTyped, err := parseDate(dateFrom)
+	if err != nil {
+		return nil, err
+	}
+	dateToTyped, err := parseDate(dateTo)
+	if err != nil {
+		return nil, err
+	}
 
-// 	ctx := context.Background()
+	ctx := context.Background()
 
-// 	// For retrieving, we generate a StreamId from the string.
-// 	// If your usage requires an existing ID, use `util.NewStreamId` instead.
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-// 	}
+	// For retrieving, we generate a StreamId from the string.
+	// If your usage requires an existing ID, use `util.NewStreamId` instead.
+	streamIdTyped, err := util.NewStreamId(streamId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
+	}
 
-// 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-// 	}
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
+	}
 
-// 	streamLocator := types.StreamLocator{
-// 		StreamId:     *streamIdTyped,
-// 		DataProvider: dataProviderTyped,
-// 	}
+	streamLocator := types.StreamLocator{
+		StreamId:     *streamIdTyped,
+		DataProvider: dataProviderTyped,
+	}
 
-// 	stream, err := client.LoadPrimitiveStream(streamLocator)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	stream, err := client.LoadPrimitiveStream(streamLocator)
+	if err != nil {
+		return nil, err
+	}
 
-// 	records, err := stream.GetRecord(ctx, types.GetRecordInput{
-// 		DateFrom: dateFromTyped,
-// 		DateTo:   dateToTyped,
-// 		// frozenAt and baseDate are not used here.
-// 		// If needed, add them to GetRecordInput in the SDK & pass them here.
-// 	})
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	records, err := stream.GetRecord(ctx, types.GetRecordInput{
+		DateFrom: dateFromTyped,
+		DateTo:   dateToTyped,
+		// frozenAt and baseDate are not used here.
+		// If needed, add them to GetRecordInput in the SDK & pass them here.
+	})
+	if err != nil {
+		return nil, err
+	}
 
-// 	return recordsToMapSlice(records), nil
-// }
+	return recordsToMapSlice(records), nil
+}
 
 // // GetRecordsUnix retrieves records from the stream with the given stream ID using Unix timestamps.
 // func GetRecordsUnix(

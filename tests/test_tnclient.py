@@ -56,7 +56,6 @@ def test_insert_and_retrieve_records(client):
         pass
 
     client.deploy_stream(stream_id)
-    client.init_stream(stream_id)
 
     records_to_insert = [
         {"date": "2023-01-01", "value": 10.5},

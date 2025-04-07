@@ -56,7 +56,7 @@ TSN_DB_CONTAINER = ContainerSpec(
         "start",
         "--autogen",
         "--db-owner",
-        "0x4710A8D8F0D845da110086812a32De6d90d7ff5C",
+        "0xecCc1ffEe06311c50Aa16e0E2acf2CD142d63905",
         "--db.host",
         "test-kwil-postgres",
     ],

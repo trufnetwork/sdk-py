@@ -140,29 +140,6 @@ func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 	return destroyTxHash.String(), nil
 }
 
-// InitStream initializes the stream with the given stream ID.
-// func InitStream(client *tnclient.Client, streamId string) (string, error) {
-// 	ctx := context.Background()
-
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error creating stream id")
-// 	}
-
-// 	streamLocator := client.OwnStreamLocator(*streamIdTyped)
-// 	stream, err := client.LoadActions()
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error loading stream")
-// 	}
-
-// 	txHash, err := stream.InitializeStream(ctx)
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error initializing stream")
-// 	}
-
-// 	return txHash.Hex(), nil
-// }
-
 // // InsertRecords inserts records into the stream with the given stream ID.
 // func InsertRecords(client *tnclient.Client, streamId string, inputDates []string, inputValues []float64) (string, error) {
 // 	ctx := context.Background()

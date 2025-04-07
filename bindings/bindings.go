@@ -3,8 +3,13 @@ package exports
 import (
 	"context"
 	"fmt"
+	"log"
+	"reflect"
+	"strconv"
 	"time"
 
+	"github.com/cockroachdb/apd/v3"
+	"github.com/golang-sql/civil"
 	"github.com/kwilteam/kwil-db/core/crypto"
 	"github.com/kwilteam/kwil-db/core/crypto/auth"
 	kwilTypes "github.com/kwilteam/kwil-db/core/types"
@@ -12,6 +17,7 @@ import (
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
 	"github.com/trufnetwork/sdk-go/core/util"
+	"google.golang.org/genproto/googleapis/type/decimal"
 )
 
 // StreamType constants.
@@ -149,13 +155,7 @@ func InsertRecords(client *tnclient.Client, streamId string, inputDates []string
 		return "", errors.Wrap(err, "error processing insert inputs")
 	}
 
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return "", errors.Wrap(err, "error creating stream id")
-	}
-
-	streamLocator := client.OwnStreamLocator(*streamIdTyped)
-	primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
+	primitiveStream, err := client.LoadPrimitiveActions()
 	if err != nil {
 		return "", errors.Wrap(err, "error loading primitive stream")
 	}
@@ -164,7 +164,7 @@ func InsertRecords(client *tnclient.Client, streamId string, inputDates []string
 	if err != nil {
 		return "", errors.Wrap(err, "error inserting records")
 	}
-	return txHash.Hex(), nil
+	return txHash.String(), nil
 }
 
 // // InsertRecordsUnix inserts records into the stream with the given stream ID using Unix timestamps.
@@ -377,26 +377,26 @@ func InsertRecords(client *tnclient.Client, streamId string, inputDates []string
 // 	return results, nil
 // }
 
-// // processInsertInputs processes the input dates and values and returns a slice of InsertRecordInput.
-// func processInsertInputs(inputDates []string, inputValues []float64) ([]types.InsertRecordInput, error) {
-// 	if len(inputDates) != len(inputValues) {
-// 		return nil, errors.New("input dates and values must have the same length")
-// 	}
+// processInsertInputs processes the input dates and values and returns a slice of InsertRecordInput.
+func processInsertInputs(inputDates []string, inputValues []float64) ([]types.InsertRecordInput, error) {
+	if len(inputDates) != len(inputValues) {
+		return nil, errors.New("input dates and values must have the same length")
+	}
 
-// 	var processedInputs []types.InsertRecordInput
-// 	for i, inputDate := range inputDates {
-// 		dateTime, err := time.Parse("2006-01-02", inputDate)
-// 		if err != nil {
-// 			return nil, errors.Wrap(err, fmt.Sprintf("invalid date format '%s'", inputDate))
-// 		}
+	var processedInputs []types.InsertRecordInput
+	for i, inputDate := range inputDates {
+		dateTime, err := time.Parse("2006-01-02", inputDate)
+		if err != nil {
+			return nil, errors.Wrap(err, fmt.Sprintf("invalid date format '%s'", inputDate))
+		}
 
-// 		processedInputs = append(processedInputs, types.InsertRecordInput{
-// 			DateValue: civil.DateOf(dateTime),
-// 			Value:     inputValues[i],
-// 		})
-// 	}
-// 	return processedInputs, nil
-// }
+		processedInputs = append(processedInputs, types.InsertRecordInput{
+			EventTime: int(civil.DateOf(dateTime).In(time.UTC).Unix()),
+			Value:     inputValues[i],
+		})
+	}
+	return processedInputs, nil
+}
 
 // // processInsertInputsUnix processes the input dates and values and returns a slice of InsertRecordUnixInput.
 // func processInsertInputsUnix(inputDates []int, inputValues []float64) ([]types.InsertRecordUnixInput, error) {
@@ -554,32 +554,14 @@ func GetRecords(
 	}
 
 	ctx := context.Background()
-
-	// For retrieving, we generate a StreamId from the string.
-	// If your usage requires an existing ID, use `util.NewStreamId` instead.
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-	}
-
-	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-	}
-
-	streamLocator := types.StreamLocator{
-		StreamId:     *streamIdTyped,
-		DataProvider: dataProviderTyped,
-	}
-
-	stream, err := client.LoadPrimitiveStream(streamLocator)
+	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
 		return nil, err
 	}
 
 	records, err := stream.GetRecord(ctx, types.GetRecordInput{
-		DateFrom: dateFromTyped,
-		DateTo:   dateToTyped,
+		From: dateFromTyped,
+		To:   dateToTyped,
 		// frozenAt and baseDate are not used here.
 		// If needed, add them to GetRecordInput in the SDK & pass them here.
 	})
@@ -870,25 +852,26 @@ func WaitForTx(client *tnclient.Client, txHashHex string) error {
 //  *            Helper Functions           *
 //  *****************************************/
 
-// // parseDataProvider checks if dataProvider is empty; if so, returns client's own address.
-// func parseDataProvider(client *tnclient.Client, dataProvider string) (util.EthereumAddress, error) {
-// 	if dataProvider == "" {
-// 		return client.Address(), nil
-// 	}
-// 	return util.NewEthereumAddressFromString(dataProvider)
-// }
+// parseDataProvider checks if dataProvider is empty; if so, returns client's own address.
+func parseDataProvider(client *tnclient.Client, dataProvider string) (util.EthereumAddress, error) {
+	if dataProvider == "" {
+		return client.Address(), nil
+	}
+	return util.NewEthereumAddressFromString(dataProvider)
+}
 
-// // parseDate parses a date string in YYYY-MM-DD format and returns a *civil.Date.
-// func parseDate(dateStr string) (*civil.Date, error) {
-// 	if dateStr == "" {
-// 		return nil, nil
-// 	}
-// 	date, err := civil.ParseDate(dateStr)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid date format '%s': %w", dateStr, err)
-// 	}
-// 	return &date, nil
-// }
+// parseDate parses a date string in YYYY-MM-DD format and returns a *civil.Date.
+func parseDate(dateStr string) (*int, error) {
+	if dateStr == "" {
+		return nil, nil
+	}
+	date, err := civil.ParseDate(dateStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid date format '%s': %w", dateStr, err)
+	}
+	unixTime := int(date.In(time.UTC).Unix())
+	return &unixTime, nil
+}
 
 // // parseUnixTime parses a Unix timestamp (int). If value is -1, it returns nil.
 // func parseUnixTime(value int) (*time.Time, error) {
@@ -907,60 +890,60 @@ func WaitForTx(client *tnclient.Client, txHashHex string) error {
 // 	return &value
 // }
 
-// // recordsToMapSlice converts a slice of records (structs) to a slice of map[string]string.
-// func recordsToMapSlice(records interface{}) []map[string]string {
-// 	v := reflect.ValueOf(records)
-// 	if v.Kind() != reflect.Slice {
-// 		return nil
-// 	}
+// recordsToMapSlice converts a slice of records (structs) to a slice of map[string]string.
+func recordsToMapSlice(records interface{}) []map[string]string {
+	v := reflect.ValueOf(records)
+	if v.Kind() != reflect.Slice {
+		return nil
+	}
 
-// 	length := v.Len()
-// 	out := make([]map[string]string, length)
+	length := v.Len()
+	out := make([]map[string]string, length)
 
-// 	for i := 0; i < length; i++ {
-// 		recordVal := v.Index(i)
-// 		out[i] = structToMapString(recordVal.Interface())
-// 	}
+	for i := 0; i < length; i++ {
+		recordVal := v.Index(i)
+		out[i] = structToMapString(recordVal.Interface())
+	}
 
-// 	return out
-// }
+	return out
+}
 
-// // structToMapString converts a struct to a map[string]string by reflecting over its fields.
-// func structToMapString(record any) map[string]string {
-// 	result := make(map[string]string)
-// 	val := reflect.ValueOf(record)
-// 	typ := val.Type()
+// structToMapString converts a struct to a map[string]string by reflecting over its fields.
+func structToMapString(record any) map[string]string {
+	result := make(map[string]string)
+	val := reflect.ValueOf(record)
+	typ := val.Type()
 
-// 	for i := 0; i < val.NumField(); i++ {
-// 		field := typ.Field(i)
-// 		valAsStr := convertToString(val.Field(i).Interface())
-// 		result[field.Name] = valAsStr
-// 	}
-// 	return result
-// }
+	for i := 0; i < val.NumField(); i++ {
+		field := typ.Field(i)
+		valAsStr := convertToString(val.Field(i).Interface())
+		result[field.Name] = valAsStr
+	}
+	return result
+}
 
-// // convertToString converts various data types to a string representation.
-// func convertToString(val any) string {
-// 	switch v := val.(type) {
-// 	case string:
-// 		return v
-// 	case int:
-// 		return strconv.Itoa(v)
-// 	case float64:
-// 		return strconv.FormatFloat(v, 'f', -1, 64)
-// 	case decimal.Decimal:
-// 		return v.String()
-// 	case apd.Decimal:
-// 		return v.String()
-// 	case civil.Date:
-// 		return v.String()
-// 	case fmt.Stringer:
-// 		return v.String()
-// 	default:
-// 		log.Printf("Warning: Failed to convert argument to string from type %T: %v\n", val, val)
-// 		return fmt.Sprintf("%v", val)
-// 	}
-// }
+// convertToString converts various data types to a string representation.
+func convertToString(val any) string {
+	switch v := val.(type) {
+	case string:
+		return v
+	case int:
+		return strconv.Itoa(v)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case decimal.Decimal:
+		return v.String()
+	case apd.Decimal:
+		return v.String()
+	case civil.Date:
+		return v.String()
+	case fmt.Stringer:
+		return v.String()
+	default:
+		log.Printf("Warning: Failed to convert argument to string from type %T: %v\n", val, val)
+		return fmt.Sprintf("%v", val)
+	}
+}
 
 // // FilterInitialized filters out non-initialized streams from a list of stream IDs and data providers.
 // func FilterInitialized(client *tnclient.Client, streamIds []string, dataProviders []string, helperContractStreamId string, helperContractDataProvider string) ([]map[string]string, error) {

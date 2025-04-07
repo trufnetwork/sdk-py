@@ -76,42 +76,6 @@ def test_insert_and_retrieve_records(client):
     # Clean up
     client.destroy_stream(stream_id)
 
-def test_insert_and_retrieve_records_unix(client):
-    """
-    Test inserting and retrieving records with Unix timestamps.
-    """
-    stream_id = generate_stream_id("test_stream_records_unix")
-
-    try:
-        # Cleanup in case the stream already exists from a previous test run
-        try:
-            client.destroy_stream(stream_id)
-        except Exception:
-            pass
-
-        client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitiveUnix)
-        client.init_stream(stream_id)
-
-        records_to_insert = [
-            {"date": 1672531200, "value": 10.5},  # 2023-01-01 in Unix time
-            {"date": 1672617600, "value": 12.2},  # 2023-01-02 in Unix time
-            {"date": 1672704000, "value": 8.8},  # 2023-01-03 in Unix time
-        ]
-        insert_tx_hash = client.insert_records_unix(stream_id, records_to_insert)
-        assert insert_tx_hash is not None
-
-        retrieved_records = client.get_records_unix(
-            stream_id, date_from=1672531200, date_to=1672704000
-        )
-        assert len(retrieved_records) == len(records_to_insert)
-        for i, record in enumerate(retrieved_records):
-            assert int(record["DateValue"]) == records_to_insert[i]["date"]
-            assert float(record["Value"]) == records_to_insert[i]["value"]
-
-    finally:
-        # Clean up
-        client.destroy_stream(stream_id)
-
 def test_get_first_record(client):
     """Test getting the first record from a stream."""
     stream_id = generate_stream_id("test_get_first_record")

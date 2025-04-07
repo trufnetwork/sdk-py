@@ -1,6 +1,6 @@
 import pytest
 import time
-from trufnetwork_sdk_py.client import TNClient, UnixRecordBatch, UnixRecord, RecordBatch, Record
+from trufnetwork_sdk_py.client import TNClient, RecordBatch, Record
 from trufnetwork_sdk_py.utils import generate_stream_id
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 from typing import List
@@ -104,48 +104,7 @@ def test_batch_small_batches(client):
     finally:
         client.destroy_stream(stream_id)
 
-def test_batch_large_batches(client):
-    """
-    Test inserting 5 large batches of records (100 records each) in a single batch call.
-    This test expects to fail with a "Request too large" error.
-    """
-    stream_id = generate_stream_id("test_batch_large")
-    try:
-        client.destroy_stream(stream_id)
-    except Exception:
-        pass
-
-    client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive)
-
-    try:
-        NUM_BATCHES = 500
-        RECORDS_PER_BATCH = 100
-        
-        # Prepare all batches
-        batches: List[RecordBatch] = []
-        for batch in range(NUM_BATCHES):
-            records = [
-                Record(
-                    date=f"2023-01-{(batch % 28) + 1:02d}",  # Cycle through days 1-28
-                    value=float(batch * 1000 + i)
-                )
-                for i in range(RECORDS_PER_BATCH)
-            ]
-            batches.append(RecordBatch(
-                stream_id=stream_id,
-                inputs=records
-            ))
-        
-        # Insert all batches at once - this should fail with a "Request too large" error
-        with pytest.raises(ValueError, match="Request too large: The batch size exceeds the maximum allowed size"):
-            client.batch_insert_records(batches, wait=False)
-
-        print("[Large Batches] Test passed: Request was correctly rejected as too large")
-
-    finally:
-        client.destroy_stream(stream_id)
-
-def test_batch_single_record_inserts(client, current_account):
+def test_batch_single_record_inserts(client):
     """
     Test inserting individual records in a single batch call.
     """
@@ -173,8 +132,8 @@ def test_batch_single_record_inserts(client, current_account):
             ))
 
         # Insert all records at once
-        tx_hash = client.batch_insert_records(batches, wait=False)
-        assert tx_hash
+        tx_hashes = client.batch_insert_records(batches, wait=False)
+        assert tx_hashes
 
         insert_duration = time.time() - insert_start
         print(f"[Single Records] All insertions completed in {insert_duration:.2f}s "
@@ -184,7 +143,8 @@ def test_batch_single_record_inserts(client, current_account):
         confirm_start = time.time()
         
         # Wait for all transactions after sending them all
-        client.wait_for_tx(tx_hash)
+        for tx_hash in tx_hashes:
+            client.wait_for_tx(tx_hash)
 
         confirm_duration = time.time() - confirm_start
         print(f"[Single Records] All transactions confirmed in {confirm_duration:.2f}s")

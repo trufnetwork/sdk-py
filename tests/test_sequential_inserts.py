@@ -23,18 +23,6 @@ def current_account(client):
     """
     return client.get_current_account()
 
-@pytest.fixture(scope="module")
-def helper_contract_id(client):
-    """
-    Pytest fixture to deploy the helper contract.
-    Returns a stream_id that will be automatically cleaned up after tests.
-    """
-    stream_id = generate_stream_id("test_helper_contract")
-    client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypeHelper)
-    yield stream_id
-    # Cleanup will run after all tests using this fixture are complete
-    client.destroy_stream(stream_id)
-
 def test_batch_small_batches(client):
     """
     Test inserting 20 small batches of records (5 records each) in a single batch call.

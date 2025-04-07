@@ -74,7 +74,6 @@ def test_insert_single_record(client):
     # Clean up
     client.destroy_stream(stream_id)
 
-
 def test_insert_and_retrieve_records(client):
     """
     Test inserting and retrieving records.

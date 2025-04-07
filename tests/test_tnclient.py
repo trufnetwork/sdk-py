@@ -25,7 +25,7 @@ def test_client_initialization(client):
     """
     assert client.client is not None
 
-def test_deploy_and_initialize_stream(client):
+def test_deploy_stream(client):
     """
     Test deploying and initializing a stream.
     """
@@ -39,9 +39,6 @@ def test_deploy_and_initialize_stream(client):
 
     deploy_tx_hash = client.deploy_stream(stream_id)
     assert deploy_tx_hash is not None
-
-    init_tx_hash = client.init_stream(stream_id)
-    assert init_tx_hash is not None
 
     # Clean up
     client.destroy_stream(stream_id)

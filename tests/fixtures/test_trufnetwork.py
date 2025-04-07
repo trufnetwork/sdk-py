@@ -44,7 +44,7 @@ POSTGRES_CONTAINER = ContainerSpec(
     name="test-kwil-postgres",
     image="kwildb/postgres:latest",
     tmpfs_path="/var/lib/postgresql/data",
-    env_vars=["POSTGRES_HOST_AUTH_METHOD=trust"],
+    env_vars=["POSTGRES_HOST_AUTH_METHOD=trust"]
 )
 
 TSN_DB_CONTAINER = ContainerSpec(
@@ -53,21 +53,12 @@ TSN_DB_CONTAINER = ContainerSpec(
     tmpfs_path="/root/.kwild",
     entrypoint="/app/kwild",
     args=[
+        "start",
         "--autogen",
-        "--app.pg-db-host",
+        "--db-owner",
+        "0xecCc1ffEe06311c50Aa16e0E2acf2CD142d63905",
+        "--db.host",
         "test-kwil-postgres",
-        "--app.hostname",
-        "test-tsn-db",
-        "--chain.p2p.external-address",
-        "http://test-tsn-db:26656",
-        "--chain.consensus.timeout-propose",
-        "100ms",
-        "--chain.consensus.timeout-prevote",
-        "100ms",
-        "--chain.consensus.timeout-precommit",
-        "100ms",
-        "--chain.consensus.timeout-commit",
-        "100ms",
     ],
     env_vars=[
         "CONFIG_PATH=/root/.kwild",

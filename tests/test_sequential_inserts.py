@@ -7,13 +7,16 @@ from typing import List
 from tests.fixtures.test_trufnetwork import DEFAULT_TN_PRIVATE_KEY
 from datetime import datetime, timedelta  # Import datetime and timedelta
 
+# Test configuration
+TEST_PROVIDER_URL = "http://localhost:8484"  
+
 @pytest.fixture(scope="module")
-def client(tn_node):
+def client():
     """
     Pytest fixture to create a TNClient instance for testing.
     Uses the tn_node fixture which provides a running test environment.
     """
-    client = TNClient(tn_node, DEFAULT_TN_PRIVATE_KEY)
+    client = TNClient(TEST_PROVIDER_URL, DEFAULT_TN_PRIVATE_KEY)
     return client
 
 @pytest.fixture(scope="module")

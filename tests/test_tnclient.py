@@ -12,12 +12,12 @@ TEST_PRIVATE_KEY = (
 )
 
 @pytest.fixture(scope="module")
-def client(tn_node):
+def client():
     """
     Pytest fixture to create a TNClient instance for testing.
     Uses the tn_node fixture to get a running server.
     """
-    client = TNClient(tn_node, TEST_PRIVATE_KEY)
+    client = TNClient(TEST_PROVIDER_URL, TEST_PRIVATE_KEY)
     return client
 
 def test_client_initialization(client):
@@ -73,7 +73,6 @@ def test_insert_single_record(client):
 
     # Clean up
     client.destroy_stream(stream_id)
-
 
 def test_insert_and_retrieve_records(client):
     """

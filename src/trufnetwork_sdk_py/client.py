@@ -2,15 +2,6 @@ from typing import Dict, List, Union, Optional, Any, TypedDict
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
-
-class UnixRecord(TypedDict):
-    date: int
-    value: float
-
-class UnixRecordBatch(TypedDict):
-    stream_id: str
-    inputs: List[UnixRecord]
-
 class Record(TypedDict):
     date: str  # YYYY-MM-DD format
     value: float
@@ -138,8 +129,6 @@ class TNClient:
         go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
         insert_tx_hash = truf_sdk.InsertRecord(self.client, go_input)
 
-        print(insert_tx_hash)
-
         if wait:
             truf_sdk.WaitForTx(self.client, insert_tx_hash)
 
@@ -165,17 +154,14 @@ class TNClient:
         """
 
         input_list = []
-        for i, record in enumerate(records):
+        for _, record in enumerate(records):
             # Create InsertRecordInput struct
             go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
             input_list.append(go_input)
         
-        go_input_list = truf_sdk.Slice_types_InsertRecordInput(input_list)
+        go_input_list = truf_sdk.Slice_s2_types_InsertRecordInput(input_list)
+        insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)
 
-        insert_tx_hash = truf_sdk.InsertRecords(
-            self.client,
-            go_input_list
-        )
         if wait:
             truf_sdk.WaitForTx(self.client, insert_tx_hash)
 
@@ -201,38 +187,27 @@ class TNClient:
         Returns:
             String array containing the transaction hashes
         """
-        # Create a Go slice of Batch structs
-        batches_list = []
-            
+        tx_hashes = [] 
         for _, batch in enumerate(batches):
-            # Create a Go slice for inputs
             inputs = batch["inputs"]
             input_list = []
             
-            for j, record in enumerate(inputs):
+            for _, record in enumerate(inputs):
                 # Create InsertRecordInput struct
-                go_input = truf_sdk.NewInsertRecordInput(batch["stream_id"], record["date"], record["value"])
+                go_input = truf_sdk.NewInsertRecordInput(self.client, batch["stream_id"], record["date"], record["value"])
                 input_list.append(go_input)
             
-            # Create Batch struct
-            go_input_list = truf_sdk.Slice_types_InsertRecordInput(input_list)
-            go_batch = truf_sdk.NewBatch(batch["stream_id"], go_input_list)
-            batches_list.append(go_batch)
+            go_input_list = truf_sdk.Slice_s2_types_InsertRecordInput(input_list)
 
-        # Call the Go function with the typed batches
-        go_batches = truf_sdk.Slice_exports_Batch(batches_list)
-
-        # Put the Go batches into the args struct
-        go_args = truf_sdk.BatchInsertRecordsArgs(Batches=go_batches)
-
-        try:
-            tx_hashes = truf_sdk.BatchInsertRecords(self.client, go_args)
-        except Exception as e:
-            error_str = str(e)
-            if "failed to estimate price" in error_str:
-                raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
-            raise e
-
+            try:
+                insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)
+                tx_hashes.append(insert_tx_hash)
+            except Exception as e:
+                error_str = str(e)
+                if "failed to estimate price" in error_str:
+                    raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
+                raise e
+        
         if wait:
             for tx_hash in tx_hashes:
                 truf_sdk.WaitForTx(self.client, tx_hash)

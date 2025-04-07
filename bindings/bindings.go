@@ -22,11 +22,8 @@ import (
 
 // StreamType constants.
 const (
-	StreamTypeComposed types.StreamType = types.StreamTypeComposed
-	// StreamTypeComposedUnix  types.StreamType = types.StreamTypeComposedUnix
+	StreamTypeComposed  types.StreamType = types.StreamTypeComposed
 	StreamTypePrimitive types.StreamType = types.StreamTypePrimitive
-	// StreamTypePrimitiveUnix types.StreamType = types.StreamTypePrimitiveUnix
-	// StreamTypeHelper        types.StreamType = types.StreamTypeHelper
 )
 
 // ProcedureArgs represents a slice of arguments for a procedure.
@@ -178,19 +175,6 @@ func InsertRecords(client *tnclient.Client, inputs []types.InsertRecordInput) (s
 	return txHash.String(), nil
 }
 
-type Batch struct {
-	StreamId string                    `json:"stream_id"`
-	Inputs   []types.InsertRecordInput `json:"inputs"`
-}
-
-// NewBatch creates a new Batch struct
-func NewBatch(streamId string, inputs []types.InsertRecordInput) Batch {
-	return Batch{
-		StreamId: streamId,
-		Inputs:   inputs,
-	}
-}
-
 // NewInsertRecordInput creates a new InsertRecordInput struct
 func NewInsertRecordInput(client *tnclient.Client, streamId string, dateVal string, val float64) types.InsertRecordInput {
 	date, err := parseDate(dateVal)
@@ -211,32 +195,6 @@ func NewInsertRecordInput(client *tnclient.Client, streamId string, dateVal stri
 		EventTime:    *date,
 		Value:        val,
 	}
-}
-
-type BatchInsertRecordsArgs struct {
-	Batches                    []Batch
-	HelperContractStreamId     string
-	HelperContractDataProvider string
-}
-
-func BatchInsertRecords(client *tnclient.Client, args BatchInsertRecordsArgs) ([]kwilTypes.Hash, error) {
-	ctx := context.Background()
-
-	stream, err := client.LoadPrimitiveActions()
-	if err != nil {
-		return nil, err
-	}
-
-	txHashes := make([]kwilTypes.Hash, len(args.Batches))
-	for _, batch := range args.Batches {
-		txHash, err := stream.InsertRecords(ctx, batch.Inputs)
-		if err != nil {
-			return nil, errors.Wrap(err, "error inserting records")
-		}
-		txHashes = append(txHashes, txHash)
-	}
-
-	return txHashes, nil
 }
 
 // // ExecuteProcedure executes a procedure on the stream with the given stream ID, data provider, and procedure.

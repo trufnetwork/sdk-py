@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import pytest
 from trufnetwork_sdk_py.client import TNClient
 from trufnetwork_sdk_py.utils import generate_stream_id
@@ -43,6 +44,37 @@ def test_deploy_stream(client):
     # Clean up
     client.destroy_stream(stream_id)
 
+def test_insert_single_record(client):
+    """
+    Test inserting single record.
+    """
+    stream_id = generate_stream_id("test_stream_record")
+
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream_id)
+    except Exception:
+        pass
+
+    client.deploy_stream(stream_id)
+    
+    record_to_insert = {"date": "2023-01-01", "value": 10.5}
+
+    insert_tx_hash = client.insert_record(stream_id, record_to_insert)
+    assert insert_tx_hash is not None
+
+    retrieved_records = client.get_records(
+        stream_id, date_from="2023-01-01", date_to="2023-01-03"
+    )
+    assert len(retrieved_records) == 1
+    for i, record in enumerate(retrieved_records):
+        assert record["EventTime"] == str(date_string_to_unix(record_to_insert["date"]))
+        assert float(record["Value"]) == record_to_insert["value"]
+
+    # Clean up
+    client.destroy_stream(stream_id)
+
+
 def test_insert_and_retrieve_records(client):
     """
     Test inserting and retrieving records.
@@ -56,7 +88,6 @@ def test_insert_and_retrieve_records(client):
         pass
 
     client.deploy_stream(stream_id)
-    client.init_stream(stream_id)
 
     records_to_insert = [
         {"date": "2023-01-01", "value": 10.5},
@@ -66,52 +97,18 @@ def test_insert_and_retrieve_records(client):
     insert_tx_hash = client.insert_records(stream_id, records_to_insert)
     assert insert_tx_hash is not None
 
+    data_provider = client.get_current_account()
+
     retrieved_records = client.get_records(
-        stream_id, date_from="2023-01-01", date_to="2023-01-03"
+        stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
     )
     assert len(retrieved_records) == len(records_to_insert)
     for i, record in enumerate(retrieved_records):
-        assert record["DateValue"] == records_to_insert[i]["date"]
+        assert record["EventTime"] == str(date_string_to_unix(records_to_insert[i]["date"]))
         assert float(record["Value"]) == records_to_insert[i]["value"]
 
     # Clean up
     client.destroy_stream(stream_id)
-
-def test_insert_and_retrieve_records_unix(client):
-    """
-    Test inserting and retrieving records with Unix timestamps.
-    """
-    stream_id = generate_stream_id("test_stream_records_unix")
-
-    try:
-        # Cleanup in case the stream already exists from a previous test run
-        try:
-            client.destroy_stream(stream_id)
-        except Exception:
-            pass
-
-        client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitiveUnix)
-        client.init_stream(stream_id)
-
-        records_to_insert = [
-            {"date": 1672531200, "value": 10.5},  # 2023-01-01 in Unix time
-            {"date": 1672617600, "value": 12.2},  # 2023-01-02 in Unix time
-            {"date": 1672704000, "value": 8.8},  # 2023-01-03 in Unix time
-        ]
-        insert_tx_hash = client.insert_records_unix(stream_id, records_to_insert)
-        assert insert_tx_hash is not None
-
-        retrieved_records = client.get_records_unix(
-            stream_id, date_from=1672531200, date_to=1672704000
-        )
-        assert len(retrieved_records) == len(records_to_insert)
-        for i, record in enumerate(retrieved_records):
-            assert int(record["DateValue"]) == records_to_insert[i]["date"]
-            assert float(record["Value"]) == records_to_insert[i]["value"]
-
-    finally:
-        # Clean up
-        client.destroy_stream(stream_id)
 
 def test_get_first_record(client):
     """Test getting the first record from a stream."""
@@ -367,3 +364,8 @@ def test_stream_exists(client):
     
     # After destruction, the stream should not exist with empty string data provider
     assert not client.stream_exists(stream_id, ""), "Stream should not exist after destruction with empty string data provider" 
+
+def date_string_to_unix(date_str, date_format="%Y-%m-%d"):
+    """Convert a date string to a Unix timestamp (integer)."""
+    dt = datetime.strptime(date_str, date_format).replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())

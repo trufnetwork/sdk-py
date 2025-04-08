@@ -306,47 +306,62 @@ func NewInsertRecordInput(client *tnclient.Client, streamId string, dateVal stri
 // 	return err == nil, nil
 // }
 
-// GetRecords retrieves records from the stream with the given stream ID.
-func GetRecords(
+// NewGetRecordInput creates a new GetRecordInput struct
+func NewGetRecordInput(
 	client *tnclient.Client,
 	streamId string,
 	dataProvider string,
-	dateFrom string,
-	dateTo string,
-	frozenAt string,
-	baseDate string,
-) ([]map[string]string, error) {
-
-	dateFromTyped, err := parseDate(dateFrom)
-	if err != nil {
-		return nil, err
-	}
-	dateToTyped, err := parseDate(dateTo)
-	if err != nil {
-		return nil, err
+	fromVal string,
+	toVal string,
+	frozenVal string,
+	baseDateVal string,
+) types.GetRecordInput {
+	result := types.GetRecordInput{
+		StreamId:     streamId,
+		DataProvider: dataProvider,
 	}
 
+	if dataProvider == "" {
+		currentAccount, err := GetCurrentAccount(client)
+		if err != nil {
+			return result
+		}
+		result.DataProvider = currentAccount
+	}
+	from, err := parseDate(fromVal)
+	if err != nil {
+		return result
+	}
+	to, err := parseDate(toVal)
+	if err != nil {
+		return result
+	}
+	frozenAt, err := parseDate(frozenVal)
+	if err != nil {
+		return result
+	}
+	baseDate, err := parseDate(baseDateVal)
+	if err != nil {
+		return result
+	}
+
+	result.From = from
+	result.To = to
+	result.FrozenAt = frozenAt
+	result.BaseDate = baseDate
+
+	return result
+}
+
+// GetRecords retrieves records from the stream with the given stream ID.
+func GetRecords(client *tnclient.Client, input types.GetRecordInput) ([]map[string]string, error) {
 	ctx := context.Background()
 	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
 		return nil, err
 	}
 
-	if dataProvider == "" {
-		dataProvider, err = GetCurrentAccount(client)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	records, err := stream.GetRecord(ctx, types.GetRecordInput{
-		DataProvider: dataProvider,
-		StreamId:     streamId,
-		From:         dateFromTyped,
-		To:           dateToTyped,
-		// frozenAt and baseDate are not used here.
-		// If needed, add them to GetRecordInput in the SDK & pass them here.
-	})
+	records, err := stream.GetRecord(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +395,13 @@ func GetRecords(
 // }
 
 // NewGetFirstRecordInput creates a new GetFirstRecordInput struct
-func NewGetFirstRecordInput(client *tnclient.Client, streamId string, dataProvider string, afterVal string, frozenVal string) types.GetFirstRecordInput {
+func NewGetFirstRecordInput(
+	client *tnclient.Client,
+	streamId string,
+	dataProvider string,
+	afterVal string,
+	frozenVal string,
+) types.GetFirstRecordInput {
 	result := types.GetFirstRecordInput{
 		StreamId:     streamId,
 		DataProvider: dataProvider,

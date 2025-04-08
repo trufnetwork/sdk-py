@@ -241,15 +241,16 @@ class TNClient:
         frozen_at = self._coalesce_str(frozen_at)
         base_date = self._coalesce_str(base_date)
 
-        go_slice_of_maps = truf_sdk.GetRecords(
-            self.client,
+        input = truf_sdk.NewGetRecordInput(
+            self.client, 
             stream_id,
             data_provider,
             date_from,
             date_to,
             frozen_at,
-            base_date,
+            base_date
         )
+        go_slice_of_maps = truf_sdk.GetRecords(self.client, input)
 
         return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
 

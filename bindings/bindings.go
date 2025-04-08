@@ -189,102 +189,6 @@ func NewInsertRecordInput(client *tnclient.Client, streamId string, dateVal stri
 	}
 }
 
-// // ExecuteProcedure executes a procedure on the stream with the given stream ID, data provider, and procedure.
-// func ExecuteProcedure(client *tnclient.Client, streamId string, dataProvider string, procedure string, args ...ProcedureArgs) (string, error) {
-// 	ctx := context.Background()
-
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error creating stream id")
-// 	}
-
-// 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error creating data provider")
-// 	}
-
-// 	streamLocator := types.StreamLocator{
-// 		StreamId:     *streamIdTyped,
-// 		DataProvider: dataProviderTyped,
-// 	}
-
-// 	stream, err := client.LoadStream(streamLocator)
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error loading stream")
-// 	}
-
-// 	// Transpose arguments so the procedure sees them in the expected format.
-// 	if len(args) == 0 {
-// 		return "", errors.New("no procedure arguments provided")
-// 	}
-// 	expectedBatchLength := len(args[0])
-// 	transposedArgs := make([][]any, expectedBatchLength)
-
-// 	for _, arg := range args {
-// 		if len(arg) != expectedBatchLength {
-// 			return "", errors.New("all slices must have the same length")
-// 		}
-// 		for i, item := range arg {
-// 			transposedArgs[i] = append(transposedArgs[i], item)
-// 		}
-// 	}
-
-// 	txHash, err := stream.ExecuteProcedure(ctx, procedure, transposedArgs)
-// 	if err != nil {
-// 		return "", errors.Wrap(err, "error executing procedure")
-// 	}
-// 	return txHash.Hex(), nil
-// }
-
-// type CallProcedureArgs struct {
-// 	Arguments []any
-// }
-
-// func NewCallProcedureArgs(args ...any) CallProcedureArgs {
-// 	return CallProcedureArgs{
-// 		Arguments: args,
-// 	}
-// }
-
-// func (args *CallProcedureArgs) AddString(arg string) {
-// 	args.Arguments = append(args.Arguments, arg)
-// }
-
-// func (args *CallProcedureArgs) AddFloat(arg float64) {
-// 	args.Arguments = append(args.Arguments, arg)
-// }
-
-// func (args *CallProcedureArgs) AddInt(arg int) {
-// 	args.Arguments = append(args.Arguments, arg)
-// }
-
-// // CallProcedure calls a procedure on the stream with the given stream ID, data provider, and procedure.
-// func CallProcedure(client *tnclient.Client, streamId string, dataProvider string, procedure string, args CallProcedureArgs) (*client.Records, error) {
-// 	ctx := context.Background()
-
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-// 	}
-
-// 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-// 	}
-
-// 	streamLocator := types.StreamLocator{
-// 		StreamId:     *streamIdTyped,
-// 		DataProvider: dataProviderTyped,
-// 	}
-
-// 	stream, err := client.LoadStream(streamLocator)
-// 	if err != nil {
-// 		return nil, errors.Wrap(err, "error loading stream")
-// 	}
-
-// 	return stream.CallProcedure(ctx, procedure, args.Arguments)
-// }
-
 // NewGetRecordInput creates a new GetRecordInput struct
 func NewGetRecordInput(
 	client *tnclient.Client,
@@ -348,30 +252,30 @@ func GetRecords(client *tnclient.Client, input types.GetRecordInput) ([]map[stri
 	return recordsToMapSlice(records), nil
 }
 
-// func GetType(client *tnclient.Client, streamId string, dataProvider string) (types.StreamType, error) {
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	ctx := context.Background()
-// 	if err != nil {
-// 		return types.StreamTypePrimitive, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-// 	}
+func GetType(client *tnclient.Client, streamId string, dataProvider string) (types.StreamType, error) {
+	streamIdTyped, err := util.NewStreamId(streamId)
+	ctx := context.Background()
+	if err != nil {
+		return types.StreamTypePrimitive, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
+	}
 
-// 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-// 	if err != nil {
-// 		return types.StreamTypePrimitive, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-// 	}
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return types.StreamTypePrimitive, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
+	}
 
-// 	streamLocator := types.StreamLocator{
-// 		StreamId:     *streamIdTyped,
-// 		DataProvider: dataProviderTyped,
-// 	}
+	streamLocator := types.StreamLocator{
+		StreamId:     *streamIdTyped,
+		DataProvider: dataProviderTyped,
+	}
 
-// 	stream, err := client.LoadStream(streamLocator)
-// 	if err != nil {
-// 		return types.StreamTypePrimitive, fmt.Errorf("error loading stream: %w", err)
-// 	}
+	stream, err := client.LoadActions()
+	if err != nil {
+		return types.StreamTypePrimitive, err
+	}
 
-// 	return stream.GetType(ctx)
-// }
+	return stream.GetType(ctx, streamLocator)
+}
 
 // NewGetFirstRecordInput creates a new GetFirstRecordInput struct
 func NewGetFirstRecordInput(

@@ -189,6 +189,32 @@ def test_get_index(client):
     # Clean up
     client.destroy_stream(stream_id)
 
+def test_get_type(client):
+    """
+    Test that gets the type of the stream.
+    """
+    stream_id = generate_stream_id("stream_for_primitive_type")
+    composed_stream_id = generate_stream_id("stream_for_composed_type")
+
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream_id)
+        client.destroy_stream(composed_stream_id)
+    except Exception:
+        pass
+
+    client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive, wait=True)
+    client.deploy_stream(composed_stream_id, stream_type=truf_sdk.StreamTypeComposed, wait=True)
+
+    stream_type = client.get_type(stream_id, client.get_current_account())
+    assert stream_type == truf_sdk.StreamTypePrimitive, "Stream type should be primitive"
+
+    stream_type = client.get_type(composed_stream_id, client.get_current_account())
+    assert stream_type == truf_sdk.StreamTypeComposed, "Stream type should be composed"
+
+    client.destroy_stream(stream_id)
+    client.destroy_stream(composed_stream_id)
+
 def date_string_to_unix(date_str, date_format="%Y-%m-%d"):
     """Convert a date string to a Unix timestamp (integer)."""
     dt = datetime.strptime(date_str, date_format).replace(tzinfo=timezone.utc)

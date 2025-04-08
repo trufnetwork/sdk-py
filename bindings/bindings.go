@@ -14,6 +14,7 @@ import (
 	"github.com/kwilteam/kwil-db/core/crypto/auth"
 	kwilTypes "github.com/kwilteam/kwil-db/core/types"
 	"github.com/pkg/errors"
+	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
 	"github.com/trufnetwork/sdk-go/core/util"
@@ -85,15 +86,6 @@ func GetCurrentAccount(client *tnclient.Client) (string, error) {
 	address := client.Address()
 	return address.Address(), nil
 }
-
-// func GetNextNonce(client *tnclient.Client) (int64, error) {
-// 	kwilClient := client.GetKwilClient()
-// 	acct, err := kwilClient.GetAccount(context.Background(), client.Signer.Identity(), kwilTypes.AccountStatusPending)
-// 	if err != nil {
-// 		return 0, err
-// 	}
-// 	return acct.Nonce + 1, nil
-// }
 
 // createSigner creates an EthPersonalSigner from a private key.
 func createSigner(privateKey string) (*auth.EthPersonalSigner, error) {
@@ -314,103 +306,68 @@ func NewInsertRecordInput(client *tnclient.Client, streamId string, dateVal stri
 // 	return err == nil, nil
 // }
 
-// GetRecords retrieves records from the stream with the given stream ID.
-func GetRecords(
+// NewGetRecordInput creates a new GetRecordInput struct
+func NewGetRecordInput(
 	client *tnclient.Client,
 	streamId string,
 	dataProvider string,
-	dateFrom string,
-	dateTo string,
-	frozenAt string,
-	baseDate string,
-) ([]map[string]string, error) {
-
-	dateFromTyped, err := parseDate(dateFrom)
-	if err != nil {
-		return nil, err
-	}
-	dateToTyped, err := parseDate(dateTo)
-	if err != nil {
-		return nil, err
+	fromVal string,
+	toVal string,
+	frozenVal string,
+	baseDateVal string,
+) types.GetRecordInput {
+	result := types.GetRecordInput{
+		StreamId:     streamId,
+		DataProvider: dataProvider,
 	}
 
+	if dataProvider == "" {
+		currentAccount, err := GetCurrentAccount(client)
+		if err != nil {
+			return result
+		}
+		result.DataProvider = currentAccount
+	}
+	from, err := parseDate(fromVal)
+	if err != nil {
+		return result
+	}
+	to, err := parseDate(toVal)
+	if err != nil {
+		return result
+	}
+	frozenAt, err := parseDate(frozenVal)
+	if err != nil {
+		return result
+	}
+	baseDate, err := parseDate(baseDateVal)
+	if err != nil {
+		return result
+	}
+
+	result.From = from
+	result.To = to
+	result.FrozenAt = frozenAt
+	result.BaseDate = baseDate
+
+	return result
+}
+
+// GetRecords retrieves records from the stream with the given stream ID.
+func GetRecords(client *tnclient.Client, input types.GetRecordInput) ([]map[string]string, error) {
 	ctx := context.Background()
 	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
 		return nil, err
 	}
 
-	if dataProvider == "" {
-		dataProvider, err = GetCurrentAccount(client)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	records, err := stream.GetRecord(ctx, types.GetRecordInput{
-		DataProvider: dataProvider,
-		StreamId:     streamId,
-		From:         dateFromTyped,
-		To:           dateToTyped,
-		// frozenAt and baseDate are not used here.
-		// If needed, add them to GetRecordInput in the SDK & pass them here.
-	})
+	records, err := stream.GetRecord(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 
 	return recordsToMapSlice(records), nil
 }
-
-// // GetIndexUnix retrieves an index from the stream with the given stream ID using Unix timestamps.
-// func GetIndexUnix(
-// 	client *tnclient.Client,
-// 	streamId string,
-// 	dataProvider string,
-// 	dateFrom int,
-// 	dateTo int,
-// 	frozenAt int,
-// 	baseDate int,
-// ) ([]map[string]string, error) {
-
-// 	ctx := context.Background()
-
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-// 	}
-// 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-// 	}
-
-// 	streamLocator := types.StreamLocator{
-// 		StreamId:     *streamIdTyped,
-// 		DataProvider: dataProviderTyped,
-// 	}
-
-// 	stream, err := client.LoadPrimitiveStream(streamLocator)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	frozenAtTime, err := parseUnixTime(frozenAt)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	index, err := stream.GetIndexUnix(ctx, types.GetIndexUnixInput{
-// 		DateFrom: intOrNil(dateFrom),
-// 		DateTo:   intOrNil(dateTo),
-// 		FrozenAt: frozenAtTime,
-// 		BaseDate: intOrNil(baseDate),
-// 	})
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	return recordsToMapSlice(index), nil
-// }
 
 // func GetType(client *tnclient.Client, streamId string, dataProvider string) (types.StreamType, error) {
 // 	streamIdTyped, err := util.NewStreamId(streamId)
@@ -437,135 +394,69 @@ func GetRecords(
 // 	return stream.GetType(ctx)
 // }
 
-// // GetFirstRecordInput represents the input parameters for GetFirstRecord
-// type GetFirstRecordInput struct {
-// 	AfterDate string
-// 	FrozenAt  string
-// }
+// NewGetFirstRecordInput creates a new GetFirstRecordInput struct
+func NewGetFirstRecordInput(
+	client *tnclient.Client,
+	streamId string,
+	dataProvider string,
+	afterVal string,
+	frozenVal string,
+) types.GetFirstRecordInput {
+	result := types.GetFirstRecordInput{
+		StreamId:     streamId,
+		DataProvider: dataProvider,
+	}
 
-// // GetFirstRecord gets the first record of a stream after a given date
-// func GetFirstRecord(client *tnclient.Client, streamId string, dataProvider string, afterDate string, frozenAt string) (map[string]string, error) {
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-// 	}
+	if dataProvider == "" {
+		currentAccount, err := GetCurrentAccount(client)
+		if err != nil {
+			return result
+		}
+		result.DataProvider = currentAccount
+	}
+	frozenAt, err := parseDate(frozenVal)
+	if err != nil {
+		return result
+	}
+	after, err := parseDate(afterVal)
+	if err != nil {
+		return result
+	}
 
-// 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-// 	}
+	result.FrozenAt = frozenAt
+	result.After = after
 
-// 	streamLocator := types.StreamLocator{
-// 		StreamId:     *streamIdTyped,
-// 		DataProvider: dataProviderTyped,
-// 	}
+	return result
+}
 
-// 	stream, err := client.LoadPrimitiveStream(streamLocator)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+// GetFirstRecord gets the first record of a stream after a given date
+func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (map[string]string, error) {
+	stream, err := client.LoadPrimitiveActions()
+	if err != nil {
+		return nil, err
+	}
 
-// 	input := types.GetFirstRecordInput{}
+	record, err := stream.GetFirstRecord(context.Background(), input)
+	if record == nil {
+		return nil, nil
+	}
+	if err != nil {
+		if err == contractsapi.ErrorRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
 
-// 	afterDateParsed, err := parseDate(afterDate)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	input.AfterDate = afterDateParsed
+	result := make(map[string]string)
+	result["date"] = parseUnixTimestamp(record.EventTime)
+	value, err := record.Value.Float64()
+	if err != nil {
+		return nil, fmt.Errorf("error converting value to float64: %w", err)
+	}
+	result["value"] = strconv.FormatFloat(value, 'f', -1, 64)
 
-// 	if frozenAt != "" {
-// 		t, err := time.Parse("2006-01-02", frozenAt)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("invalid date format '%s': %w", frozenAt, err)
-// 		}
-// 		input.FrozenAt = &t
-// 	}
-
-// 	record, err := stream.GetFirstRecord(context.Background(), input)
-// 	if record == nil {
-// 		return nil, nil
-// 	}
-// 	if err != nil {
-// 		if err == contractsapi.ErrorRecordNotFound {
-// 			return nil, nil
-// 		}
-// 		return nil, err
-// 	}
-
-// 	result := make(map[string]string)
-// 	result["date"] = record.DateValue.String()
-// 	value, err := record.Value.Float64()
-// 	if err != nil {
-// 		return nil, fmt.Errorf("error converting value to float64: %w", err)
-// 	}
-// 	result["value"] = strconv.FormatFloat(value, 'f', -1, 64)
-
-// 	return result, nil
-// }
-
-// // GetFirstRecordUnixInput represents the input parameters for GetFirstRecordUnix
-// type GetFirstRecordUnixInput struct {
-// 	AfterDate int
-// 	FrozenAt  int
-// }
-
-// // GetFirstRecordUnix gets the first record of a stream after a given Unix timestamp
-// func GetFirstRecordUnix(client *tnclient.Client, streamId string, dataProvider string, afterDate int, frozenAt int) (map[string]string, error) {
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-// 	}
-
-// 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-// 	}
-
-// 	streamLocator := types.StreamLocator{
-// 		StreamId:     *streamIdTyped,
-// 		DataProvider: dataProviderTyped,
-// 	}
-
-// 	stream, err := client.LoadPrimitiveStream(streamLocator)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	input := types.GetFirstRecordUnixInput{}
-
-// 	if afterDate != -1 {
-// 		input.AfterDate = &afterDate
-// 	}
-
-// 	if frozenAt != -1 {
-// 		frozenAtTime, err := parseUnixTime(frozenAt)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		input.FrozenAt = frozenAtTime
-// 	}
-
-// 	record, err := stream.GetFirstRecordUnix(context.Background(), input)
-// 	if record == nil {
-// 		return nil, nil
-// 	}
-// 	if err != nil {
-// 		if err == contractsapi.ErrorRecordNotFound {
-// 			return nil, nil
-// 		}
-// 		return nil, err
-// 	}
-
-// 	result := make(map[string]string)
-// 	result["date"] = strconv.FormatInt(int64(record.DateValue), 10)
-// 	value, err := record.Value.Float64()
-// 	if err != nil {
-// 		return nil, fmt.Errorf("error converting value to float64: %w", err)
-// 	}
-// 	result["value"] = strconv.FormatFloat(value, 'f', -1, 64)
-
-// 	return result, nil
-// }
+	return result, nil
+}
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.
 func WaitForTx(client *tnclient.Client, txHashHex string) error {
@@ -613,13 +504,21 @@ func parseDate(dateStr string) (*int, error) {
 	return &unixTime, nil
 }
 
-// // intOrNil returns a pointer to value unless it's -1, in which case it returns nil.
-// func intOrNil(value int) *int {
-// 	if value == -1 {
-// 		return nil
-// 	}
-// 	return &value
-// }
+func parseUnixTimestamp(timestamp int) string {
+	unixTimestamp := int64(timestamp)
+	t := time.Unix(unixTimestamp, 0).UTC()
+	formattedDate := t.Format("2006-01-02")
+
+	return formattedDate
+}
+
+// intOrNil returns a pointer to value unless it's -1, in which case it returns nil.
+func intOrNil(value int) *int {
+	if value == -1 {
+		return nil
+	}
+	return &value
+}
 
 // recordsToMapSlice converts a slice of records (structs) to a slice of map[string]string.
 func recordsToMapSlice(records interface{}) []map[string]string {

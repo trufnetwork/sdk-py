@@ -285,27 +285,6 @@ func NewInsertRecordInput(client *tnclient.Client, streamId string, dateVal stri
 // 	return stream.CallProcedure(ctx, procedure, args.Arguments)
 // }
 
-// // StreamExists checks if the stream with the given ID (and optional data provider) exists.
-// func StreamExists(client *tnclient.Client, streamId string, dataProvider string) (bool, error) {
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	if err != nil {
-// 		return false, errors.Wrap(err, "error creating stream id")
-// 	}
-
-// 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-// 	if err != nil {
-// 		return false, errors.Wrap(err, "error creating data provider")
-// 	}
-
-// 	streamLocator := types.StreamLocator{
-// 		StreamId:     *streamIdTyped,
-// 		DataProvider: dataProviderTyped,
-// 	}
-
-// 	_, err = client.LoadStream(streamLocator)
-// 	return err == nil, nil
-// }
-
 // NewGetRecordInput creates a new GetRecordInput struct
 func NewGetRecordInput(
 	client *tnclient.Client,
@@ -458,6 +437,21 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (m
 	return result, nil
 }
 
+func GetIndex(client *tnclient.Client, input types.GetIndexInput) ([]map[string]string, error) {
+	ctx := context.Background()
+
+	stream, err := client.LoadPrimitiveActions()
+	if err != nil {
+		return nil, err
+	}
+	records, err := stream.GetIndex(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	return recordsToMapSlice(records), nil
+}
+
 // WaitForTx waits for the transaction with the given hash to be confirmed.
 func WaitForTx(client *tnclient.Client, txHashHex string) error {
 	ctx := context.Background()
@@ -574,53 +568,3 @@ func convertToString(val any) string {
 		return fmt.Sprintf("%v", val)
 	}
 }
-
-// // FilterInitialized filters out non-initialized streams from a list of stream IDs and data providers.
-// func FilterInitialized(client *tnclient.Client, streamIds []string, dataProviders []string, helperContractStreamId string, helperContractDataProvider string) ([]map[string]string, error) {
-// 	ctx := context.Background()
-
-// 	// Use default helper contract stream ID if not provided
-// 	if helperContractStreamId == "" {
-// 		helperContractStreamId = "helper_contract" // Default stream ID for the helper contract
-// 	}
-
-// 	// Use default helper contract data provider if not provided
-// 	if helperContractDataProvider == "" {
-// 		helperContractDataProvider = "4710a8d8f0d845da110086812a32de6d90d7ff5c" // Default data provider for the helper contract
-// 	}
-
-// 	helperStreamId := util.NewRawStreamId(helperContractStreamId)
-// 	ethAddress, err := util.NewEthereumAddressFromString(helperContractDataProvider)
-// 	if err != nil {
-// 		return nil, errors.Wrap(err, "error creating ethereum address")
-// 	}
-// 	helperStreamLocator := types.StreamLocator{
-// 		StreamId:     *helperStreamId,
-// 		DataProvider: ethAddress,
-// 	}
-
-// 	helperStream, err := client.LoadHelperStream(helperStreamLocator)
-// 	if err != nil {
-// 		return nil, errors.Wrap(err, "error loading helper stream")
-// 	}
-
-// 	filterInput := types.FilterInitializedInput{
-// 		StreamIDs:     streamIds,
-// 		DataProviders: dataProviders,
-// 	}
-
-// 	results, err := helperStream.FilterInitialized(ctx, filterInput)
-// 	if err != nil {
-// 		return nil, errors.Wrap(err, "error filtering initialized streams")
-// 	}
-
-// 	output := make([]map[string]string, len(results))
-// 	for i, result := range results {
-// 		output[i] = map[string]string{
-// 			"stream_id":     result.StreamID,
-// 			"data_provider": result.DataProvider,
-// 		}
-// 	}
-
-// 	return output, nil
-// }

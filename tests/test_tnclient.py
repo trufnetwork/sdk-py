@@ -152,165 +152,42 @@ def test_get_first_record(client):
     destroy_tx = client.destroy_stream(stream_id)
     assert destroy_tx is not None
 
-@pytest.fixture(scope="module")
-def helper_contract_id(client):
+def test_get_index(client):
     """
-    Pytest fixture to deploy the helper contract.
-    Returns a stream_id that will be automatically cleaned up after tests.
+    Test getting index from a stream.
     """
-    stream_id = generate_stream_id("test_helper_contract")
-    client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypeHelper)
-    # Note: Helper contract streams don't require initialization
-    yield stream_id
-    # Cleanup will run after all tests using this fixture are complete
-    client.destroy_stream(stream_id)
+    stream_id = generate_stream_id("test_stream_index")
 
-def test_filter_initialized_streams(client, helper_contract_id):
-    """
-    Test filter_initialized_streams method with a real helper contract stream.
-    """
-    # Set up stream IDs
-    stream_id1 = generate_stream_id("test_filter_1")
-    stream_id2 = generate_stream_id("test_filter_2")
-    
-    # Cleanup in case the streams already exist from a previous test run
-    try:
-        client.destroy_stream(stream_id1)
-    except Exception:
-        pass
-    
-    try:
-        client.destroy_stream(stream_id2)
-    except Exception:
-        pass
-    
-    # Deploy both streams
-    client.deploy_stream(stream_id1)
-    client.deploy_stream(stream_id2)
-    
-    # Initialize only the first stream
-    client.init_stream(stream_id1)
-    
-    # Get current account for the data provider
-    data_provider = client.get_current_account()
-    
-    # Test filter_initialized_streams
-    stream_ids = [stream_id1, stream_id2]
-    data_providers = [data_provider, data_provider]
-    
-    initialized_streams = client.filter_initialized_streams(
-        stream_ids, 
-        data_providers=data_providers,
-        helper_contract_stream_id=helper_contract_id,
-        helper_contract_data_provider=data_provider
-    )
-    
-    # Verify the results
-    assert len(initialized_streams) == 1
-    assert initialized_streams[0]['stream_id'] == stream_id1
-    assert initialized_streams[0]['data_provider'] == data_provider
-    
-    # Clean up
-    client.destroy_stream(stream_id1)
-    client.destroy_stream(stream_id2)
-
-def test_filter_non_deployed_streams(client, helper_contract_id):
-    """
-    Test filter_initialized_streams method with a mix of deployed and non-deployed streams.
-    """
-    # Set up stream IDs
-    stream_id1 = generate_stream_id("test_filter_deployed_1")
-    non_deployed_id = generate_stream_id("test_filter_non_deployed")
-    
-    # Cleanup in case the stream already exists from a previous test run
-    try:
-        client.destroy_stream(stream_id1)
-    except Exception:
-        pass
-    
-    # Deploy and initialize one stream
-    client.deploy_stream(stream_id1)
-    client.init_stream(stream_id1)
-    
-    # Get current account for the data provider
-    data_provider = client.get_current_account()
-    
-    # Test filter_initialized_streams with a non-deployed stream ID
-    stream_ids = [stream_id1, non_deployed_id]
-    data_providers = [data_provider, data_provider]
-    
-    try:
-        initialized_streams = client.filter_initialized_streams(
-            stream_ids, 
-            data_providers=data_providers,
-            helper_contract_stream_id=helper_contract_id,
-            helper_contract_data_provider=data_provider
-        )
-        
-        # If we get here, the method didn't fail - it should skip the non-deployed stream
-        assert len(initialized_streams) == 1
-        assert initialized_streams[0]['stream_id'] == stream_id1
-        assert initialized_streams[0]['data_provider'] == data_provider
-    except Exception as e:
-        # Check for the specific error message we saw in our test
-        error_message = str(e).lower()
-        assert "procedure \"get_metadata\" not found" in error_message or \
-               "error filtering initialized streams" in error_message
-    
-    # Clean up
-    client.destroy_stream(stream_id1)
-
-def test_stream_exists(client):
-    """Test the stream_exists function with both existing and non-existing streams."""
-    # Generate a unique stream ID
-    stream_id = generate_stream_id("test_stream_exists")
-    non_existent_stream_id = generate_stream_id("non_existent_stream")
-    
     # Cleanup in case the stream already exists from a previous test run
     try:
         client.destroy_stream(stream_id)
     except Exception:
         pass
-    
-    # Initially, the stream should not exist
-    assert not client.stream_exists(stream_id), "Stream should not exist before deployment"
-    
-    # Deploy the stream
-    deploy_tx = client.deploy_stream(stream_id)
-    assert deploy_tx is not None
-    
-    # After deployment, the stream should exist
-    assert client.stream_exists(stream_id), "Stream should exist after deployment"
-    
-    # Initialize the stream
-    init_tx = client.init_stream(stream_id)
-    assert init_tx is not None
-    
-    # After initialization, the stream should still exist
-    assert client.stream_exists(stream_id), "Stream should exist after initialization"
-    
-    # Non-existent stream should return False
-    assert not client.stream_exists(non_existent_stream_id), "Non-existent stream should return False"
-    
-    # Test with the current account as data provider
+
+    client.deploy_stream(stream_id)
+
+    records_to_insert = [
+        {"date": "2023-01-01", "value": 10.5},
+        {"date": "2023-01-02", "value": 12.2},
+        {"date": "2023-01-03", "value": 8.8},
+    ]
+    insert_tx_hash = client.insert_records(stream_id, records_to_insert)
+    assert insert_tx_hash is not None
+
     data_provider = client.get_current_account()
-    assert client.stream_exists(stream_id, data_provider), "Stream should exist with explicit data provider"
-    
-    # Test with empty string as data provider (should use the default)
-    assert client.stream_exists(stream_id, ""), "Stream should exist with empty string data provider"
-    
-    # Negative test with empty string as data provider
-    assert not client.stream_exists(non_existent_stream_id, ""), "Non-existent stream should return False with empty string data provider"
-    
+
+    retrieved_indexes = client.get_index(
+        stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+    )
+    assert len(retrieved_indexes) == len(records_to_insert)
+    for i, record in enumerate(retrieved_indexes):
+        assert record["EventTime"] == str(date_string_to_unix(records_to_insert[i]["date"]))
+        assert round(float(record["Value"]), 3) == round(
+            float((records_to_insert[i]["value"] / records_to_insert[0]["value"]) * 100), 3
+        )
+
     # Clean up
-    destroy_tx = client.destroy_stream(stream_id)
-    assert destroy_tx is not None
-    
-    # After destruction, the stream should no longer exist
-    assert not client.stream_exists(stream_id), "Stream should not exist after destruction"
-    
-    # After destruction, the stream should not exist with empty string data provider
-    assert not client.stream_exists(stream_id, ""), "Stream should not exist after destruction with empty string data provider" 
+    client.destroy_stream(stream_id)
 
 def date_string_to_unix(date_str, date_format="%Y-%m-%d"):
     """Convert a date string to a Unix timestamp (integer)."""

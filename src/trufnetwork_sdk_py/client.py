@@ -100,16 +100,6 @@ class TNClient:
         if wait:
             truf_sdk.WaitForTx(self.client, deploy_tx_hash)
         return deploy_tx_hash
-
-    def stream_exists(
-        self, stream_id: str, data_provider: Optional[str] = None
-    ) -> bool:
-        """
-        Check if a stream with the given stream ID exists.
-        Returns True if the stream exists, False otherwise.
-        """
-        data_provider = self._coalesce_str(data_provider)
-        return truf_sdk.StreamExists(self.client, stream_id, data_provider)
     
     def insert_record(
         self,
@@ -365,51 +355,6 @@ class TNClient:
         """
         truf_sdk.WaitForTx(self.client, tx_hash)
 
-    def filter_initialized_streams(
-        self, 
-        stream_ids: List[str], 
-        data_providers: Optional[List[str]] = None,
-        helper_contract_stream_id: Optional[str] = None,
-        helper_contract_data_provider: Optional[str] = None
-    ) -> List[Dict[str, str]]:
-        """
-        Filter out non-initialized streams from a list of stream IDs and data providers.
-        
-        Parameters:
-            - stream_ids: List[str] - List of stream IDs to filter
-            - data_providers: Optional[List[str]] - List of data providers corresponding to the stream IDs
-              If None, the default data provider is used for all stream IDs.
-            - helper_contract_stream_id: Optional[str] - The stream ID of the helper contract
-              If None, the default helper contract stream ID is used.
-            - helper_contract_data_provider: Optional[str] - The data provider of the helper contract
-              If None, the default helper contract data provider is used.
-            
-        Returns:
-            List[Dict[str, str]] - A list of dictionaries containing the initialized streams,
-            each with keys 'stream_id' and 'data_provider'.
-        """
-        # Prepare data providers list if provided
-        if data_providers is None:
-            data_providers = [""] * len(stream_ids)
-        
-        # Convert Python lists to Go slices
-        go_stream_ids = go.Slice_string(stream_ids)
-        go_data_providers = go.Slice_string(data_providers)
-        
-        # Call the FilterInitialized function
-        helper_stream_id = self._coalesce_str(helper_contract_stream_id)
-        helper_provider = self._coalesce_str(helper_contract_data_provider)
-        
-        go_slice_of_maps = truf_sdk.FilterInitialized(
-            self.client,
-            go_stream_ids,
-            go_data_providers,
-            helper_stream_id,
-            helper_provider
-        )
-        
-        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
-
     def get_current_account(self) -> str:
         """
         Get the current account address associated with this client.
@@ -465,6 +410,48 @@ class TNClient:
 
         record["value"] = float(record["value"])
         return record
+    
+    def get_index(
+        self,
+        stream_id: str,
+        data_provider: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        frozen_at: Optional[str] = None,
+        base_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get index from a stream with the given stream ID.
+        Returns a list of indexes.
+
+        Index: Calculated values derived from stream data, representing a value's growth compared to the stream's first record.
+
+        Parameters:
+            - stream_id: str
+            - data_provider: (hex string)
+            - date_from: Optional[str] (YYYY-MM-DD)
+            - date_to: Optional[str] (YYYY-MM-DD)
+            - frozen_at: Optional[str] (YYYY-MM-DD)
+            - base_date: Optional[str] (YYYY-MM-DD)
+        """
+        data_provider = self._coalesce_str(data_provider)
+        date_from = self._coalesce_str(date_from)
+        date_to = self._coalesce_str(date_to)
+        frozen_at = self._coalesce_str(frozen_at)
+        base_date = self._coalesce_str(base_date)
+
+        input = truf_sdk.NewGetRecordInput(
+            self.client, 
+            stream_id,
+            data_provider,
+            date_from,
+            date_to,
+            frozen_at,
+            base_date
+        )
+        go_slice_of_maps = truf_sdk.GetIndex(self.client, input)
+
+        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)

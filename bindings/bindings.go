@@ -285,27 +285,6 @@ func NewInsertRecordInput(client *tnclient.Client, streamId string, dateVal stri
 // 	return stream.CallProcedure(ctx, procedure, args.Arguments)
 // }
 
-// // StreamExists checks if the stream with the given ID (and optional data provider) exists.
-// func StreamExists(client *tnclient.Client, streamId string, dataProvider string) (bool, error) {
-// 	streamIdTyped, err := util.NewStreamId(streamId)
-// 	if err != nil {
-// 		return false, errors.Wrap(err, "error creating stream id")
-// 	}
-
-// 	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-// 	if err != nil {
-// 		return false, errors.Wrap(err, "error creating data provider")
-// 	}
-
-// 	streamLocator := types.StreamLocator{
-// 		StreamId:     *streamIdTyped,
-// 		DataProvider: dataProviderTyped,
-// 	}
-
-// 	_, err = client.LoadStream(streamLocator)
-// 	return err == nil, nil
-// }
-
 // NewGetRecordInput creates a new GetRecordInput struct
 func NewGetRecordInput(
 	client *tnclient.Client,
@@ -458,7 +437,20 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (m
 	return result, nil
 }
 
-func GetIndex() {}
+func GetIndex(client *tnclient.Client, input types.GetIndexInput) ([]map[string]string, error) {
+	ctx := context.Background()
+
+	stream, err := client.LoadPrimitiveActions()
+	if err != nil {
+		return nil, err
+	}
+	records, err := stream.GetIndex(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	return recordsToMapSlice(records), nil
+}
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.
 func WaitForTx(client *tnclient.Client, txHashHex string) error {

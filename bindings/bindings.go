@@ -379,36 +379,40 @@ func GetRecords(
 // 	return stream.GetType(ctx)
 // }
 
-// GetFirstRecord gets the first record of a stream after a given date
-func GetFirstRecord(client *tnclient.Client, streamId string, dataProvider string, afterDate string, frozenAt string) (map[string]string, error) {
-	stream, err := client.LoadPrimitiveActions()
-	if err != nil {
-		return nil, err
-	}
-
-	afterDateParsed, err := parseDate(afterDate)
-	if err != nil {
-		return nil, err
-	}
-	input := types.GetFirstRecordInput{
+// NewGetFirstRecordInput creates a new GetFirstRecordInput struct
+func NewGetFirstRecordInput(client *tnclient.Client, streamId string, dataProvider string, afterVal string, frozenVal string) types.GetFirstRecordInput {
+	result := types.GetFirstRecordInput{
 		StreamId:     streamId,
 		DataProvider: dataProvider,
-		After:        afterDateParsed,
 	}
 
 	if dataProvider == "" {
-		dataProvider, err = GetCurrentAccount(client)
+		currentAccount, err := GetCurrentAccount(client)
 		if err != nil {
-			return nil, err
+			return result
 		}
-		input.DataProvider = dataProvider
+		result.DataProvider = currentAccount
 	}
-	if frozenAt != "" {
-		t, err := parseDate(frozenAt)
-		if err != nil {
-			return nil, fmt.Errorf("invalid date format '%s': %w", frozenAt, err)
-		}
-		input.FrozenAt = t
+	frozenAt, err := parseDate(frozenVal)
+	if err != nil {
+		return result
+	}
+	after, err := parseDate(afterVal)
+	if err != nil {
+		return result
+	}
+
+	result.FrozenAt = frozenAt
+	result.After = after
+
+	return result
+}
+
+// GetFirstRecord gets the first record of a stream after a given date
+func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (map[string]string, error) {
+	stream, err := client.LoadPrimitiveActions()
+	if err != nil {
+		return nil, err
 	}
 
 	record, err := stream.GetFirstRecord(context.Background(), input)

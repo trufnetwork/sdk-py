@@ -452,19 +452,16 @@ class TNClient:
         after_date = self._coalesce_str(after_date)
         frozen_at = self._coalesce_str(frozen_at)
 
-        result = truf_sdk.GetFirstRecord(
-            self.client,
-            stream_id,
-            data_provider,
-            after_date,
-            frozen_at,
-        )
+        input = truf_sdk.NewGetFirstRecordInput(self.client, stream_id, data_provider, after_date, frozen_at)
+        result = truf_sdk.GetFirstRecord(self.client, input)
         
         # Convert the result to a Python dict and convert the value to float
         record = dict(result.items())
+
         # nil from go is an empty map, not None
         if not record:
             return None
+
         record["value"] = float(record["value"])
         return record
 

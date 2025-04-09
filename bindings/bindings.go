@@ -2,6 +2,7 @@ package exports
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"reflect"
@@ -390,9 +391,24 @@ func ListStreams(client *tnclient.Client, input types.ListStreamsInput) ([]map[s
 	return recordsToMapSlice(streams), nil
 }
 
+// NewTaxonomyItemInput creates a new TaxonomyItemInput struct
+func NewTaxonomyItemInput(client *tnclient.Client, stream_id string, weight float64) types.TaxonomyItem {
+	streamIdObj, err := util.NewStreamId(stream_id)
+	if err != nil {
+		return types.TaxonomyItem{}
+	}
+
+	return types.TaxonomyItem{
+		ChildStream: client.OwnStreamLocator(*streamIdObj),
+		Weight:      weight,
+	}
+}
+
 // NewTaxonomyInput creates a new TaxonomyInput struct
-func NewTaxonomyInput(client *tnclient.Client, streamId string, childStreamsMap map[string]int, startDate int) types.Taxonomy {
-	result := types.Taxonomy{}
+func NewTaxonomyInput(client *tnclient.Client, streamId string, childStreams []types.TaxonomyItem, startDate string, groupSequence int) types.Taxonomy {
+	result := types.Taxonomy{
+		TaxonomyItems: childStreams,
+	}
 
 	// Assign parent stream
 	streamIdObj, err := util.NewStreamId(streamId)
@@ -401,29 +417,27 @@ func NewTaxonomyInput(client *tnclient.Client, streamId string, childStreamsMap 
 	}
 	result.ParentStream = client.OwnStreamLocator(*streamIdObj)
 
-	// Assign child streams with their weights
-	childStreams := make([]types.TaxonomyItem, len(childStreamsMap))
-	for childStreamId, weight := range childStreamsMap {
-		childStreamIdObj, err := util.NewStreamId(childStreamId)
-		if err != nil {
-			return types.Taxonomy{}
-		}
-
-		childStreams = append(childStreams, types.TaxonomyItem{
-			ChildStream: client.OwnStreamLocator(*childStreamIdObj),
-			Weight:      float64(weight),
-		})
+	startDateTimestamp, err := parseDate(startDate)
+	if err != nil {
+		return types.Taxonomy{}
 	}
-	result.TaxonomyItems = childStreams
-
-	if startDate == -1 {
-		now, err := parseDate(time.Now().Format("2006-01-02"))
+	if startDate == "" {
+		startDateTimestamp, err = parseDate(time.Now().Format("2006-01-02"))
 		if err != nil {
 			return types.Taxonomy{}
 		}
-		result.StartDate = now
-	} else {
-		result.StartDate = &startDate
+	}
+
+	createdAt, err := parseDate(time.Now().Format("2006-01-02"))
+	if err != nil {
+		return types.Taxonomy{}
+	}
+
+	result.CreatedAt = *createdAt
+	result.StartDate = startDateTimestamp
+
+	if groupSequence != -1 {
+		result.GroupSequence = groupSequence
 	}
 
 	return result
@@ -447,17 +461,17 @@ func SetTaxonomy(client *tnclient.Client, input types.Taxonomy) (string, error) 
 }
 
 // DescribeTaxonomy retrieves the taxonomy structure of a composed stream
-func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bool) (map[string]interface{}, error) {
+func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bool) (map[string]string, error) {
 	ctx := context.Background()
 
 	stream, err := client.LoadComposedActions()
 	if err != nil {
-		return map[string]interface{}{}, err
+		return map[string]string{}, err
 	}
 
 	streamIdObj, err := util.NewStreamId(streamId)
 	if err != nil {
-		return map[string]interface{}{}, nil
+		return map[string]string{}, nil
 	}
 
 	result, err := stream.DescribeTaxonomies(ctx, types.DescribeTaxonomiesParams{
@@ -465,23 +479,30 @@ func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bo
 		LatestVersion: latestVersion,
 	})
 	if err != nil {
-		return map[string]interface{}{}, err
+		return map[string]string{}, err
 	}
 
-	childStreams := make([]map[string]interface{}, len(result.TaxonomyItems))
+	childStreams := make([]map[string]string, 0, len(result.TaxonomyItems))
 	for _, childStream := range result.TaxonomyItems {
-		childStreams = append(childStreams, map[string]interface{}{
+		childStreams = append(childStreams, map[string]string{
 			"stream_id": childStream.ChildStream.StreamId.String(),
-			"weight":    childStream.Weight,
+			"weight":    convertToString(childStream.Weight),
 		})
 	}
-	return map[string]interface{}{
+	childStreamsJSON, err := json.Marshal(childStreams)
+	if err != nil {
+		return map[string]string{}, err
+	}
+
+	res := map[string]string{
 		"stream_id":      streamId,
-		"child_streams":  childStreams,
+		"child_streams":  string(childStreamsJSON),
 		"start_date":     parseUnixTimestamp(*result.StartDate),
-		"group_sequence": result.GroupSequence,
-		"created_at":     result.CreatedAt,
-	}, nil
+		"created_at":     parseUnixTimestamp(result.CreatedAt),
+		"group_sequence": convertToString(result.GroupSequence),
+	}
+
+	return res, nil
 }
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.

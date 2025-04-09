@@ -1,6 +1,8 @@
-from typing import Dict, List, Union, Optional, Any, TypedDict
+import json
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
+
+from typing import Dict, List, Union, Optional, Any, TypedDict
 
 class Record(TypedDict):
     date: str  # YYYY-MM-DD format
@@ -381,6 +383,7 @@ class TNClient:
         stream_id: str,
         child_streams: Dict[str, int],
         start_date: str,
+        group_sequence: Optional[int] = None,
         wait: bool = True):
         """
         Set Taxonomy will define taxonomy of a composed stream.
@@ -393,8 +396,21 @@ class TNClient:
 
         Start date defines the starting point of value from the composed stream.
         """
+        group_sequence = self._coalesce_int(group_sequence)
 
-        input = truf_sdk.NewTaxonomyInput(self.client, stream_id, child_streams, start_date)
+        taxonomies = []
+        for id, weight in child_streams.items():
+            taxonomy_item = truf_sdk.NewTaxonomyItemInput(self.client, id, weight)
+            taxonomies.append(taxonomy_item)
+
+        taxonomies_go = truf_sdk.Slice_s2_types_TaxonomyItem(taxonomies)
+        input = truf_sdk.NewTaxonomyInput(
+            self.client, 
+            stream_id, 
+            taxonomies_go,
+            start_date,
+            group_sequence
+        )
         tx_hash = truf_sdk.SetTaxonomy(self.client, input)
 
         if wait:
@@ -413,9 +429,14 @@ class TNClient:
             - latest_version: bool
         """
          
-        go_slice_of_maps = truf_sdk.DescribeTaxonomy(self.client, stream_id, latest_version)
-        
-        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
+        result = truf_sdk.DescribeTaxonomy(self.client, stream_id, latest_version)
+        taxonomy = dict(result.items())
+        taxonomy["child_streams"] = json.loads(taxonomy["child_streams"])
+
+        for child_stream in taxonomy["child_streams"]:
+            child_stream["weight"] = round(float(child_stream["weight"]), 2)
+
+        return taxonomy
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)

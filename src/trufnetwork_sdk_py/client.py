@@ -376,6 +376,16 @@ class TNClient:
 
         return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
         
+    def set_taxonomy():
+        """
+        Set Taxonomy will define taxonomy of a composed stream.
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+        """
+        return
+    
+    def describe_taxonomy():
+        return
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)

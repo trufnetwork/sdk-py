@@ -391,10 +391,33 @@ func ListStreams(client *tnclient.Client, input types.ListStreamsInput) ([]map[s
 }
 
 // SetTaxonomy define the taxonomy structure of a composed stream
-func SetTaxonomy(client *tnclient.Client) {}
+func SetTaxonomy(client *tnclient.Client, input types.Taxonomy) (string, error) {
+	ctx := context.Background()
+
+	stream, err := client.LoadComposedActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.InsertTaxonomy(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
 
 // DescribeTaxonomy retrieves the taxonomy structure of a composed stream
-func DescribeTaxonomy(client *tnclient.Client) {}
+func DescribeTaxonomy(client *tnclient.Client, params types.DescribeTaxonomiesParams) (types.Taxonomy, error) {
+	ctx := context.Background()
+
+	stream, err := client.LoadComposedActions()
+	if err != nil {
+		return types.Taxonomy{}, err
+	}
+
+	return stream.DescribeTaxonomies(ctx, params)
+}
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.
 func WaitForTx(client *tnclient.Client, txHashHex string) error {

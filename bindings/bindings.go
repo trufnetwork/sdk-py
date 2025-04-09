@@ -356,6 +356,8 @@ func GetIndex(client *tnclient.Client, input types.GetIndexInput) ([]map[string]
 	return recordsToMapSlice(records), nil
 }
 
+func ListStreams() {}
+
 // WaitForTx waits for the transaction with the given hash to be confirmed.
 func WaitForTx(client *tnclient.Client, txHashHex string) error {
 	ctx := context.Background()

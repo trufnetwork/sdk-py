@@ -376,15 +376,45 @@ class TNClient:
 
         return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
         
-    def set_taxonomy():
+    def set_taxonomy(
+        self, 
+        stream_id: str,
+        child_streams: Dict[str, int],
+        start_date: str,
+        wait: bool = True):
         """
         Set Taxonomy will define taxonomy of a composed stream.
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
+
+        Each child stream is expected to have dictionary of:
+          - "stream id" as the key
+          - "weight" as the value
+
+        Start date defines the starting point of value from the composed stream.
         """
-        return
+
+        input = truf_sdk.NewTaxonomyInput(self.client, stream_id, child_streams, start_date)
+        tx_hash = truf_sdk.SetTaxonomy(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
     
-    def describe_taxonomy():
+    def describe_taxonomy(self, stream_id: str, latest_version: bool = True):
+        """
+        Get taxonomy structure of a composed stream
+
+        If latest_version is true, then it will return only the latest version of the taxonomy
+
+        Parameters:
+            - stream_id: str
+            - latest_version: bool
+        """
+         
+        truf_sdk.DescribeTaxonomy(self.client, stream_id, latest_version)
+
         return
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:

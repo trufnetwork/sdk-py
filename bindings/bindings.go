@@ -390,6 +390,45 @@ func ListStreams(client *tnclient.Client, input types.ListStreamsInput) ([]map[s
 	return recordsToMapSlice(streams), nil
 }
 
+// NewTaxonomyInput creates a new TaxonomyInput struct
+func NewTaxonomyInput(client *tnclient.Client, streamId string, childStreamsMap map[string]int, startDate int) types.Taxonomy {
+	result := types.Taxonomy{}
+
+	// Assign parent stream
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return types.Taxonomy{}
+	}
+	result.ParentStream = client.OwnStreamLocator(*streamIdObj)
+
+	// Assign child streams with their weights
+	childStreams := make([]types.TaxonomyItem, len(childStreamsMap))
+	for childStreamId, weight := range childStreamsMap {
+		childStreamIdObj, err := util.NewStreamId(childStreamId)
+		if err != nil {
+			return types.Taxonomy{}
+		}
+
+		childStreams = append(childStreams, types.TaxonomyItem{
+			ChildStream: client.OwnStreamLocator(*childStreamIdObj),
+			Weight:      float64(weight),
+		})
+	}
+	result.TaxonomyItems = childStreams
+
+	if startDate == -1 {
+		now, err := parseDate(time.Now().Format("2006-01-02"))
+		if err != nil {
+			return types.Taxonomy{}
+		}
+		result.StartDate = now
+	} else {
+		result.StartDate = &startDate
+	}
+
+	return result
+}
+
 // SetTaxonomy define the taxonomy structure of a composed stream
 func SetTaxonomy(client *tnclient.Client, input types.Taxonomy) (string, error) {
 	ctx := context.Background()
@@ -408,7 +447,7 @@ func SetTaxonomy(client *tnclient.Client, input types.Taxonomy) (string, error) 
 }
 
 // DescribeTaxonomy retrieves the taxonomy structure of a composed stream
-func DescribeTaxonomy(client *tnclient.Client, params types.DescribeTaxonomiesParams) (types.Taxonomy, error) {
+func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bool) (types.Taxonomy, error) {
 	ctx := context.Background()
 
 	stream, err := client.LoadComposedActions()
@@ -416,7 +455,15 @@ func DescribeTaxonomy(client *tnclient.Client, params types.DescribeTaxonomiesPa
 		return types.Taxonomy{}, err
 	}
 
-	return stream.DescribeTaxonomies(ctx, params)
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return types.Taxonomy{}, nil
+	}
+
+	return stream.DescribeTaxonomies(ctx, types.DescribeTaxonomiesParams{
+		Stream:        client.OwnStreamLocator(*streamIdObj),
+		LatestVersion: latestVersion,
+	})
 }
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.

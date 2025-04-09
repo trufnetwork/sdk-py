@@ -386,6 +386,8 @@ func ListStreams(client *tnclient.Client, input types.ListStreamsInput) ([]map[s
 	return recordsToMapSlice(streams), nil
 }
 
+func SetTaxonomy(client *tnclient.Client) {}
+
 // WaitForTx waits for the transaction with the given hash to be confirmed.
 func WaitForTx(client *tnclient.Client, txHashHex string) error {
 	ctx := context.Background()

@@ -215,6 +215,34 @@ def test_get_type(client):
     client.destroy_stream(stream_id)
     client.destroy_stream(composed_stream_id)
 
+def test_list_streams(client):
+    """
+    Test list all streams
+    """
+    stream1 = generate_stream_id("test_stream_1")
+    stream2 = generate_stream_id("test_stream_2")
+    stream3 = generate_stream_id("test_stream_3")
+
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream1)
+        client.destroy_stream(stream2)
+        client.destroy_stream(stream3)
+    except Exception:
+        pass
+
+    client.deploy_stream(stream1)
+    client.deploy_stream(stream2)
+    client.deploy_stream(stream3)
+
+    streams = client.list_streams()
+    assert streams is not None
+    assert len(streams) == 3
+
+    client.destroy_stream(stream1)
+    client.destroy_stream(stream2)
+    client.destroy_stream(stream3)
+
 def date_string_to_unix(date_str, date_format="%Y-%m-%d"):
     """Convert a date string to a Unix timestamp (integer)."""
     dt = datetime.strptime(date_str, date_format).replace(tzinfo=timezone.utc)

@@ -244,103 +244,6 @@ class TNClient:
 
         return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
 
-    def execute_procedure(
-        self,
-        stream_id: str,
-        data_provider: str,
-        procedure: str,
-        args: list[list[Union[str, float, int, list[str], list[float]]]],
-        wait: bool = True,
-    ) -> str:
-        """
-        Execute an arbitrary procedure with the given stream ID.
-        If wait is True, it will wait for the transaction to be confirmed.
-        Returns the transaction hash.
-
-        Parameters:
-            - stream_id: str
-            - data_provider: str (hex string)
-            - procedure: str
-            - args: List[List[Union[str, float, int, list[str], list[float]]]]
-            - wait: bool
-        """
-        # Transpose the 2D args
-        transposed_args = list(map(list, zip(*args)))
-
-        # Convert Python lists to Go slices with the correct type
-        variadic_args = []
-        for arg_list in transposed_args:
-            if all(isinstance(item, str) for item in arg_list):
-                variadic_args.append(
-                    truf_sdk.ArgsFromStrings(go.Slice_string(arg_list))
-                )
-            elif all(isinstance(item, (float, int)) for item in arg_list):
-                # Force to float64 so that we can pass them to ArgsFromFloats
-                float_list = [float(item) for item in arg_list]
-                variadic_args.append(
-                    truf_sdk.ArgsFromFloats(go.Slice_float64(float_list))
-                )
-            # now for array of arrays
-            elif all_is_list_of_strings(arg_list):
-                all_slices = [go.Slice_string(item) for item in arg_list]
-                variadic_args.append(
-                    truf_sdk.ArgsFromStringsSlice(*all_slices)
-                )
-            elif all_is_list_of_floats(arg_list):
-                all_slices = [go.Slice_float64(item) for item in arg_list]
-                variadic_args.append(
-                    truf_sdk.ArgsFromFloatsSlice(*all_slices)
-                )
-            else:
-                raise ValueError(f"Unsupported argument types in {arg_list}")
-
-        tx_hash = truf_sdk.ExecuteProcedure(
-            self.client, stream_id, data_provider, procedure, *variadic_args
-        )
-
-        if wait:
-            truf_sdk.WaitForTx(self.client, tx_hash)
-        return tx_hash
-
-    def call_procedure(
-        self,
-        stream_id: str,
-        data_provider: Optional[str] = None,
-        procedure: str = "",
-        args: Optional[List[Any]] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Call a procedure on a stream with the given stream ID.
-        Returns the result of the procedure call as a list of dicts.
-
-        Parameters:
-            - stream_id: str
-            - data_provider: Optional[str] (hex string)
-            - procedure: str
-            - args: List[Any]
-        """
-        data_provider = self._coalesce_str(data_provider)
-        if args is None:
-            args = []
-
-        call_procedure_args = truf_sdk.NewCallProcedureArgs()
-        for arg in args:
-            if isinstance(arg, str):
-                call_procedure_args.AddString(arg)
-            elif isinstance(arg, float):
-                call_procedure_args.AddFloat(arg)
-            elif isinstance(arg, int):
-                call_procedure_args.AddInt(arg)
-
-        records = truf_sdk.CallProcedure(
-            self.client,
-            stream_id,
-            data_provider,
-            procedure,
-            call_procedure_args
-        )
-        return self._records_handle_to_list_of_dicts(records)
-
     def get_type(self, stream_id: str, data_provider: Optional[str] = None) -> str:
         """
         Get the type of a stream with the given stream ID.
@@ -452,6 +355,27 @@ class TNClient:
         go_slice_of_maps = truf_sdk.GetIndex(self.client, input)
 
         return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
+
+    def list_streams(
+        self, 
+        limit: Optional[int] = None, 
+        offset: Optional[int] = None, 
+        data_provider: Optional[str] = None, 
+        order_by: Optional[str] = None
+    ):
+        """
+            List all streams associated with client account
+        """
+        limit = self._coalesce_int(limit)
+        offset = self._coalesce_int(offset)
+        data_provider = self._coalesce_str(data_provider)
+        order_by = self._coalesce_str(order_by)
+
+        input = truf_sdk.NewListStreamsInput(limit, offset, data_provider, order_by)
+        go_slice_of_maps = truf_sdk.ListStreams(self.client, input)
+
+        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
+        
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)

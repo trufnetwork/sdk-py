@@ -413,9 +413,9 @@ class TNClient:
             - latest_version: bool
         """
          
-        truf_sdk.DescribeTaxonomy(self.client, stream_id, latest_version)
-
-        return
+        go_slice_of_maps = truf_sdk.DescribeTaxonomy(self.client, stream_id, latest_version)
+        
+        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)

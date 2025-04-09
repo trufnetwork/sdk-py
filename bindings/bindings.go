@@ -447,23 +447,41 @@ func SetTaxonomy(client *tnclient.Client, input types.Taxonomy) (string, error) 
 }
 
 // DescribeTaxonomy retrieves the taxonomy structure of a composed stream
-func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bool) (types.Taxonomy, error) {
+func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bool) (map[string]interface{}, error) {
 	ctx := context.Background()
 
 	stream, err := client.LoadComposedActions()
 	if err != nil {
-		return types.Taxonomy{}, err
+		return map[string]interface{}{}, err
 	}
 
 	streamIdObj, err := util.NewStreamId(streamId)
 	if err != nil {
-		return types.Taxonomy{}, nil
+		return map[string]interface{}{}, nil
 	}
 
-	return stream.DescribeTaxonomies(ctx, types.DescribeTaxonomiesParams{
+	result, err := stream.DescribeTaxonomies(ctx, types.DescribeTaxonomiesParams{
 		Stream:        client.OwnStreamLocator(*streamIdObj),
 		LatestVersion: latestVersion,
 	})
+	if err != nil {
+		return map[string]interface{}{}, err
+	}
+
+	childStreams := make([]map[string]interface{}, len(result.TaxonomyItems))
+	for _, childStream := range result.TaxonomyItems {
+		childStreams = append(childStreams, map[string]interface{}{
+			"stream_id": childStream.ChildStream.StreamId.String(),
+			"weight":    childStream.Weight,
+		})
+	}
+	return map[string]interface{}{
+		"stream_id":      streamId,
+		"child_streams":  childStreams,
+		"start_date":     parseUnixTimestamp(*result.StartDate),
+		"group_sequence": result.GroupSequence,
+		"created_at":     result.CreatedAt,
+	}, nil
 }
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.

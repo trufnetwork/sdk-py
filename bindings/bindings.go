@@ -356,6 +356,36 @@ func GetIndex(client *tnclient.Client, input types.GetIndexInput) ([]map[string]
 	return recordsToMapSlice(records), nil
 }
 
+func NewListStreamsInput(limit int, offset int, dataProvider string, orderBy string) types.ListStreamsInput {
+	result := types.ListStreamsInput{}
+
+	if limit != -1 {
+		result.Limit = limit
+	}
+	if offset != -1 {
+		result.Offset = offset
+	}
+	if dataProvider != "" {
+		result.DataProvider = dataProvider
+	}
+	if orderBy != "" {
+		result.OrderBy = orderBy
+	}
+
+	return result
+}
+
+func ListStreams(client *tnclient.Client, input types.ListStreamsInput) ([]map[string]string, error) {
+	ctx := context.Background()
+
+	streams, err := client.ListStreams(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	return recordsToMapSlice(streams), nil
+}
+
 // WaitForTx waits for the transaction with the given hash to be confirmed.
 func WaitForTx(client *tnclient.Client, txHashHex string) error {
 	ctx := context.Background()

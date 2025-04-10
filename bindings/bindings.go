@@ -333,7 +333,7 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (m
 	}
 
 	result := make(map[string]string)
-	result["date"] = parseUnixTimestamp(record.EventTime)
+	result["date"] = parseUnixTimestamp(&record.EventTime)
 	value, err := record.Value.Float64()
 	if err != nil {
 		return nil, fmt.Errorf("error converting value to float64: %w", err)
@@ -491,8 +491,8 @@ func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bo
 	res := map[string]string{
 		"stream_id":      streamId,
 		"child_streams":  string(childStreamsJSON),
-		"start_date":     parseUnixTimestamp(*result.StartDate),
-		"created_at":     parseUnixTimestamp(result.CreatedAt),
+		"start_date":     parseUnixTimestamp(result.StartDate),
+		"created_at":     parseUnixTimestamp(&result.CreatedAt),
 		"group_sequence": convertToString(result.GroupSequence),
 	}
 
@@ -545,8 +545,12 @@ func parseDate(dateStr string) (*int, error) {
 	return &unixTime, nil
 }
 
-func parseUnixTimestamp(timestamp int) string {
-	unixTimestamp := int64(timestamp)
+func parseUnixTimestamp(timestamp *int) string {
+	if timestamp == nil {
+		return ""
+	}
+
+	unixTimestamp := int64(*timestamp)
 	t := time.Unix(unixTimestamp, 0).UTC()
 	formattedDate := t.Format("2006-01-02")
 

@@ -24,8 +24,10 @@ import (
 
 // StreamType constants.
 const (
-	StreamTypeComposed  types.StreamType = types.StreamTypeComposed
-	StreamTypePrimitive types.StreamType = types.StreamTypePrimitive
+	StreamTypeComposed  types.StreamType    = types.StreamTypeComposed
+	StreamTypePrimitive types.StreamType    = types.StreamTypePrimitive
+	VisibilityPublic    util.VisibilityEnum = util.PublicVisibility
+	VisibilityPrivate   util.VisibilityEnum = util.PrivateVisibility
 )
 
 // ProcedureArgs represents a slice of arguments for a procedure.
@@ -499,16 +501,241 @@ func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bo
 	return res, nil
 }
 
-func AllowComposeStream()       {}
-func DisableComposeStream()     {}
-func AllowReadWallet()          {}
-func DisableReadWallet()        {}
-func SetReadVisibility()        {}
-func GetReadVisibility()        {}
-func SetComposeVisibility()     {}
-func GetComposeVisibility()     {}
-func GetAllowedReadWallets()    {}
-func GetAllowedComposeStreams() {}
+// AllowComposeStream allows stream to use this stream as child, if composing is private
+func AllowComposeStream(client *tnclient.Client, streamId string) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.AllowComposeStream(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// DisableComposeStream disables stream from using this stream as child
+func DisableComposeStream(client *tnclient.Client, streamId string) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.DisableComposeStream(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// NewReadWalletInput creates a new ReadWalletInput struct
+func NewReadWalletInput(client *tnclient.Client, streamId string, wallet string) types.ReadWalletInput {
+	result := types.ReadWalletInput{}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return types.ReadWalletInput{}
+	}
+	result.Stream = client.OwnStreamLocator(*streamIdObj)
+	result.Wallet, err = util.NewEthereumAddressFromString(wallet)
+	if err != nil {
+		return types.ReadWalletInput{}
+	}
+
+	return result
+}
+
+// AllowReadWallet allows a wallet to read the stream, if reading is private
+func AllowReadWallet(client *tnclient.Client, input types.ReadWalletInput) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.AllowReadWallet(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// DisableReadWallet disables a wallet from reading the stream
+func DisableReadWallet(client *tnclient.Client, input types.ReadWalletInput) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.DisableReadWallet(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// NewVisibilityInput creates a new VisibilityInput struct
+func NewVisibilityInput(client *tnclient.Client, streamId string, visibility int) types.VisibilityInput {
+	result := types.VisibilityInput{}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return types.VisibilityInput{}
+	}
+
+	result.Stream = client.OwnStreamLocator(*streamIdObj)
+
+	result.Visibility, err = util.NewVisibilityEnum(visibility)
+	if err != nil {
+		return types.VisibilityInput{}
+	}
+
+	return result
+}
+
+// SetReadVisibility sets the read visibility of the stream -- Private or Public
+func SetReadVisibility(client *tnclient.Client, input types.VisibilityInput) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.SetReadVisibility(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// GetReadVisibility gets the read visibility of the stream -- Private or Public
+func GetReadVisibility(client *tnclient.Client, streamId string) (util.VisibilityEnum, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return 0, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return 0, err
+	}
+
+	visibility, err := stream.GetReadVisibility(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return 0, err
+	}
+
+	return *visibility, nil
+}
+
+// SetComposeVisibility sets the compose visibility of the stream -- Private or Public
+func SetComposeVisibility(client *tnclient.Client, input types.VisibilityInput) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.SetComposeVisibility(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// GetComposeVisibility gets the compose visibility of the stream -- Private or Public
+func GetComposeVisibility(client *tnclient.Client, streamId string) (util.VisibilityEnum, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return 0, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return 0, err
+	}
+
+	visibility, err := stream.GetComposeVisibility(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return 0, err
+	}
+
+	return *visibility, nil
+}
+
+// GetAllowedReadWallets gets the wallets allowed to read the stream
+func GetAllowedReadWallets(client *tnclient.Client, streamId string) ([]string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return []string{}, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return []string{}, err
+	}
+
+	result, err := stream.GetAllowedReadWallets(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return []string{}, err
+	}
+
+	addresses := make([]string, 0, len(result))
+	for _, address := range result {
+		addresses = append(addresses, address.Address())
+	}
+
+	return addresses, nil
+}
+
+// GetAllowedComposeStreams gets the streams allowed to compose this stream
+func GetAllowedComposeStreams(client *tnclient.Client, streamId string) ([]string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return []string{}, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return []string{}, err
+	}
+
+	result, err := stream.GetAllowedComposeStreams(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return []string{}, err
+	}
+
+	streams := make([]string, 0, len(result))
+	for _, stream := range result {
+		streams = append(streams, stream.StreamId.String())
+	}
+
+	return streams, nil
+}
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.
 func WaitForTx(client *tnclient.Client, txHashHex string) error {

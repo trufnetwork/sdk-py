@@ -439,6 +439,28 @@ class TNClient:
 
         return taxonomy
 
+    def allow_compose_stream(self):
+        return
+    def disable_compose_stream(self):
+        return
+    def allow_read_wallet(self):
+        return
+    def disable_read_wallet(self):
+        return
+    def set_read_visibility(self):
+        return
+    def get_read_visibility(self):
+        return
+    def set_compose_visibility(self):
+        return
+    def get_compose_visibility(self):
+        return
+    def get_allowed_read_wallets(self):
+        return
+    def get_allowed_compose_streams(self):
+        return
+
+
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)
 

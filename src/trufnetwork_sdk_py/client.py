@@ -384,7 +384,8 @@ class TNClient:
         child_streams: Dict[str, int],
         start_date: Optional[str] = None,
         group_sequence: Optional[int] = None,
-        wait: bool = True):
+        wait: bool = True
+    ):
         """
         Set Taxonomy will define taxonomy of a composed stream.
         If wait is True, it will wait for the transaction to be confirmed.
@@ -439,27 +440,75 @@ class TNClient:
 
         return taxonomy
 
-    def allow_compose_stream(self):
-        return
-    def disable_compose_stream(self):
-        return
-    def allow_read_wallet(self):
-        return
-    def disable_read_wallet(self):
-        return
-    def set_read_visibility(self):
-        return
-    def get_read_visibility(self):
-        return
-    def set_compose_visibility(self):
-        return
-    def get_compose_visibility(self):
-        return
-    def get_allowed_read_wallets(self):
-        return
-    def get_allowed_compose_streams(self):
-        return
+    def allow_compose_stream(self, stream_id: str, wait: bool = True):
+        tx_hash = truf_sdk.AllowComposeStream(self.client, stream_id)
 
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+    
+    def disable_compose_stream(self, stream_id: str, wait: bool = True):
+        tx_hash = truf_sdk.DisableComposeStream(self.client, stream_id)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def allow_read_wallet(self, stream_id: str, wallet: str, wait: bool = True):
+        input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
+        tx_hash = truf_sdk.AllowReadWallet(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def disable_read_wallet(self, stream_id: str, wallet: str, wait: bool = True):
+        input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
+        tx_hash = truf_sdk.DisableReadWallet(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def set_read_visibility(self, stream_id: str, visibility: int, wait: bool = True):
+        input = truf_sdk.NewVisibilityInput(self.client, stream_id, visibility)
+        tx_hash = truf_sdk.SetReadVisibility(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+    
+    def get_read_visibility(self, stream_id: str):
+        visibility = truf_sdk.GetReadVisibility(self.client, stream_id)
+
+        return "public" if visibility == truf_sdk.VisibilityPublic else "private"
+    
+    def set_compose_visibility(self, stream_id: str, visibility: int, wait: bool = True):
+        input = truf_sdk.NewVisibilityInput(self.client, stream_id, visibility)
+        tx_hash = truf_sdk.SetComposeVisibility(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def get_compose_visibility(self, stream_id: str):
+        visibility = truf_sdk.GetComposeVisibility(self.client, stream_id)
+
+        return "public" if visibility == truf_sdk.VisibilityPublic else "private"
+    
+    def get_allowed_read_wallets(self, stream_id: str):
+        wallets = truf_sdk.GetAllowedReadWallets(self.client, stream_id)
+        return wallets
+    
+    def get_allowed_compose_streams(self, stream_id: str):
+        streams = truf_sdk.GetAllowedComposeStreams(self.client, stream_id)
+        return streams
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)

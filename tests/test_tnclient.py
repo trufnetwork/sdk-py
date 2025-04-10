@@ -243,6 +243,44 @@ def test_list_streams(client):
     client.destroy_stream(stream2)
     client.destroy_stream(stream3)
 
+def test_taxonomy(client):
+    """
+    Test set and retrieve taxonomy of composed stream
+    """
+    stream_id = generate_stream_id("test_taxonomy")
+    child_stream_id_1 = generate_stream_id("test_child_stream1")
+    child_stream_id_2 = generate_stream_id("test_child_stream2")
+
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream_id)
+        client.destroy_stream(child_stream_id_1)
+        client.destroy_stream(child_stream_id_2)
+    except Exception:
+        pass
+
+    client.deploy_stream(stream_id, "composed")
+    client.deploy_stream(child_stream_id_1)
+    client.deploy_stream(child_stream_id_2)
+
+    child_streams = {
+        child_stream_id_1: 1,
+        child_stream_id_2: 2,
+    }
+    tx_hash = client.set_taxonomy(stream_id, child_streams)
+    assert tx_hash is not None
+
+    taxonomies = client.describe_taxonomy(stream_id)
+    assert taxonomies is not None
+    assert len(taxonomies["child_streams"]) == 2
+
+    for child_stream in taxonomies["child_streams"]:
+        assert child_stream["weight"] == child_streams[child_stream["stream_id"]]
+
+    client.destroy_stream(stream_id)
+    client.destroy_stream(child_stream_id_1)
+    client.destroy_stream(child_stream_id_2)
+
 def date_string_to_unix(date_str, date_format="%Y-%m-%d"):
     """Convert a date string to a Unix timestamp (integer)."""
     dt = datetime.strptime(date_str, date_format).replace(tzinfo=timezone.utc)

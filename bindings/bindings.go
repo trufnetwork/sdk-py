@@ -2,6 +2,7 @@ package exports
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"reflect"
@@ -252,6 +253,7 @@ func GetRecords(client *tnclient.Client, input types.GetRecordInput) ([]map[stri
 	return recordsToMapSlice(records), nil
 }
 
+// GetType retrieves type of a stream (primitive or composed)
 func GetType(client *tnclient.Client, streamId string, dataProvider string) (types.StreamType, error) {
 	streamIdTyped, err := util.NewStreamId(streamId)
 	ctx := context.Background()
@@ -312,7 +314,7 @@ func NewGetFirstRecordInput(
 	return result
 }
 
-// GetFirstRecord gets the first record of a stream after a given date
+// GetFirstRecord retrieves the first record of a stream after a given date
 func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (map[string]string, error) {
 	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
@@ -331,7 +333,7 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (m
 	}
 
 	result := make(map[string]string)
-	result["date"] = parseUnixTimestamp(record.EventTime)
+	result["date"] = parseUnixTimestamp(&record.EventTime)
 	value, err := record.Value.Float64()
 	if err != nil {
 		return nil, fmt.Errorf("error converting value to float64: %w", err)
@@ -341,6 +343,7 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (m
 	return result, nil
 }
 
+// GetIndex retrieves index values from a stream
 func GetIndex(client *tnclient.Client, input types.GetIndexInput) ([]map[string]string, error) {
 	ctx := context.Background()
 
@@ -356,6 +359,7 @@ func GetIndex(client *tnclient.Client, input types.GetIndexInput) ([]map[string]
 	return recordsToMapSlice(records), nil
 }
 
+// NewListStreamsInput creates a new ListStreamsInput struct
 func NewListStreamsInput(limit int, offset int, dataProvider string, orderBy string) types.ListStreamsInput {
 	result := types.ListStreamsInput{}
 
@@ -375,6 +379,7 @@ func NewListStreamsInput(limit int, offset int, dataProvider string, orderBy str
 	return result
 }
 
+// ListStreams retrieves all streams associated with client
 func ListStreams(client *tnclient.Client, input types.ListStreamsInput) ([]map[string]string, error) {
 	ctx := context.Background()
 
@@ -384,6 +389,114 @@ func ListStreams(client *tnclient.Client, input types.ListStreamsInput) ([]map[s
 	}
 
 	return recordsToMapSlice(streams), nil
+}
+
+// NewTaxonomyItemInput creates a new TaxonomyItemInput struct
+func NewTaxonomyItemInput(client *tnclient.Client, stream_id string, weight float64) types.TaxonomyItem {
+	streamIdObj, err := util.NewStreamId(stream_id)
+	if err != nil {
+		return types.TaxonomyItem{}
+	}
+
+	return types.TaxonomyItem{
+		ChildStream: client.OwnStreamLocator(*streamIdObj),
+		Weight:      weight,
+	}
+}
+
+// NewTaxonomyInput creates a new TaxonomyInput struct
+func NewTaxonomyInput(client *tnclient.Client, streamId string, childStreams []types.TaxonomyItem, startDate string, groupSequence int) types.Taxonomy {
+	result := types.Taxonomy{
+		TaxonomyItems: childStreams,
+	}
+
+	// Assign parent stream
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return types.Taxonomy{}
+	}
+	result.ParentStream = client.OwnStreamLocator(*streamIdObj)
+
+	startDateTimestamp, err := parseDate(startDate)
+	if err != nil {
+		return types.Taxonomy{}
+	}
+
+	createdAt, err := parseDate(time.Now().Format("2006-01-02"))
+	if err != nil {
+		return types.Taxonomy{}
+	}
+
+	result.CreatedAt = *createdAt
+	result.StartDate = startDateTimestamp
+
+	if groupSequence != -1 {
+		result.GroupSequence = groupSequence
+	}
+
+	return result
+}
+
+// SetTaxonomy define the taxonomy structure of a composed stream
+func SetTaxonomy(client *tnclient.Client, input types.Taxonomy) (string, error) {
+	ctx := context.Background()
+
+	stream, err := client.LoadComposedActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.InsertTaxonomy(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// DescribeTaxonomy retrieves the taxonomy structure of a composed stream
+func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bool) (map[string]string, error) {
+	ctx := context.Background()
+
+	stream, err := client.LoadComposedActions()
+	if err != nil {
+		return map[string]string{}, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return map[string]string{}, nil
+	}
+
+	result, err := stream.DescribeTaxonomies(ctx, types.DescribeTaxonomiesParams{
+		Stream:        client.OwnStreamLocator(*streamIdObj),
+		LatestVersion: latestVersion,
+	})
+	if err != nil {
+		return map[string]string{}, err
+	}
+
+	childStreams := make([]map[string]string, 0, len(result.TaxonomyItems))
+	for _, childStream := range result.TaxonomyItems {
+		childStreams = append(childStreams, map[string]string{
+			"stream_id": childStream.ChildStream.StreamId.String(),
+			"weight":    convertToString(childStream.Weight),
+		})
+	}
+	childStreamsJSON, err := json.Marshal(childStreams)
+	if err != nil {
+		return map[string]string{}, err
+	}
+
+	res := map[string]string{
+		"stream_id":      streamId,
+		"child_streams":  string(childStreamsJSON),
+		"start_date":     parseUnixTimestamp(result.StartDate),
+		"created_at":     parseUnixTimestamp(&result.CreatedAt),
+		"group_sequence": convertToString(result.GroupSequence),
+	}
+
+	return res, nil
 }
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.
@@ -432,8 +545,12 @@ func parseDate(dateStr string) (*int, error) {
 	return &unixTime, nil
 }
 
-func parseUnixTimestamp(timestamp int) string {
-	unixTimestamp := int64(timestamp)
+func parseUnixTimestamp(timestamp *int) string {
+	if timestamp == nil {
+		return ""
+	}
+
+	unixTimestamp := int64(*timestamp)
 	t := time.Unix(unixTimestamp, 0).UTC()
 	formattedDate := t.Format("2006-01-02")
 

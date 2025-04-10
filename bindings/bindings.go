@@ -499,6 +499,17 @@ func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bo
 	return res, nil
 }
 
+func AllowComposeStream()       {}
+func DisableComposeStream()     {}
+func AllowReadWallet()          {}
+func DisableReadWallet()        {}
+func SetReadVisibility()        {}
+func GetReadVisibility()        {}
+func SetComposeVisibility()     {}
+func GetComposeVisibility()     {}
+func GetAllowedReadWallets()    {}
+func GetAllowedComposeStreams() {}
+
 // WaitForTx waits for the transaction with the given hash to be confirmed.
 func WaitForTx(client *tnclient.Client, txHashHex string) error {
 	ctx := context.Background()

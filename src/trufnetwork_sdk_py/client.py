@@ -441,6 +441,12 @@ class TNClient:
         return taxonomy
 
     def allow_compose_stream(self, stream_id: str, wait: bool = True):
+        """
+        Allows streams to use this stream as child, if composing is private.
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+        """
         tx_hash = truf_sdk.AllowComposeStream(self.client, stream_id)
 
         if wait:
@@ -449,6 +455,12 @@ class TNClient:
         return tx_hash
     
     def disable_compose_stream(self, stream_id: str, wait: bool = True):
+        """
+        Disable streams from using this stream as child.
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+        """
         tx_hash = truf_sdk.DisableComposeStream(self.client, stream_id)
 
         if wait:
@@ -457,6 +469,17 @@ class TNClient:
         return tx_hash
 
     def allow_read_wallet(self, stream_id: str, wallet: str, wait: bool = True):
+        """
+        Allows a wallet to read the stream, if reading is private
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id: str
+            - wallet: str (Ethereum Address)
+        """
+         
         input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
         tx_hash = truf_sdk.AllowReadWallet(self.client, input)
 
@@ -466,6 +489,17 @@ class TNClient:
         return tx_hash
 
     def disable_read_wallet(self, stream_id: str, wallet: str, wait: bool = True):
+        """
+        Disables a wallet from reading the stream
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id: str
+            - wallet: str (Ethereum Address)
+        """
+
         input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
         tx_hash = truf_sdk.DisableReadWallet(self.client, input)
 
@@ -475,6 +509,17 @@ class TNClient:
         return tx_hash
 
     def set_read_visibility(self, stream_id: str, visibility: int, wait: bool = True):
+        """
+        Sets the read visibility of the stream -- Private or Public
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id: str
+            - visibility: int (0 for "public" and 1 for "private")
+        """
+
         input = truf_sdk.NewVisibilityInput(self.client, stream_id, visibility)
         tx_hash = truf_sdk.SetReadVisibility(self.client, input)
 
@@ -484,11 +529,26 @@ class TNClient:
         return tx_hash
     
     def get_read_visibility(self, stream_id: str):
+        """
+        Gets the read visibility of the stream -- Private or Public
+        """
+
         visibility = truf_sdk.GetReadVisibility(self.client, stream_id)
 
         return "public" if visibility == truf_sdk.VisibilityPublic else "private"
     
     def set_compose_visibility(self, stream_id: str, visibility: int, wait: bool = True):
+        """
+        Sets the compose visibility of the stream -- Private or Public
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id: str
+            - visibility: int (0 for "public" and 1 for "private")
+        """
+
         input = truf_sdk.NewVisibilityInput(self.client, stream_id, visibility)
         tx_hash = truf_sdk.SetComposeVisibility(self.client, input)
 
@@ -498,15 +558,27 @@ class TNClient:
         return tx_hash
 
     def get_compose_visibility(self, stream_id: str):
+        """
+        Gets the compose visibility of the stream -- Private or Public
+        """
+
         visibility = truf_sdk.GetComposeVisibility(self.client, stream_id)
 
         return "public" if visibility == truf_sdk.VisibilityPublic else "private"
     
     def get_allowed_read_wallets(self, stream_id: str):
+        """
+        Gets the wallets allowed to read the stream, if read stream is private
+        """
+
         wallets = truf_sdk.GetAllowedReadWallets(self.client, stream_id)
         return wallets
     
     def get_allowed_compose_streams(self, stream_id: str):
+        """
+        Gets the streams allowed to compose this stream, if compose stream is private
+        """
+         
         streams = truf_sdk.GetAllowedComposeStreams(self.client, stream_id)
         return streams
 

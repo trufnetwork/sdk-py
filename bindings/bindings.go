@@ -504,7 +504,8 @@ func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bo
 // AllowComposeStream allows stream to use this stream as child, if composing is private
 func AllowComposeStream(client *tnclient.Client, streamId string) (string, error) {
 	ctx := context.Background()
-	stream, err := client.LoadActions()
+
+	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
 		return "", err
 	}
@@ -522,10 +523,10 @@ func AllowComposeStream(client *tnclient.Client, streamId string) (string, error
 	return txHash.String(), nil
 }
 
-// DisableComposeStream disables stream from using this stream as child
+// DisableComposeStream disables streams from using this stream as child
 func DisableComposeStream(client *tnclient.Client, streamId string) (string, error) {
 	ctx := context.Background()
-	stream, err := client.LoadActions()
+	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
 		return "", err
 	}

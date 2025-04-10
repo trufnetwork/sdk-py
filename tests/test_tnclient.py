@@ -267,13 +267,12 @@ def test_taxonomy(client):
         child_stream_id_1: 1,
         child_stream_id_2: 2,
     }
-    tx_hash = client.set_taxonomy(stream_id, child_streams, "2024-01-01")
+    tx_hash = client.set_taxonomy(stream_id, child_streams)
     assert tx_hash is not None
 
     taxonomies = client.describe_taxonomy(stream_id)
     assert taxonomies is not None
     assert len(taxonomies["child_streams"]) == 2
-    assert taxonomies["start_date"] == "2024-01-01"
 
     for child_stream in taxonomies["child_streams"]:
         assert child_stream["weight"] == child_streams[child_stream["stream_id"]]

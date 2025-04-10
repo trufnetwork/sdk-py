@@ -421,12 +421,6 @@ func NewTaxonomyInput(client *tnclient.Client, streamId string, childStreams []t
 	if err != nil {
 		return types.Taxonomy{}
 	}
-	if startDate == "" {
-		startDateTimestamp, err = parseDate(time.Now().Format("2006-01-02"))
-		if err != nil {
-			return types.Taxonomy{}
-		}
-	}
 
 	createdAt, err := parseDate(time.Now().Format("2006-01-02"))
 	if err != nil {

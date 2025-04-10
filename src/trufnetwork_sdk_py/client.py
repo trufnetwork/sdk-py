@@ -382,7 +382,7 @@ class TNClient:
         self, 
         stream_id: str,
         child_streams: Dict[str, int],
-        start_date: str,
+        start_date: Optional[str] = None,
         group_sequence: Optional[int] = None,
         wait: bool = True):
         """
@@ -397,6 +397,7 @@ class TNClient:
         Start date defines the starting point of value from the composed stream.
         """
         group_sequence = self._coalesce_int(group_sequence)
+        start_date = self._coalesce_str(start_date)
 
         taxonomies = []
         for id, weight in child_streams.items():

@@ -173,8 +173,8 @@ class TNClient:
                 - value: float
 
         Parameters:
-            - batches: List of batch dictionaries
-            - wait: bool - Whether to wait for transactions to be confirmed
+            - batches : List of batch dictionaries
+            - wait : bool - Whether to wait for transactions to be confirmed
 
         Returns:
             String array containing the transaction hashes
@@ -220,12 +220,12 @@ class TNClient:
         Returns a list of records.
 
         Parameters:
-            - stream_id: str
-            - data_provider: (hex string)
-            - date_from: Optional[str] (YYYY-MM-DD)
-            - date_to: Optional[str] (YYYY-MM-DD)
-            - frozen_at: Optional[str] (YYYY-MM-DD)
-            - base_date: Optional[str] (YYYY-MM-DD)
+            - stream_id : str
+            - data_provider : (hex string)
+            - date_from : Optional[str] (YYYY-MM-DD)
+            - date_to : Optional[str] (YYYY-MM-DD)
+            - frozen_at : Optional[str] (YYYY-MM-DD)
+            - base_date : Optional[str] (YYYY-MM-DD)
         """
         data_provider = self._coalesce_str(data_provider)
         date_from = self._coalesce_str(date_from)
@@ -291,10 +291,10 @@ class TNClient:
         Get the first record of a stream after a given date.
         
         Parameters:
-            - stream_id: str
-            - data_provider: Optional[str] (hex string)
-            - after_date: Optional[str] (YYYY-MM-DD)
-            - frozen_at: Optional[str] (YYYY-MM-DD)
+            - stream_id : str
+            - data_provider : Optional[str] (hex string)
+            - after_date : Optional[str] (YYYY-MM-DD)
+            - frozen_at : Optional[str] (YYYY-MM-DD)
             
         Returns:
             Optional[Dict[str, Union[str, float]]] - A dictionary containing 'date' and 'value' if found, None otherwise
@@ -332,12 +332,12 @@ class TNClient:
         Index: Calculated values derived from stream data, representing a value's growth compared to the stream's first record.
 
         Parameters:
-            - stream_id: str
-            - data_provider: (hex string)
-            - date_from: Optional[str] (YYYY-MM-DD)
-            - date_to: Optional[str] (YYYY-MM-DD)
-            - frozen_at: Optional[str] (YYYY-MM-DD)
-            - base_date: Optional[str] (YYYY-MM-DD)
+            - stream_id : str
+            - data_provider : (hex string)
+            - date_from : Optional[str] (YYYY-MM-DD)
+            - date_to : Optional[str] (YYYY-MM-DD)
+            - frozen_at : Optional[str] (YYYY-MM-DD)
+            - base_date : Optional[str] (YYYY-MM-DD)
         """
         data_provider = self._coalesce_str(data_provider)
         date_from = self._coalesce_str(date_from)
@@ -384,7 +384,8 @@ class TNClient:
         child_streams: Dict[str, int],
         start_date: Optional[str] = None,
         group_sequence: Optional[int] = None,
-        wait: bool = True):
+        wait: bool = True
+    ):
         """
         Set Taxonomy will define taxonomy of a composed stream.
         If wait is True, it will wait for the transaction to be confirmed.
@@ -426,8 +427,8 @@ class TNClient:
         If latest_version is true, then it will return only the latest version of the taxonomy
 
         Parameters:
-            - stream_id: str
-            - latest_version: bool
+            - stream_id : str
+            - latest_version : bool
         """
          
         result = truf_sdk.DescribeTaxonomy(self.client, stream_id, latest_version)
@@ -438,6 +439,155 @@ class TNClient:
             child_stream["weight"] = round(float(child_stream["weight"]), 2)
 
         return taxonomy
+
+    def allow_compose_stream(self, stream_id: str, wait: bool = True):
+        """
+        Allows streams to use this stream as child, if composing is private.
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+        """
+        tx_hash = truf_sdk.AllowComposeStream(self.client, stream_id)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+    
+    def disable_compose_stream(self, stream_id: str, wait: bool = True):
+        """
+        Disable streams from using this stream as child.
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+        """
+        tx_hash = truf_sdk.DisableComposeStream(self.client, stream_id)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def allow_read_wallet(self, stream_id: str, wallet: str, wait: bool = True):
+        """
+        Allows a wallet to read the stream, if reading is private
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id : str
+            - wallet : str (Ethereum Address)
+        """
+         
+        input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
+        tx_hash = truf_sdk.AllowReadWallet(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def disable_read_wallet(self, stream_id: str, wallet: str, wait: bool = True):
+        """
+        Disables a wallet from reading the stream
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id : str
+            - wallet : str (Ethereum Address)
+        """
+
+        input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
+        tx_hash = truf_sdk.DisableReadWallet(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def set_read_visibility(self, stream_id: str, visibilityVal: str, wait: bool = True):
+        """
+        Sets the read visibility of the stream -- Private or Public
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id : str
+            - visibility : str ("public" or "private")
+        """
+        visibility = 0
+        if visibilityVal == "private":
+            visibility = 1
+
+        input = truf_sdk.NewVisibilityInput(self.client, stream_id, visibility)
+        tx_hash = truf_sdk.SetReadVisibility(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+    
+    def get_read_visibility(self, stream_id: str):
+        """
+        Gets the read visibility of the stream -- Private or Public
+        """
+
+        visibility = truf_sdk.GetReadVisibility(self.client, stream_id)
+
+        return "public" if visibility == truf_sdk.VisibilityPublic else "private"
+    
+    def set_compose_visibility(self, stream_id: str, visibilityVal: int, wait: bool = True):
+        """
+        Sets the compose visibility of the stream -- Private or Public
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id : str
+            - visibility : str ("public" or "private")
+        """
+
+        visibility = 0
+        if visibilityVal == "private":
+            visibility = 1
+
+        input = truf_sdk.NewVisibilityInput(self.client, stream_id, visibility)
+        tx_hash = truf_sdk.SetComposeVisibility(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def get_compose_visibility(self, stream_id: str):
+        """
+        Gets the compose visibility of the stream -- Private or Public
+        """
+
+        visibility = truf_sdk.GetComposeVisibility(self.client, stream_id)
+
+        return "public" if visibility == truf_sdk.VisibilityPublic else "private"
+    
+    def get_allowed_read_wallets(self, stream_id: str):
+        """
+        Gets the wallets allowed to read the stream, if read stream is private
+        """
+
+        wallets = truf_sdk.GetAllowedReadWallets(self.client, stream_id)
+        return wallets
+    
+    def get_allowed_compose_streams(self, stream_id: str):
+        """
+        Gets the streams allowed to compose this stream, if compose stream is private
+        """
+         
+        streams = truf_sdk.GetAllowedComposeStreams(self.client, stream_id)
+        return streams
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)

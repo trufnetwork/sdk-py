@@ -508,7 +508,7 @@ class TNClient:
 
         return tx_hash
 
-    def set_read_visibility(self, stream_id: str, visibility: int, wait: bool = True):
+    def set_read_visibility(self, stream_id: str, visibilityVal: str, wait: bool = True):
         """
         Sets the read visibility of the stream -- Private or Public
 
@@ -517,8 +517,11 @@ class TNClient:
 
         Parameters:
             - stream_id: str
-            - visibility: int (0 for "public" and 1 for "private")
+            - visibility: str ("public" or "private")
         """
+        visibility = 0
+        if visibilityVal == "private":
+            visibility = 1
 
         input = truf_sdk.NewVisibilityInput(self.client, stream_id, visibility)
         tx_hash = truf_sdk.SetReadVisibility(self.client, input)
@@ -537,7 +540,7 @@ class TNClient:
 
         return "public" if visibility == truf_sdk.VisibilityPublic else "private"
     
-    def set_compose_visibility(self, stream_id: str, visibility: int, wait: bool = True):
+    def set_compose_visibility(self, stream_id: str, visibilityVal: int, wait: bool = True):
         """
         Sets the compose visibility of the stream -- Private or Public
 
@@ -546,8 +549,12 @@ class TNClient:
 
         Parameters:
             - stream_id: str
-            - visibility: int (0 for "public" and 1 for "private")
+            - visibility: str ("public" or "private")
         """
+
+        visibility = 0
+        if visibilityVal == "private":
+            visibility = 1
 
         input = truf_sdk.NewVisibilityInput(self.client, stream_id, visibility)
         tx_hash = truf_sdk.SetComposeVisibility(self.client, input)

@@ -46,7 +46,7 @@ def test_primitive_permissions(owner_client, reader_client):
     owner_client.deploy_stream(stream_id)
 
     # insert records to the stream
-    record_to_insert = {"date": "2023-01-01", "value": 10.5}
+    record_to_insert = {"date": date_string_to_unix("2023-01-01"), "value": 10.5}
 
     insert_tx_hash = owner_client.insert_record(stream_id, record_to_insert)
     assert insert_tx_hash is not None
@@ -55,11 +55,11 @@ def test_primitive_permissions(owner_client, reader_client):
 
     # ok - public read
     retrieved_records = reader_client.get_records(
-        stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
     assert len(retrieved_records) == 1
     for i, record in enumerate(retrieved_records):
-        assert record["EventTime"] == str(date_string_to_unix(record_to_insert["date"]))
+        assert record["EventTime"] == str(record_to_insert["date"])
         assert float(record["Value"]) == record_to_insert["value"]
 
     # set the stream read to private
@@ -69,14 +69,14 @@ def test_primitive_permissions(owner_client, reader_client):
 
     # ok - owner access their own private stream
     retrieved_records = owner_client.get_records(
-        stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
     assert len(retrieved_records) == 1
 
     # fail - reader access private stream
     with pytest.raises(Exception):
         retrieved_records = reader_client.get_records(
-            stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+            stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
         )
 
     # allow read access to reader
@@ -84,7 +84,7 @@ def test_primitive_permissions(owner_client, reader_client):
 
     # ok - reader with access
     retrieved_records = reader_client.get_records(
-        stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
 
     owner_client.destroy_stream(stream_id)
@@ -107,7 +107,7 @@ def test_composed_permissions(owner_client, reader_client):
     owner_client.deploy_stream(primitive_stream_id)
 
     # insert record to child stream
-    record_to_insert = {"date": "2023-01-01", "value": 10.5}
+    record_to_insert = {"date": date_string_to_unix("2023-01-01"), "value": 10.5}
     insert_tx_hash = owner_client.insert_record(primitive_stream_id, record_to_insert)
     assert insert_tx_hash is not None
 
@@ -122,7 +122,7 @@ def test_composed_permissions(owner_client, reader_client):
 
     # ok - public read
     retrieved_records = reader_client.get_records(
-        composed_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        composed_stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
     assert len(retrieved_records) == 1
 
@@ -132,7 +132,7 @@ def test_composed_permissions(owner_client, reader_client):
     # fail - composed stream is private
     with pytest.raises(Exception):
         retrieved_records = reader_client.get_records(
-            composed_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+            composed_stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
         )
     
     # set composed stream to public
@@ -144,7 +144,7 @@ def test_composed_permissions(owner_client, reader_client):
     # fail - primitive stream is private
     with pytest.raises(Exception):
         retrieved_records = reader_client.get_records(
-            primitive_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+            primitive_stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
         )
     
     # allow reader wallet to read primitive stream
@@ -152,7 +152,7 @@ def test_composed_permissions(owner_client, reader_client):
 
     # ok - private child stream but with access
     retrieved_records = reader_client.get_records(
-        primitive_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        primitive_stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
 
     # set composed stream to private
@@ -163,7 +163,7 @@ def test_composed_permissions(owner_client, reader_client):
 
     # ok - private composed stream but with access
     retrieved_records = reader_client.get_records(
-        composed_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        composed_stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
 
     owner_client.destroy_stream(composed_stream_id)
@@ -187,7 +187,7 @@ def test_stream_composition_permissions(owner_client, reader_client):
     owner_client.deploy_stream(primitive_stream_id)
 
     # insert record to child stream
-    record_to_insert = {"date": "2023-01-01", "value": 10.5}
+    record_to_insert = {"date": date_string_to_unix("2023-01-01"), "value": 10.5}
     insert_tx_hash = owner_client.insert_record(primitive_stream_id, record_to_insert)
     assert insert_tx_hash is not None
 
@@ -202,7 +202,7 @@ def test_stream_composition_permissions(owner_client, reader_client):
 
     # ok - public compose
     retrieved_records = reader_client.get_records(
-        composed_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        composed_stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
     assert len(retrieved_records) == 1
 
@@ -215,12 +215,12 @@ def test_stream_composition_permissions(owner_client, reader_client):
 
     # ok - read child stream directly 
     retrieved_records = reader_client.get_records(
-        primitive_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        primitive_stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
 
     # fail - private without access
     retrieved_records = reader_client.get_records(
-        composed_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        composed_stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
     # TODO: a primitive stream that is private on compose_visibility should not be allowed to be composed by any other stream
     # unless that stream is allowed with allow_compose_stream
@@ -232,7 +232,7 @@ def test_stream_composition_permissions(owner_client, reader_client):
 
     # ok - private with access
     retrieved_records = reader_client.get_records(
-        composed_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        composed_stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
 
     owner_client.destroy_stream(composed_stream_id)

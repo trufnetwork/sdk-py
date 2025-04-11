@@ -171,13 +171,7 @@ func InsertRecords(client *tnclient.Client, inputs []types.InsertRecordInput) (s
 }
 
 // NewInsertRecordInput creates a new InsertRecordInput struct
-func NewInsertRecordInput(client *tnclient.Client, streamId string, dateVal string, val float64) types.InsertRecordInput {
-	date, err := parseDate(dateVal)
-	if err != nil {
-		log.Printf("Warning: Failed to parse date %s: %v\n", dateVal, err)
-		return types.InsertRecordInput{}
-	}
-
+func NewInsertRecordInput(client *tnclient.Client, streamId string, date int, val float64) types.InsertRecordInput {
 	dataProvider, err := GetCurrentAccount(client)
 	if err != nil {
 		log.Printf("Warning: Failed to get data provider: %v\n", err)
@@ -187,7 +181,7 @@ func NewInsertRecordInput(client *tnclient.Client, streamId string, dateVal stri
 	return types.InsertRecordInput{
 		StreamId:     streamId,
 		DataProvider: dataProvider,
-		EventTime:    *date,
+		EventTime:    date,
 		Value:        val,
 	}
 }
@@ -197,10 +191,10 @@ func NewGetRecordInput(
 	client *tnclient.Client,
 	streamId string,
 	dataProvider string,
-	fromVal string,
-	toVal string,
-	frozenVal string,
-	baseDateVal string,
+	from int,
+	to int,
+	frozenAt int,
+	baseDate int,
 ) types.GetRecordInput {
 	result := types.GetRecordInput{
 		StreamId:     streamId,
@@ -214,27 +208,22 @@ func NewGetRecordInput(
 		}
 		result.DataProvider = currentAccount
 	}
-	from, err := parseDate(fromVal)
-	if err != nil {
-		return result
-	}
-	to, err := parseDate(toVal)
-	if err != nil {
-		return result
-	}
-	frozenAt, err := parseDate(frozenVal)
-	if err != nil {
-		return result
-	}
-	baseDate, err := parseDate(baseDateVal)
-	if err != nil {
-		return result
+
+	if from != -1 {
+		result.From = &from
 	}
 
-	result.From = from
-	result.To = to
-	result.FrozenAt = frozenAt
-	result.BaseDate = baseDate
+	if to != -1 {
+		result.To = &to
+	}
+
+	if frozenAt != -1 {
+		result.FrozenAt = &frozenAt
+	}
+
+	if baseDate != -1 {
+		result.BaseDate = &baseDate
+	}
 
 	return result
 }
@@ -286,8 +275,8 @@ func NewGetFirstRecordInput(
 	client *tnclient.Client,
 	streamId string,
 	dataProvider string,
-	afterVal string,
-	frozenVal string,
+	after int,
+	frozenAt int,
 ) types.GetFirstRecordInput {
 	result := types.GetFirstRecordInput{
 		StreamId:     streamId,
@@ -301,17 +290,14 @@ func NewGetFirstRecordInput(
 		}
 		result.DataProvider = currentAccount
 	}
-	frozenAt, err := parseDate(frozenVal)
-	if err != nil {
-		return result
-	}
-	after, err := parseDate(afterVal)
-	if err != nil {
-		return result
+
+	if frozenAt != -1 {
+		result.FrozenAt = &frozenAt
 	}
 
-	result.FrozenAt = frozenAt
-	result.After = after
+	if after != -1 {
+		result.After = &after
+	}
 
 	return result
 }
@@ -335,12 +321,8 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (m
 	}
 
 	result := make(map[string]string)
-	result["date"] = parseUnixTimestamp(&record.EventTime)
-	value, err := record.Value.Float64()
-	if err != nil {
-		return nil, fmt.Errorf("error converting value to float64: %w", err)
-	}
-	result["value"] = strconv.FormatFloat(value, 'f', -1, 64)
+	result["date"] = convertToString(record.EventTime)
+	result["value"] = convertToString(record.Value)
 
 	return result, nil
 }
@@ -407,7 +389,7 @@ func NewTaxonomyItemInput(client *tnclient.Client, stream_id string, weight floa
 }
 
 // NewTaxonomyInput creates a new TaxonomyInput struct
-func NewTaxonomyInput(client *tnclient.Client, streamId string, childStreams []types.TaxonomyItem, startDate string, groupSequence int) types.Taxonomy {
+func NewTaxonomyInput(client *tnclient.Client, streamId string, childStreams []types.TaxonomyItem, startDate int, groupSequence int) types.Taxonomy {
 	result := types.Taxonomy{
 		TaxonomyItems: childStreams,
 	}
@@ -419,19 +401,16 @@ func NewTaxonomyInput(client *tnclient.Client, streamId string, childStreams []t
 	}
 	result.ParentStream = client.OwnStreamLocator(*streamIdObj)
 
-	startDateTimestamp, err := parseDate(startDate)
-	if err != nil {
-		return types.Taxonomy{}
-	}
-
 	createdAt, err := parseDate(time.Now().Format("2006-01-02"))
 	if err != nil {
 		return types.Taxonomy{}
 	}
 
 	result.CreatedAt = *createdAt
-	result.StartDate = startDateTimestamp
 
+	if startDate != -1 {
+		result.StartDate = &startDate
+	}
 	if groupSequence != -1 {
 		result.GroupSequence = groupSequence
 	}

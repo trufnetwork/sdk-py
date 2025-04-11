@@ -173,8 +173,8 @@ class TNClient:
                 - value: float
 
         Parameters:
-            - batches: List of batch dictionaries
-            - wait: bool - Whether to wait for transactions to be confirmed
+            - batches : List of batch dictionaries
+            - wait : bool - Whether to wait for transactions to be confirmed
 
         Returns:
             String array containing the transaction hashes
@@ -220,12 +220,12 @@ class TNClient:
         Returns a list of records.
 
         Parameters:
-            - stream_id: str
-            - data_provider: (hex string)
-            - date_from: Optional[str] (YYYY-MM-DD)
-            - date_to: Optional[str] (YYYY-MM-DD)
-            - frozen_at: Optional[str] (YYYY-MM-DD)
-            - base_date: Optional[str] (YYYY-MM-DD)
+            - stream_id : str
+            - data_provider : (hex string)
+            - date_from : Optional[str] (YYYY-MM-DD)
+            - date_to : Optional[str] (YYYY-MM-DD)
+            - frozen_at : Optional[str] (YYYY-MM-DD)
+            - base_date : Optional[str] (YYYY-MM-DD)
         """
         data_provider = self._coalesce_str(data_provider)
         date_from = self._coalesce_str(date_from)
@@ -291,10 +291,10 @@ class TNClient:
         Get the first record of a stream after a given date.
         
         Parameters:
-            - stream_id: str
-            - data_provider: Optional[str] (hex string)
-            - after_date: Optional[str] (YYYY-MM-DD)
-            - frozen_at: Optional[str] (YYYY-MM-DD)
+            - stream_id : str
+            - data_provider : Optional[str] (hex string)
+            - after_date : Optional[str] (YYYY-MM-DD)
+            - frozen_at : Optional[str] (YYYY-MM-DD)
             
         Returns:
             Optional[Dict[str, Union[str, float]]] - A dictionary containing 'date' and 'value' if found, None otherwise
@@ -332,12 +332,12 @@ class TNClient:
         Index: Calculated values derived from stream data, representing a value's growth compared to the stream's first record.
 
         Parameters:
-            - stream_id: str
-            - data_provider: (hex string)
-            - date_from: Optional[str] (YYYY-MM-DD)
-            - date_to: Optional[str] (YYYY-MM-DD)
-            - frozen_at: Optional[str] (YYYY-MM-DD)
-            - base_date: Optional[str] (YYYY-MM-DD)
+            - stream_id : str
+            - data_provider : (hex string)
+            - date_from : Optional[str] (YYYY-MM-DD)
+            - date_to : Optional[str] (YYYY-MM-DD)
+            - frozen_at : Optional[str] (YYYY-MM-DD)
+            - base_date : Optional[str] (YYYY-MM-DD)
         """
         data_provider = self._coalesce_str(data_provider)
         date_from = self._coalesce_str(date_from)
@@ -427,8 +427,8 @@ class TNClient:
         If latest_version is true, then it will return only the latest version of the taxonomy
 
         Parameters:
-            - stream_id: str
-            - latest_version: bool
+            - stream_id : str
+            - latest_version : bool
         """
          
         result = truf_sdk.DescribeTaxonomy(self.client, stream_id, latest_version)
@@ -476,8 +476,8 @@ class TNClient:
         Returns the transaction hash.
 
         Parameters:
-            - stream_id: str
-            - wallet: str (Ethereum Address)
+            - stream_id : str
+            - wallet : str (Ethereum Address)
         """
          
         input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
@@ -496,8 +496,8 @@ class TNClient:
         Returns the transaction hash.
 
         Parameters:
-            - stream_id: str
-            - wallet: str (Ethereum Address)
+            - stream_id : str
+            - wallet : str (Ethereum Address)
         """
 
         input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
@@ -516,8 +516,8 @@ class TNClient:
         Returns the transaction hash.
 
         Parameters:
-            - stream_id: str
-            - visibility: str ("public" or "private")
+            - stream_id : str
+            - visibility : str ("public" or "private")
         """
         visibility = 0
         if visibilityVal == "private":
@@ -548,8 +548,8 @@ class TNClient:
         Returns the transaction hash.
 
         Parameters:
-            - stream_id: str
-            - visibility: str ("public" or "private")
+            - stream_id : str
+            - visibility : str ("public" or "private")
         """
 
         visibility = 0

@@ -169,7 +169,7 @@ def test_composed_permissions(owner_client, reader_client):
     owner_client.destroy_stream(composed_stream_id)
     owner_client.destroy_stream(primitive_stream_id)
 
-def test_stream_composition_permissions(client):
+def test_stream_composition_permissions(owner_client, reader_client):
     """
     Test composed stream permissions
     """
@@ -178,13 +178,65 @@ def test_stream_composition_permissions(client):
 
     # Cleanup in case the stream already exists from a previous test run
     try:
-        client.destroy_stream(composed_stream_id)
-        client.destroy_stream(primitive_stream_id)
+        owner_client.destroy_stream(composed_stream_id)
+        owner_client.destroy_stream(primitive_stream_id)
     except Exception:
         pass
 
-    client.destroy_stream(composed_stream_id)
-    client.destroy_stream(primitive_stream_id)
+    owner_client.deploy_stream(composed_stream_id, "composed")
+    owner_client.deploy_stream(primitive_stream_id)
+
+    # insert record to child stream
+    record_to_insert = {"date": "2023-01-01", "value": 10.5}
+    insert_tx_hash = owner_client.insert_record(primitive_stream_id, record_to_insert)
+    assert insert_tx_hash is not None
+
+    # define composed stream taxonomy
+    child_streams = {
+        primitive_stream_id: 1
+    }
+    tx_hash = owner_client.set_taxonomy(composed_stream_id, child_streams)
+    assert tx_hash is not None
+
+    data_provider = owner_client.get_current_account()
+
+    # ok - public compose
+    retrieved_records = reader_client.get_records(
+        composed_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+    )
+    assert len(retrieved_records) == 1
+
+    # set child stream to private
+    owner_client.set_compose_visibility(primitive_stream_id, "private")
+
+    # get compose visibility
+    visibility = owner_client.get_compose_visibility(primitive_stream_id)
+    assert visibility == "private"
+
+    # ok - read child stream directly 
+    retrieved_records = reader_client.get_records(
+        primitive_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+    )
+
+    # fail - private without access
+    retrieved_records = reader_client.get_records(
+        composed_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+    )
+    # TODO: a primitive stream that is private on compose_visibility should not be allowed to be composed by any other stream
+    # unless that stream is allowed with allow_compose_stream
+    # This test is broken now, probably the issue is on is_allowed_to_compose_all action
+    # track this issue on: https://github.com/trufnetwork/node/issues/872
+
+    # allow compose access to reader
+    owner_client.allow_compose_stream(composed_stream_id)
+
+    # ok - private with access
+    retrieved_records = reader_client.get_records(
+        composed_stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+    )
+
+    owner_client.destroy_stream(composed_stream_id)
+    owner_client.destroy_stream(primitive_stream_id)
 
 def date_string_to_unix(date_str, date_format="%Y-%m-%d"):
     """Convert a date string to a Unix timestamp (integer)."""

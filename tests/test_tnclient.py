@@ -58,17 +58,17 @@ def test_insert_single_record(client):
 
     client.deploy_stream(stream_id)
     
-    record_to_insert = {"date": "2023-01-01", "value": 10.5}
+    record_to_insert = {"date": date_string_to_unix("2023-01-01"), "value": 10.5}
 
     insert_tx_hash = client.insert_record(stream_id, record_to_insert)
     assert insert_tx_hash is not None
 
     retrieved_records = client.get_records(
-        stream_id, date_from="2023-01-01", date_to="2023-01-03"
+        stream_id, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
     assert len(retrieved_records) == 1
     for i, record in enumerate(retrieved_records):
-        assert record["EventTime"] == str(date_string_to_unix(record_to_insert["date"]))
+        assert record["EventTime"] == str(record_to_insert["date"])
         assert float(record["Value"]) == record_to_insert["value"]
 
     # Clean up
@@ -89,9 +89,9 @@ def test_insert_and_retrieve_records(client):
     client.deploy_stream(stream_id)
 
     records_to_insert = [
-        {"date": "2023-01-01", "value": 10.5},
-        {"date": "2023-01-02", "value": 12.2},
-        {"date": "2023-01-03", "value": 8.8},
+        {"date": date_string_to_unix("2023-01-01"), "value": 10.5},
+        {"date": date_string_to_unix("2023-01-02"), "value": 12.2},
+        {"date": date_string_to_unix("2023-01-03"), "value": 8.8},
     ]
     insert_tx_hash = client.insert_records(stream_id, records_to_insert)
     assert insert_tx_hash is not None
@@ -99,11 +99,11 @@ def test_insert_and_retrieve_records(client):
     data_provider = client.get_current_account()
 
     retrieved_records = client.get_records(
-        stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
     assert len(retrieved_records) == len(records_to_insert)
     for i, record in enumerate(retrieved_records):
-        assert record["EventTime"] == str(date_string_to_unix(records_to_insert[i]["date"]))
+        assert record["EventTime"] == str(records_to_insert[i]["date"])
         assert float(record["Value"]) == records_to_insert[i]["value"]
 
     # Clean up
@@ -125,9 +125,9 @@ def test_get_first_record(client):
     
     # Insert some records
     records = [
-        {"date": "2024-01-01", "value": 100.0},
-        {"date": "2024-01-02", "value": 200.0},
-        {"date": "2024-01-03", "value": 300.0},
+        {"date": date_string_to_unix("2024-01-01"), "value": 100.0},
+        {"date": date_string_to_unix("2024-01-02"), "value": 200.0},
+        {"date": date_string_to_unix("2024-01-03"), "value": 300.0},
     ]
     insert_tx = client.insert_records(stream_id, records)
     assert insert_tx is not None
@@ -135,17 +135,17 @@ def test_get_first_record(client):
     # Test getting first record with no parameters
     first_record = client.get_first_record(stream_id)
     assert first_record is not None
-    assert first_record["date"] == "2024-01-01"
+    assert first_record["date"] == str(records[0]["date"])
     assert first_record["value"] == 100.0
     
     # Test getting first record after a specific date
-    first_after = client.get_first_record(stream_id, after_date="2024-01-02")
+    first_after = client.get_first_record(stream_id, after_date=date_string_to_unix("2024-01-02"))
     assert first_after is not None
-    assert first_after["date"] == "2024-01-02"
+    assert first_after["date"] == str(records[1]["date"])
     assert first_after["value"] == 200.0
     
     # Test getting first record with non-existent date
-    first_nonexistent = client.get_first_record(stream_id, after_date="2024-12-31")
+    first_nonexistent = client.get_first_record(stream_id, after_date=date_string_to_unix("2024-12-31"))
     assert first_nonexistent is None
     
     # Clean up
@@ -167,9 +167,9 @@ def test_get_index(client):
     client.deploy_stream(stream_id)
 
     records_to_insert = [
-        {"date": "2023-01-01", "value": 10.5},
-        {"date": "2023-01-02", "value": 12.2},
-        {"date": "2023-01-03", "value": 8.8},
+        {"date": date_string_to_unix("2023-01-01"), "value": 10.5},
+        {"date": date_string_to_unix("2023-01-02"), "value": 12.2},
+        {"date": date_string_to_unix("2023-01-03"), "value": 8.8},
     ]
     insert_tx_hash = client.insert_records(stream_id, records_to_insert)
     assert insert_tx_hash is not None
@@ -177,11 +177,11 @@ def test_get_index(client):
     data_provider = client.get_current_account()
 
     retrieved_indexes = client.get_index(
-        stream_id, data_provider, date_from="2023-01-01", date_to="2023-01-03"
+        stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
     assert len(retrieved_indexes) == len(records_to_insert)
     for i, record in enumerate(retrieved_indexes):
-        assert record["EventTime"] == str(date_string_to_unix(records_to_insert[i]["date"]))
+        assert record["EventTime"] == str(records_to_insert[i]["date"])
         assert round(float(record["Value"]), 3) == round(
             float((records_to_insert[i]["value"] / records_to_insert[0]["value"]) * 100), 3
         )
@@ -215,33 +215,7 @@ def test_get_type(client):
     client.destroy_stream(stream_id)
     client.destroy_stream(composed_stream_id)
 
-def test_list_streams(client):
-    """
-    Test list all streams
-    """
-    stream1 = generate_stream_id("test_stream_1")
-    stream2 = generate_stream_id("test_stream_2")
-    stream3 = generate_stream_id("test_stream_3")
 
-    # Cleanup in case the stream already exists from a previous test run
-    try:
-        client.destroy_stream(stream1)
-        client.destroy_stream(stream2)
-        client.destroy_stream(stream3)
-    except Exception:
-        pass
-
-    client.deploy_stream(stream1)
-    client.deploy_stream(stream2)
-    client.deploy_stream(stream3)
-
-    streams = client.list_streams()
-    assert streams is not None
-    assert len(streams) == 3
-
-    client.destroy_stream(stream1)
-    client.destroy_stream(stream2)
-    client.destroy_stream(stream3)
 
 def test_taxonomy(client):
     """

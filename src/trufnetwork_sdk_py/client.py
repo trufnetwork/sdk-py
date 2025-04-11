@@ -5,7 +5,7 @@ import trufnetwork_sdk_c_bindings.go as go
 from typing import Dict, List, Union, Optional, Any, TypedDict
 
 class Record(TypedDict):
-    date: str  # YYYY-MM-DD format
+    date: int # UNIX
     value: float
 
 class RecordBatch(TypedDict):
@@ -106,7 +106,7 @@ class TNClient:
     def insert_record(
         self,
         stream_id: str,
-        record: Dict[str, Union[str, float, int]],
+        record: Dict[int, Union[float, int]],
         wait: bool = True
     ) -> str:
         """
@@ -115,7 +115,7 @@ class TNClient:
         Returns the transaction hash.
 
         Record is expected to have:
-          - "date": str (YYYY-MM-DD) 
+          - "date": int (UNIX timestamp)
           - "value": float or int
         """
         go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
@@ -129,7 +129,7 @@ class TNClient:
     def insert_records(
         self,
         stream_id: str,
-        records: List[Dict[str, Union[str, float, int]]],
+        records: List[Dict[int, Union[float, int]]],
         wait: bool = True,
     ) -> str:
         """
@@ -138,7 +138,7 @@ class TNClient:
         Returns the transaction hash.
 
         Each record is expected to have:
-          - "date": str (YYYY-MM-DD) 
+          - "date": int (UNIX timestamp) 
           - "value": float or int
 
         Note: Do not use this for inserting multiple records rapidly. Use batch inserts instead.
@@ -168,8 +168,8 @@ class TNClient:
         Insert multiple batches of records into different streams.
         Each batch should be a dictionary containing:
             - stream_id: str
-            - inputs: List[Dict[str, Union[str, float]]] where each dict has:
-                - date: str (YYYY-MM-DD format)
+            - inputs: List[Dict[int, float]] where each dict has:
+                - date: int (UNIX timestamp)
                 - value: float
 
         Parameters:
@@ -210,10 +210,10 @@ class TNClient:
         self,
         stream_id: str,
         data_provider: Optional[str] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        frozen_at: Optional[str] = None,
-        base_date: Optional[str] = None,
+        date_from: Optional[int] = None,
+        date_to: Optional[int] = None,
+        frozen_at: Optional[int] = None,
+        base_date: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Get records from a stream with the given stream ID.
@@ -222,16 +222,16 @@ class TNClient:
         Parameters:
             - stream_id : str
             - data_provider : (hex string)
-            - date_from : Optional[str] (YYYY-MM-DD)
-            - date_to : Optional[str] (YYYY-MM-DD)
-            - frozen_at : Optional[str] (YYYY-MM-DD)
-            - base_date : Optional[str] (YYYY-MM-DD)
+            - date_from : Optional[int] (UNIX)
+            - date_to : Optional[int] (UNIX)
+            - frozen_at : Optional[int] (UNIX)
+            - base_date : Optional[int] (UNIX)
         """
         data_provider = self._coalesce_str(data_provider)
-        date_from = self._coalesce_str(date_from)
-        date_to = self._coalesce_str(date_to)
-        frozen_at = self._coalesce_str(frozen_at)
-        base_date = self._coalesce_str(base_date)
+        date_from = self._coalesce_int(date_from)
+        date_to = self._coalesce_int(date_to)
+        frozen_at = self._coalesce_int(frozen_at)
+        base_date = self._coalesce_int(base_date)
 
         input = truf_sdk.NewGetRecordInput(
             self.client, 
@@ -284,8 +284,8 @@ class TNClient:
         self,
         stream_id: str,
         data_provider: Optional[str] = None,
-        after_date: Optional[str] = None,
-        frozen_at: Optional[str] = None,
+        after_date: Optional[int] = None,
+        frozen_at: Optional[int] = None,
     ) -> Optional[Dict[str, Union[str, float]]]:
         """
         Get the first record of a stream after a given date.
@@ -293,15 +293,15 @@ class TNClient:
         Parameters:
             - stream_id : str
             - data_provider : Optional[str] (hex string)
-            - after_date : Optional[str] (YYYY-MM-DD)
-            - frozen_at : Optional[str] (YYYY-MM-DD)
+            - after_date : Optional[int] (UNIX)
+            - frozen_at : Optional[int] (UNIX)
             
         Returns:
             Optional[Dict[str, Union[str, float]]] - A dictionary containing 'date' and 'value' if found, None otherwise
         """
         data_provider = self._coalesce_str(data_provider)
-        after_date = self._coalesce_str(after_date)
-        frozen_at = self._coalesce_str(frozen_at)
+        after_date = self._coalesce_int(after_date)
+        frozen_at = self._coalesce_int(frozen_at)
 
         input = truf_sdk.NewGetFirstRecordInput(self.client, stream_id, data_provider, after_date, frozen_at)
         result = truf_sdk.GetFirstRecord(self.client, input)
@@ -320,10 +320,10 @@ class TNClient:
         self,
         stream_id: str,
         data_provider: Optional[str] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        frozen_at: Optional[str] = None,
-        base_date: Optional[str] = None,
+        date_from: Optional[int] = None,
+        date_to: Optional[int] = None,
+        frozen_at: Optional[int] = None,
+        base_date: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Get index from a stream with the given stream ID.
@@ -334,16 +334,16 @@ class TNClient:
         Parameters:
             - stream_id : str
             - data_provider : (hex string)
-            - date_from : Optional[str] (YYYY-MM-DD)
-            - date_to : Optional[str] (YYYY-MM-DD)
-            - frozen_at : Optional[str] (YYYY-MM-DD)
-            - base_date : Optional[str] (YYYY-MM-DD)
+            - date_from : Optional[int] (UNIX)
+            - date_to : Optional[int] (UNIX)
+            - frozen_at : Optional[int] (UNIX)
+            - base_date : Optional[int] (UNIX)
         """
         data_provider = self._coalesce_str(data_provider)
-        date_from = self._coalesce_str(date_from)
-        date_to = self._coalesce_str(date_to)
-        frozen_at = self._coalesce_str(frozen_at)
-        base_date = self._coalesce_str(base_date)
+        date_from = self._coalesce_int(date_from)
+        date_to = self._coalesce_int(date_to)
+        frozen_at = self._coalesce_int(frozen_at)
+        base_date = self._coalesce_int(base_date)
 
         input = truf_sdk.NewGetRecordInput(
             self.client, 
@@ -382,7 +382,7 @@ class TNClient:
         self, 
         stream_id: str,
         child_streams: Dict[str, int],
-        start_date: Optional[str] = None,
+        start_date: Optional[int] = None,
         group_sequence: Optional[int] = None,
         wait: bool = True
     ):
@@ -398,7 +398,7 @@ class TNClient:
         Start date defines the starting point of value from the composed stream.
         """
         group_sequence = self._coalesce_int(group_sequence)
-        start_date = self._coalesce_str(start_date)
+        start_date = self._coalesce_int(start_date)
 
         taxonomies = []
         for id, weight in child_streams.items():

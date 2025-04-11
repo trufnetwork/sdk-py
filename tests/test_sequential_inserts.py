@@ -5,7 +5,7 @@ from trufnetwork_sdk_py.utils import generate_stream_id
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 from typing import List
 from tests.fixtures.test_trufnetwork import DEFAULT_TN_PRIVATE_KEY
-from datetime import datetime, timedelta  # Import datetime and timedelta
+from datetime import datetime, timedelta, timezone  # Import datetime and timedelta
 
 # Test configuration
 TEST_PROVIDER_URL = "http://localhost:8484"  
@@ -56,7 +56,7 @@ def test_batch_small_batches(client):
                 record_date = start_date + timedelta(days=batch * RECORDS_PER_BATCH + i)
                 records.append(
                     Record(
-                        date=record_date.strftime("%Y-%m-%d"),  # Format the date
+                        date=date_string_to_unix(record_date.strftime("%Y-%m-%d")),  # Format the date
                         value=float(batch * 100 + i)
                     )
                 )
@@ -88,7 +88,7 @@ def test_batch_small_batches(client):
         total_records = NUM_BATCHES * RECORDS_PER_BATCH
         retrieved_records = client.get_records(
             stream_id,
-            date_from="2023-01-01",
+            date_from=date_string_to_unix("2023-01-01"),
         )
         assert len(retrieved_records) == total_records
 
@@ -117,7 +117,7 @@ def test_batch_single_record_inserts(client):
             batches.append(RecordBatch(
                 stream_id=stream_id,
                 inputs=[Record(
-                    date=record_date.strftime("%Y-%m-%d"),  # Format the date
+                    date=date_string_to_unix(record_date.strftime("%Y-%m-%d")),  # Format the date
                     value=float(i)
                 )]
             ))
@@ -143,9 +143,14 @@ def test_batch_single_record_inserts(client):
         # Verify all records were inserted
         retrieved_records = client.get_records(
             stream_id,
-            date_from="2023-01-01"
+            date_from=date_string_to_unix("2023-01-01")
         )
         assert len(retrieved_records) == NUM_RECORDS
 
     finally:
         client.destroy_stream(stream_id) 
+
+def date_string_to_unix(date_str, date_format="%Y-%m-%d"):
+    """Convert a date string to a Unix timestamp (integer)."""
+    dt = datetime.strptime(date_str, date_format).replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())

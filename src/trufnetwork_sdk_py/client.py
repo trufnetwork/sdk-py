@@ -106,7 +106,7 @@ class TNClient:
     def insert_record(
         self,
         stream_id: str,
-        record: Dict[int, Union[float, int]],
+        record: Dict[str, Union[float, int]],
         wait: bool = True
     ) -> str:
         """
@@ -129,7 +129,7 @@ class TNClient:
     def insert_records(
         self,
         stream_id: str,
-        records: List[Dict[int, Union[float, int]]],
+        records: List[Dict[str, Union[float, int]]],
         wait: bool = True,
     ) -> str:
         """

@@ -87,6 +87,7 @@ func NewClient(provider string, privateKey string) (*tnclient.Client, error) {
 
 func GetCurrentAccount(client *tnclient.Client) (string, error) {
 	address := client.Address()
+	fmt.Println("Current account address: %s\n", address.Address())
 	return address.Address(), nil
 }
 

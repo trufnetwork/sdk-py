@@ -193,7 +193,6 @@ class TNClient:
 
             # (Optional) if the binding exposes getters, you can peek at the first one:
             first = input_list[0]
-            print(f" First struct → stream={first.StreamId()} date={first.EventTime()} value={first.Value()}")
             print(first)
 
             print(go_input_list[0])

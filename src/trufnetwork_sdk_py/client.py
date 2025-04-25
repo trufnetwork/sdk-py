@@ -187,9 +187,14 @@ class TNClient:
             for _, record in enumerate(inputs):
                 # Create InsertRecordInput struct
                 go_input = truf_sdk.NewInsertRecordInput(self.client, batch["stream_id"], record["date"], record["value"])
+                print(f"go_input", go_input)
                 input_list.append(go_input)
-            
+
+            # print(f"go_input", input_list)
+
             go_input_list = truf_sdk.Slice_s2_types_InsertRecordInput(input_list)
+
+            print(f"go_input_list", go_input_list)
 
             try:
                 insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)

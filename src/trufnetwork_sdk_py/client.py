@@ -164,37 +164,39 @@ class TNClient:
         batches: List[RecordBatch],
         wait: bool = True,
     ) -> List[str]:
-        """
-        Insert multiple batches of records into different streams.
-        Each batch should be a dictionary containing:
-            - stream_id: str
-            - inputs: List[Dict[int, float]] where each dict has:
-                - date: int (UNIX timestamp)
-                - value: float
-
-        Parameters:
-            - batches : List of batch dictionaries
-            - wait : bool - Whether to wait for transactions to be confirmed
-
-        Returns:
-            String array containing the transaction hashes
-        """
-        tx_hashes = [] 
-        for _, batch in enumerate(batches):
+        tx_hashes = []
+        for batch_idx, batch in enumerate(batches, start=1):
             inputs = batch["inputs"]
+
+            # 1) Log the batch metadata
+            print(f"Batch #{batch_idx}: stream={batch['stream_id']} count={len(inputs)}")
+
+            # 2) Dump each Python record dict
+            for rec_idx, record in enumerate(inputs, start=1):
+                print(f"  Rec {rec_idx}: date={record['date']}  value={record['value']}")
+
+            # 3) Build your Go‐struct list
             input_list = []
-            
-            for _, record in enumerate(inputs):
-                # Create InsertRecordInput struct
-                go_input = truf_sdk.NewInsertRecordInput(self.client, batch["stream_id"], record["date"], record["value"])
-                print(f"go_input", go_input)
+            for record in inputs:
+                go_input = truf_sdk.NewInsertRecordInput(
+                    self.client,
+                    batch["stream_id"],
+                    record["date"],
+                    record["value"],
+                )
                 input_list.append(go_input)
 
-            # print(f"go_input", input_list)
+            # 4) Now you know exactly what you’re passing in
+            print(f"Built {len(input_list)} Go InsertRecordInput structs for stream {batch['stream_id']}")
 
             go_input_list = truf_sdk.Slice_s2_types_InsertRecordInput(input_list)
 
-            print(f"go_input_list", go_input_list)
+            # (Optional) if the binding exposes getters, you can peek at the first one:
+            first = input_list[0]
+            print(f" First struct → stream={first.StreamId()} date={first.EventTime()} value={first.Value()}")
+            print(first)
+
+            print(go_input_list[0])
 
             try:
                 insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)
@@ -202,14 +204,15 @@ class TNClient:
             except Exception as e:
                 error_str = str(e)
                 if "failed to estimate price" in error_str:
-                    raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
-                raise e
-        
+                    raise ValueError("Request too large: batch size too big") from e
+                raise
+
         if wait:
-            for tx_hash in tx_hashes:
-                truf_sdk.WaitForTx(self.client, tx_hash)
+            for tx in tx_hashes:
+                truf_sdk.WaitForTx(self.client, tx)
 
         return tx_hashes
+
 
     def get_records(
         self,

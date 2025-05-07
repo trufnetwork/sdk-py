@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import pytest
 from trufnetwork_sdk_py.client import TNClient
 from trufnetwork_sdk_py.utils import generate_stream_id
@@ -11,12 +12,12 @@ TEST_PRIVATE_KEY = (
 )
 
 @pytest.fixture(scope="module")
-def client(tn_node):
+def client():
     """
     Pytest fixture to create a TNClient instance for testing.
     Uses the tn_node fixture to get a running server.
     """
-    client = TNClient(tn_node, TEST_PRIVATE_KEY)
+    client = TNClient(TEST_PROVIDER_URL, TEST_PRIVATE_KEY)
     return client
 
 def test_client_initialization(client):
@@ -25,7 +26,7 @@ def test_client_initialization(client):
     """
     assert client.client is not None
 
-def test_deploy_and_initialize_stream(client):
+def test_deploy_stream(client):
     """
     Test deploying and initializing a stream.
     """
@@ -40,8 +41,35 @@ def test_deploy_and_initialize_stream(client):
     deploy_tx_hash = client.deploy_stream(stream_id)
     assert deploy_tx_hash is not None
 
-    init_tx_hash = client.init_stream(stream_id)
-    assert init_tx_hash is not None
+    # Clean up
+    client.destroy_stream(stream_id)
+
+def test_insert_single_record(client):
+    """
+    Test inserting single record.
+    """
+    stream_id = generate_stream_id("test_stream_record")
+
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream_id)
+    except Exception:
+        pass
+
+    client.deploy_stream(stream_id)
+    
+    record_to_insert = {"date": date_string_to_unix("2023-01-01"), "value": 10.5}
+
+    insert_tx_hash = client.insert_record(stream_id, record_to_insert)
+    assert insert_tx_hash is not None
+
+    retrieved_records = client.get_records(
+        stream_id, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
+    )
+    assert len(retrieved_records) == 1
+    for i, record in enumerate(retrieved_records):
+        assert record["EventTime"] == str(record_to_insert["date"])
+        assert float(record["Value"]) == record_to_insert["value"]
 
     # Clean up
     client.destroy_stream(stream_id)
@@ -59,62 +87,27 @@ def test_insert_and_retrieve_records(client):
         pass
 
     client.deploy_stream(stream_id)
-    client.init_stream(stream_id)
 
     records_to_insert = [
-        {"date": "2023-01-01", "value": 10.5},
-        {"date": "2023-01-02", "value": 12.2},
-        {"date": "2023-01-03", "value": 8.8},
+        {"date": date_string_to_unix("2023-01-01"), "value": 10.5},
+        {"date": date_string_to_unix("2023-01-02"), "value": 12.2},
+        {"date": date_string_to_unix("2023-01-03"), "value": 8.8},
     ]
     insert_tx_hash = client.insert_records(stream_id, records_to_insert)
     assert insert_tx_hash is not None
 
+    data_provider = client.get_current_account()
+
     retrieved_records = client.get_records(
-        stream_id, date_from="2023-01-01", date_to="2023-01-03"
+        stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
     )
     assert len(retrieved_records) == len(records_to_insert)
     for i, record in enumerate(retrieved_records):
-        assert record["DateValue"] == records_to_insert[i]["date"]
+        assert record["EventTime"] == str(records_to_insert[i]["date"])
         assert float(record["Value"]) == records_to_insert[i]["value"]
 
     # Clean up
     client.destroy_stream(stream_id)
-
-def test_insert_and_retrieve_records_unix(client):
-    """
-    Test inserting and retrieving records with Unix timestamps.
-    """
-    stream_id = generate_stream_id("test_stream_records_unix")
-
-    try:
-        # Cleanup in case the stream already exists from a previous test run
-        try:
-            client.destroy_stream(stream_id)
-        except Exception:
-            pass
-
-        client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitiveUnix)
-        client.init_stream(stream_id)
-
-        records_to_insert = [
-            {"date": 1672531200, "value": 10.5},  # 2023-01-01 in Unix time
-            {"date": 1672617600, "value": 12.2},  # 2023-01-02 in Unix time
-            {"date": 1672704000, "value": 8.8},  # 2023-01-03 in Unix time
-        ]
-        insert_tx_hash = client.insert_records_unix(stream_id, records_to_insert)
-        assert insert_tx_hash is not None
-
-        retrieved_records = client.get_records_unix(
-            stream_id, date_from=1672531200, date_to=1672704000
-        )
-        assert len(retrieved_records) == len(records_to_insert)
-        for i, record in enumerate(retrieved_records):
-            assert int(record["DateValue"]) == records_to_insert[i]["date"]
-            assert float(record["Value"]) == records_to_insert[i]["value"]
-
-    finally:
-        # Clean up
-        client.destroy_stream(stream_id)
 
 def test_get_first_record(client):
     """Test getting the first record from a stream."""
@@ -130,15 +123,11 @@ def test_get_first_record(client):
     deploy_tx = client.deploy_stream(stream_id)
     assert deploy_tx is not None
     
-    # Initialize the stream
-    init_tx = client.init_stream(stream_id)
-    assert init_tx is not None
-    
     # Insert some records
     records = [
-        {"date": "2024-01-01", "value": 100.0},
-        {"date": "2024-01-02", "value": 200.0},
-        {"date": "2024-01-03", "value": 300.0},
+        {"date": date_string_to_unix("2024-01-01"), "value": 100.0},
+        {"date": date_string_to_unix("2024-01-02"), "value": 200.0},
+        {"date": date_string_to_unix("2024-01-03"), "value": 300.0},
     ]
     insert_tx = client.insert_records(stream_id, records)
     assert insert_tx is not None
@@ -146,227 +135,127 @@ def test_get_first_record(client):
     # Test getting first record with no parameters
     first_record = client.get_first_record(stream_id)
     assert first_record is not None
-    assert first_record["date"] == "2024-01-01"
+    assert first_record["date"] == str(records[0]["date"])
     assert first_record["value"] == 100.0
     
     # Test getting first record after a specific date
-    first_after = client.get_first_record(stream_id, after_date="2024-01-02")
+    first_after = client.get_first_record(stream_id, after_date=date_string_to_unix("2024-01-02"))
     assert first_after is not None
-    assert first_after["date"] == "2024-01-02"
+    assert first_after["date"] == str(records[1]["date"])
     assert first_after["value"] == 200.0
     
     # Test getting first record with non-existent date
-    first_nonexistent = client.get_first_record(stream_id, after_date="2024-12-31")
+    first_nonexistent = client.get_first_record(stream_id, after_date=date_string_to_unix("2024-12-31"))
     assert first_nonexistent is None
     
     # Clean up
     destroy_tx = client.destroy_stream(stream_id)
     assert destroy_tx is not None
 
-def test_get_first_record_unix(client):
-    """Test getting the first record from a stream using Unix timestamps."""
-    stream_id = generate_stream_id("test_get_first_record_unix")
-    
+def test_get_index(client):
+    """
+    Test getting index from a stream.
+    """
+    stream_id = generate_stream_id("test_stream_index")
+
     # Cleanup in case the stream already exists from a previous test run
     try:
         client.destroy_stream(stream_id)
     except Exception:
         pass
-        
-    # First deploy a stream with Unix timestamp type
-    deploy_tx = client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitiveUnix)
-    assert deploy_tx is not None
-    
-    # Initialize the stream
-    init_tx = client.init_stream(stream_id)
-    assert init_tx is not None
-    
-    # Insert some records
-    records = [
-        {"date": 1704067200, "value": 100.0},  # 2024-01-01
-        {"date": 1704153600, "value": 200.0},  # 2024-01-02
-        {"date": 1704240000, "value": 300.0},  # 2024-01-03
-    ]
-    insert_tx = client.insert_records_unix(stream_id, records)
-    assert insert_tx is not None
-    
-    # Test getting first record with no parameters
-    first_record = client.get_first_record_unix(stream_id)
-    assert first_record is not None
-    assert first_record["date"] == 1704067200
-    assert first_record["value"] == 100.0
-    
-    # Test getting first record after a specific date
-    first_after = client.get_first_record_unix(stream_id, after_date=1704153600)
-    assert first_after is not None
-    
-    assert first_after["date"] == 1704153600
-    assert first_after["value"] == 200.0
-    
-    # Test getting first record with non-existent date
-    first_nonexistent = client.get_first_record_unix(stream_id, after_date=1735689600)  # 2025-01-01
-    assert first_nonexistent is None
-    
-    # Clean up
-    destroy_tx = client.destroy_stream(stream_id)
-    assert destroy_tx is not None
 
-@pytest.fixture(scope="module")
-def helper_contract_id(client):
-    """
-    Pytest fixture to deploy the helper contract.
-    Returns a stream_id that will be automatically cleaned up after tests.
-    """
-    stream_id = generate_stream_id("test_helper_contract")
-    client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypeHelper)
-    # Note: Helper contract streams don't require initialization
-    yield stream_id
-    # Cleanup will run after all tests using this fixture are complete
+    client.deploy_stream(stream_id)
+
+    records_to_insert = [
+        {"date": date_string_to_unix("2023-01-01"), "value": 10.5},
+        {"date": date_string_to_unix("2023-01-02"), "value": 12.2},
+        {"date": date_string_to_unix("2023-01-03"), "value": 8.8},
+    ]
+    insert_tx_hash = client.insert_records(stream_id, records_to_insert)
+    assert insert_tx_hash is not None
+
+    data_provider = client.get_current_account()
+
+    retrieved_indexes = client.get_index(
+        stream_id, data_provider, date_from=date_string_to_unix("2023-01-01"), date_to=date_string_to_unix("2023-01-03")
+    )
+    assert len(retrieved_indexes) == len(records_to_insert)
+    for i, record in enumerate(retrieved_indexes):
+        assert record["EventTime"] == str(records_to_insert[i]["date"])
+        assert round(float(record["Value"]), 3) == round(
+            float((records_to_insert[i]["value"] / records_to_insert[0]["value"]) * 100), 3
+        )
+
+    # Clean up
     client.destroy_stream(stream_id)
 
-def test_filter_initialized_streams(client, helper_contract_id):
+def test_get_type(client):
     """
-    Test filter_initialized_streams method with a real helper contract stream.
+    Test that gets the type of the stream.
     """
-    # Set up stream IDs
-    stream_id1 = generate_stream_id("test_filter_1")
-    stream_id2 = generate_stream_id("test_filter_2")
-    
-    # Cleanup in case the streams already exist from a previous test run
-    try:
-        client.destroy_stream(stream_id1)
-    except Exception:
-        pass
-    
-    try:
-        client.destroy_stream(stream_id2)
-    except Exception:
-        pass
-    
-    # Deploy both streams
-    client.deploy_stream(stream_id1)
-    client.deploy_stream(stream_id2)
-    
-    # Initialize only the first stream
-    client.init_stream(stream_id1)
-    
-    # Get current account for the data provider
-    data_provider = client.get_current_account()
-    
-    # Test filter_initialized_streams
-    stream_ids = [stream_id1, stream_id2]
-    data_providers = [data_provider, data_provider]
-    
-    initialized_streams = client.filter_initialized_streams(
-        stream_ids, 
-        data_providers=data_providers,
-        helper_contract_stream_id=helper_contract_id,
-        helper_contract_data_provider=data_provider
-    )
-    
-    # Verify the results
-    assert len(initialized_streams) == 1
-    assert initialized_streams[0]['stream_id'] == stream_id1
-    assert initialized_streams[0]['data_provider'] == data_provider
-    
-    # Clean up
-    client.destroy_stream(stream_id1)
-    client.destroy_stream(stream_id2)
+    stream_id = generate_stream_id("stream_for_primitive_type")
+    composed_stream_id = generate_stream_id("stream_for_composed_type")
 
-def test_filter_non_deployed_streams(client, helper_contract_id):
-    """
-    Test filter_initialized_streams method with a mix of deployed and non-deployed streams.
-    """
-    # Set up stream IDs
-    stream_id1 = generate_stream_id("test_filter_deployed_1")
-    non_deployed_id = generate_stream_id("test_filter_non_deployed")
-    
-    # Cleanup in case the stream already exists from a previous test run
-    try:
-        client.destroy_stream(stream_id1)
-    except Exception:
-        pass
-    
-    # Deploy and initialize one stream
-    client.deploy_stream(stream_id1)
-    client.init_stream(stream_id1)
-    
-    # Get current account for the data provider
-    data_provider = client.get_current_account()
-    
-    # Test filter_initialized_streams with a non-deployed stream ID
-    stream_ids = [stream_id1, non_deployed_id]
-    data_providers = [data_provider, data_provider]
-    
-    try:
-        initialized_streams = client.filter_initialized_streams(
-            stream_ids, 
-            data_providers=data_providers,
-            helper_contract_stream_id=helper_contract_id,
-            helper_contract_data_provider=data_provider
-        )
-        
-        # If we get here, the method didn't fail - it should skip the non-deployed stream
-        assert len(initialized_streams) == 1
-        assert initialized_streams[0]['stream_id'] == stream_id1
-        assert initialized_streams[0]['data_provider'] == data_provider
-    except Exception as e:
-        # Check for the specific error message we saw in our test
-        error_message = str(e).lower()
-        assert "procedure \"get_metadata\" not found" in error_message or \
-               "error filtering initialized streams" in error_message
-    
-    # Clean up
-    client.destroy_stream(stream_id1)
-
-def test_stream_exists(client):
-    """Test the stream_exists function with both existing and non-existing streams."""
-    # Generate a unique stream ID
-    stream_id = generate_stream_id("test_stream_exists")
-    non_existent_stream_id = generate_stream_id("non_existent_stream")
-    
     # Cleanup in case the stream already exists from a previous test run
     try:
         client.destroy_stream(stream_id)
+        client.destroy_stream(composed_stream_id)
     except Exception:
         pass
-    
-    # Initially, the stream should not exist
-    assert not client.stream_exists(stream_id), "Stream should not exist before deployment"
-    
-    # Deploy the stream
-    deploy_tx = client.deploy_stream(stream_id)
-    assert deploy_tx is not None
-    
-    # After deployment, the stream should exist
-    assert client.stream_exists(stream_id), "Stream should exist after deployment"
-    
-    # Initialize the stream
-    init_tx = client.init_stream(stream_id)
-    assert init_tx is not None
-    
-    # After initialization, the stream should still exist
-    assert client.stream_exists(stream_id), "Stream should exist after initialization"
-    
-    # Non-existent stream should return False
-    assert not client.stream_exists(non_existent_stream_id), "Non-existent stream should return False"
-    
-    # Test with the current account as data provider
-    data_provider = client.get_current_account()
-    assert client.stream_exists(stream_id, data_provider), "Stream should exist with explicit data provider"
-    
-    # Test with empty string as data provider (should use the default)
-    assert client.stream_exists(stream_id, ""), "Stream should exist with empty string data provider"
-    
-    # Negative test with empty string as data provider
-    assert not client.stream_exists(non_existent_stream_id, ""), "Non-existent stream should return False with empty string data provider"
-    
-    # Clean up
-    destroy_tx = client.destroy_stream(stream_id)
-    assert destroy_tx is not None
-    
-    # After destruction, the stream should no longer exist
-    assert not client.stream_exists(stream_id), "Stream should not exist after destruction"
-    
-    # After destruction, the stream should not exist with empty string data provider
-    assert not client.stream_exists(stream_id, ""), "Stream should not exist after destruction with empty string data provider" 
+
+    client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive, wait=True)
+    client.deploy_stream(composed_stream_id, stream_type=truf_sdk.StreamTypeComposed, wait=True)
+
+    stream_type = client.get_type(stream_id, client.get_current_account())
+    assert stream_type == truf_sdk.StreamTypePrimitive, "Stream type should be primitive"
+
+    stream_type = client.get_type(composed_stream_id, client.get_current_account())
+    assert stream_type == truf_sdk.StreamTypeComposed, "Stream type should be composed"
+
+    client.destroy_stream(stream_id)
+    client.destroy_stream(composed_stream_id)
+
+
+
+def test_taxonomy(client):
+    """
+    Test set and retrieve taxonomy of composed stream
+    """
+    stream_id = generate_stream_id("test_taxonomy")
+    child_stream_id_1 = generate_stream_id("test_child_stream1")
+    child_stream_id_2 = generate_stream_id("test_child_stream2")
+
+    # Cleanup in case the stream already exists from a previous test run
+    try:
+        client.destroy_stream(stream_id)
+        client.destroy_stream(child_stream_id_1)
+        client.destroy_stream(child_stream_id_2)
+    except Exception:
+        pass
+
+    client.deploy_stream(stream_id, "composed")
+    client.deploy_stream(child_stream_id_1)
+    client.deploy_stream(child_stream_id_2)
+
+    child_streams = {
+        child_stream_id_1: 1,
+        child_stream_id_2: 2,
+    }
+    tx_hash = client.set_taxonomy(stream_id, child_streams)
+    assert tx_hash is not None
+
+    taxonomies = client.describe_taxonomy(stream_id)
+    assert taxonomies is not None
+    assert len(taxonomies["child_streams"]) == 2
+
+    for child_stream in taxonomies["child_streams"]:
+        assert child_stream["weight"] == child_streams[child_stream["stream_id"]]
+
+    client.destroy_stream(stream_id)
+    client.destroy_stream(child_stream_id_1)
+    client.destroy_stream(child_stream_id_2)
+
+def date_string_to_unix(date_str, date_format="%Y-%m-%d"):
+    """Convert a date string to a Unix timestamp (integer)."""
+    dt = datetime.strptime(date_str, date_format).replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())

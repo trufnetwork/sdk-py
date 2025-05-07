@@ -1,26 +1,16 @@
-from typing import Dict, List, Union, Optional, Any, TypedDict
+import json
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
-
-class UnixRecord(TypedDict):
-    date: int
-    value: float
-
-class UnixRecordBatch(TypedDict):
-    stream_id: str
-    inputs: List[UnixRecord]
+from typing import Dict, List, Union, Optional, Any, TypedDict
 
 class Record(TypedDict):
-    date: str  # YYYY-MM-DD format
+    date: int # UNIX
     value: float
 
 class RecordBatch(TypedDict):
     stream_id: str
     inputs: List[Record]
-
-class BatchInsertResults(TypedDict):
-    tx_hash: str
 
 class TNClient:
     def __init__(self, url: str, token: str):
@@ -112,32 +102,34 @@ class TNClient:
         if wait:
             truf_sdk.WaitForTx(self.client, deploy_tx_hash)
         return deploy_tx_hash
-
-    def stream_exists(
-        self, stream_id: str, data_provider: Optional[str] = None
-    ) -> bool:
+    
+    def insert_record(
+        self,
+        stream_id: str,
+        record: Dict[str, Union[float, int]],
+        wait: bool = True
+    ) -> str:
         """
-        Check if a stream with the given stream ID exists.
-        Returns True if the stream exists, False otherwise.
-        """
-        data_provider = self._coalesce_str(data_provider)
-        return truf_sdk.StreamExists(self.client, stream_id, data_provider)
-
-    def init_stream(self, stream_id: str, wait: bool = True) -> str:
-        """
-        Initialize a stream with the given stream ID.
+        Insert a single record into a stream with the given stream ID.
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
+
+        Record is expected to have:
+          - "date": int (UNIX timestamp)
+          - "value": float or int
         """
-        init_tx_hash = truf_sdk.InitStream(self.client, stream_id)
+        go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
+        insert_tx_hash = truf_sdk.InsertRecord(self.client, go_input)
+
         if wait:
-            truf_sdk.WaitForTx(self.client, init_tx_hash)
-        return init_tx_hash
+            truf_sdk.WaitForTx(self.client, insert_tx_hash)
+
+        return insert_tx_hash
 
     def insert_records(
         self,
         stream_id: str,
-        records: List[Dict[str, Union[str, float, int]]],
+        records: List[Dict[str, Union[float, int]]],
         wait: bool = True,
     ) -> str:
         """
@@ -146,229 +138,75 @@ class TNClient:
         Returns the transaction hash.
 
         Each record is expected to have:
-          - "date": str (YYYY-MM-DD) 
+          - "date": int (UNIX timestamp) 
           - "value": float or int
 
         Note: Do not use this for inserting multiple records rapidly. Use batch inserts instead.
         Or else you can have nonce errors.
         """
-        dates = [record["date"] for record in records]
-        values = [record["value"] for record in records]
 
-        insert_tx_hash = truf_sdk.InsertRecords(
-            self.client,
-            stream_id,
-            go.Slice_string(dates),
-            go.Slice_float64([float(v) for v in values]),
-        )
-        if wait:
-            truf_sdk.WaitForTx(self.client, insert_tx_hash)
-        return insert_tx_hash
-
-    def insert_records_unix(
-        self,
-        stream_id: str,
-        records: List[Dict[str, Union[str, float, int]]],
-        wait: bool = True,
-    ) -> str:
-        """
-        Insert records into a stream with the given stream ID using Unix timestamps.
-
-        Note: Do not use this for inserting multiple records rapidly. Use batch inserts instead.
-        Or else you can have nonce errors.
-        """
-        dates = [record["date"] for record in records]
-        values = [record["value"] for record in records]
-
-        insert_tx_hash = truf_sdk.InsertRecordsUnix(
-            self.client, stream_id, go.Slice_int(dates), go.Slice_float64([float(v) for v in values])
-        )
-        if wait:
-            truf_sdk.WaitForTx(self.client, insert_tx_hash)
-        return insert_tx_hash
-
-    def batch_insert_records_unix(
-        self,
-        batches: List[UnixRecordBatch],
-        helper_contract_stream_id: Optional[str] = None,
-        helper_contract_data_provider: Optional[str] = None,
-        wait: bool = True,
-    ) -> BatchInsertResults:
-        """
-        Insert multiple batches of records into different streams using Unix timestamps.
-        Each batch should be a dictionary containing:
-            - stream_id: str
-            - inputs: List[Dict[str, Union[int, float]]] where each dict has:
-                - date: int (Unix timestamp)
-                - value: float
-
-        Parameters:
-            - batches: List of batch dictionaries
-            - wait: bool - Whether to wait for transactions to be confirmed
-
-        Returns:
-            List of transaction hashes in the same order as the input batches
-        """
-        # Create a Go slice of UnixBatch structs
-        batches_list = []
-            
-        for _, batch in enumerate(batches):
-            # Create a Go slice for inputs
-            inputs = batch["inputs"]
-            input_list = []
-            
-            for j, record in enumerate(inputs):
-                # Create InsertRecordUnixInput struct
-                go_input = truf_sdk.NewInsertRecordUnixInput(record["date"], record["value"])
-                input_list.append(go_input)
-            
-            # Create UnixBatch struct
-            go_input_list = truf_sdk.Slice_types_InsertRecordUnixInput(input_list)
-            go_batch = truf_sdk.NewUnixBatch(batch["stream_id"], go_input_list)
-            batches_list.append(go_batch)
-
-        # Call the Go function with the typed batches
-        go_batches = truf_sdk.Slice_exports_UnixBatch(batches_list)
-
-        # Put the Go batches into the args struct of Batches
-        go_args = truf_sdk.BatchInsertRecordsUnixArgs(Batches=go_batches)
-
-        if helper_contract_stream_id:
-            go_args.HelperContractStreamId = helper_contract_stream_id
-
-        if helper_contract_data_provider:
-            go_args.HelperContractDataProvider = helper_contract_data_provider
-
-        try:
-            results = truf_sdk.BatchInsertRecordsUnix(self.client, go_args)
-        except Exception as e:
-            error_str = str(e)
-            if "failed to estimate price" in error_str:
-                raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
-            raise e
-
-        # Convert Go results to Python results, filtering out empty strings
-        python_results = BatchInsertResults(
-            tx_hash=results.TxHash,
-        )
-
-        if wait:
-            truf_sdk.WaitForTx(self.client, python_results["tx_hash"])
+        input_list = []
+        for _, record in enumerate(records):
+            # Create InsertRecordInput struct
+            go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
+            input_list.append(go_input)
         
-        return python_results
+        go_input_list = truf_sdk.Slice_s2_types_InsertRecordInput(input_list)
+        insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, insert_tx_hash)
+
+        return insert_tx_hash
 
     def batch_insert_records(
         self,
         batches: List[RecordBatch],
-        helper_contract_stream_id: Optional[str] = None,
-        helper_contract_data_provider: Optional[str] = None,
         wait: bool = True,
-    ) -> BatchInsertResults:
+    ) -> List[str]:
         """
         Insert multiple batches of records into different streams.
         Each batch should be a dictionary containing:
             - stream_id: str
-            - inputs: List[Dict[str, Union[str, float]]] where each dict has:
-                - date: str (YYYY-MM-DD format)
+            - inputs: List[Dict[int, float]] where each dict has:
+                - date: int (UNIX timestamp)
                 - value: float
 
         Parameters:
-            - batches: List of batch dictionaries
-            - helper_contract_stream_id: Optional[str] - The stream ID of the helper contract
-            - helper_contract_data_provider: Optional[str] - The data provider of the helper contract
-            - wait: bool - Whether to wait for transactions to be confirmed
+            - batches : List of batch dictionaries
+            - wait : bool - Whether to wait for transactions to be confirmed
 
         Returns:
-            BatchInsertResults containing the transaction hash
+            String array containing the transaction hashes
         """
-        # Create a Go slice of Batch structs
-        batches_list = []
-            
+        tx_hashes = [] 
         for _, batch in enumerate(batches):
-            # Create a Go slice for inputs
             inputs = batch["inputs"]
             input_list = []
             
-            for j, record in enumerate(inputs):
+            for _, record in enumerate(inputs):
                 # Create InsertRecordInput struct
-                go_input = truf_sdk.NewInsertRecordInput(record["date"], record["value"])
+                go_input = truf_sdk.NewInsertRecordInput(self.client, batch["stream_id"], record["date"], record["value"])
                 input_list.append(go_input)
             
-            # Create Batch struct
-            go_input_list = truf_sdk.Slice_types_InsertRecordInput(input_list)
-            go_batch = truf_sdk.NewBatch(batch["stream_id"], go_input_list)
-            batches_list.append(go_batch)
+            go_input_list = truf_sdk.Slice_s2_types_InsertRecordInput(input_list)
 
-        # Call the Go function with the typed batches
-        go_batches = truf_sdk.Slice_exports_Batch(batches_list)
-
-        # Put the Go batches into the args struct
-        go_args = truf_sdk.BatchInsertRecordsArgs(Batches=go_batches)
-
-        if helper_contract_stream_id:
-            go_args.HelperContractStreamId = helper_contract_stream_id
-
-        if helper_contract_data_provider:
-            go_args.HelperContractDataProvider = helper_contract_data_provider
-
-        try:
-            results = truf_sdk.BatchInsertRecords(self.client, go_args)
-        except Exception as e:
-            error_str = str(e)
-            if "failed to estimate price" in error_str:
-                raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
-            raise e
-
-        # Convert Go results to Python results
-        python_results = BatchInsertResults(
-            tx_hash=results.TxHash,
-        )
-
-        if wait:
-            truf_sdk.WaitForTx(self.client, python_results["tx_hash"])
+            try:
+                insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)
+                tx_hashes.append(insert_tx_hash)
+            except Exception as e:
+                error_str = str(e)
+                if "failed to estimate price" in error_str:
+                    raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
+                raise e
         
-        return python_results
+        if wait:
+            for tx_hash in tx_hashes:
+                truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hashes
 
     def get_records(
-        self,
-        stream_id: str,
-        data_provider: Optional[str] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        frozen_at: Optional[str] = None,
-        base_date: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get records from a stream with the given stream ID.
-        Returns a list of records.
-
-        Parameters:
-            - stream_id: str
-            - data_provider: Optional[str] (hex string)
-            - date_from: Optional[str] (YYYY-MM-DD)
-            - date_to: Optional[str] (YYYY-MM-DD)
-            - frozen_at: Optional[str] (YYYY-MM-DD)
-            - base_date: Optional[str] (YYYY-MM-DD)
-        """
-        data_provider = self._coalesce_str(data_provider)
-        date_from = self._coalesce_str(date_from)
-        date_to = self._coalesce_str(date_to)
-        frozen_at = self._coalesce_str(frozen_at)
-        base_date = self._coalesce_str(base_date)
-
-        go_slice_of_maps = truf_sdk.GetRecords(
-            self.client,
-            stream_id,
-            data_provider,
-            date_from,
-            date_to,
-            frozen_at,
-            base_date,
-        )
-
-        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
-
-    def get_records_unix(
         self,
         stream_id: str,
         data_provider: Optional[str] = None,
@@ -378,8 +216,16 @@ class TNClient:
         base_date: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Get records from a stream with the given stream ID using Unix timestamps.
+        Get records from a stream with the given stream ID.
         Returns a list of records.
+
+        Parameters:
+            - stream_id : str
+            - data_provider : (hex string)
+            - date_from : Optional[int] (UNIX)
+            - date_to : Optional[int] (UNIX)
+            - frozen_at : Optional[int] (UNIX)
+            - base_date : Optional[int] (UNIX)
         """
         data_provider = self._coalesce_str(data_provider)
         date_from = self._coalesce_int(date_from)
@@ -387,114 +233,18 @@ class TNClient:
         frozen_at = self._coalesce_int(frozen_at)
         base_date = self._coalesce_int(base_date)
 
-        go_slice_of_maps = truf_sdk.GetRecordsUnix(
-            self.client,
+        input = truf_sdk.NewGetRecordInput(
+            self.client, 
             stream_id,
             data_provider,
             date_from,
             date_to,
             frozen_at,
-            base_date,
+            base_date
         )
+        go_slice_of_maps = truf_sdk.GetRecords(self.client, input)
 
         return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
-
-    def execute_procedure(
-        self,
-        stream_id: str,
-        data_provider: str,
-        procedure: str,
-        args: list[list[Union[str, float, int, list[str], list[float]]]],
-        wait: bool = True,
-    ) -> str:
-        """
-        Execute an arbitrary procedure with the given stream ID.
-        If wait is True, it will wait for the transaction to be confirmed.
-        Returns the transaction hash.
-
-        Parameters:
-            - stream_id: str
-            - data_provider: str (hex string)
-            - procedure: str
-            - args: List[List[Union[str, float, int, list[str], list[float]]]]
-            - wait: bool
-        """
-        # Transpose the 2D args
-        transposed_args = list(map(list, zip(*args)))
-
-        # Convert Python lists to Go slices with the correct type
-        variadic_args = []
-        for arg_list in transposed_args:
-            if all(isinstance(item, str) for item in arg_list):
-                variadic_args.append(
-                    truf_sdk.ArgsFromStrings(go.Slice_string(arg_list))
-                )
-            elif all(isinstance(item, (float, int)) for item in arg_list):
-                # Force to float64 so that we can pass them to ArgsFromFloats
-                float_list = [float(item) for item in arg_list]
-                variadic_args.append(
-                    truf_sdk.ArgsFromFloats(go.Slice_float64(float_list))
-                )
-            # now for array of arrays
-            elif all_is_list_of_strings(arg_list):
-                all_slices = [go.Slice_string(item) for item in arg_list]
-                variadic_args.append(
-                    truf_sdk.ArgsFromStringsSlice(*all_slices)
-                )
-            elif all_is_list_of_floats(arg_list):
-                all_slices = [go.Slice_float64(item) for item in arg_list]
-                variadic_args.append(
-                    truf_sdk.ArgsFromFloatsSlice(*all_slices)
-                )
-            else:
-                raise ValueError(f"Unsupported argument types in {arg_list}")
-
-        tx_hash = truf_sdk.ExecuteProcedure(
-            self.client, stream_id, data_provider, procedure, *variadic_args
-        )
-
-        if wait:
-            truf_sdk.WaitForTx(self.client, tx_hash)
-        return tx_hash
-
-    def call_procedure(
-        self,
-        stream_id: str,
-        data_provider: Optional[str] = None,
-        procedure: str = "",
-        args: Optional[List[Any]] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Call a procedure on a stream with the given stream ID.
-        Returns the result of the procedure call as a list of dicts.
-
-        Parameters:
-            - stream_id: str
-            - data_provider: Optional[str] (hex string)
-            - procedure: str
-            - args: List[Any]
-        """
-        data_provider = self._coalesce_str(data_provider)
-        if args is None:
-            args = []
-
-        call_procedure_args = truf_sdk.NewCallProcedureArgs()
-        for arg in args:
-            if isinstance(arg, str):
-                call_procedure_args.AddString(arg)
-            elif isinstance(arg, float):
-                call_procedure_args.AddFloat(arg)
-            elif isinstance(arg, int):
-                call_procedure_args.AddInt(arg)
-
-        records = truf_sdk.CallProcedure(
-            self.client,
-            stream_id,
-            data_provider,
-            procedure,
-            call_procedure_args
-        )
-        return self._records_handle_to_list_of_dicts(records)
 
     def get_type(self, stream_id: str, data_provider: Optional[str] = None) -> str:
         """
@@ -509,51 +259,6 @@ class TNClient:
         Wait for a transaction to be confirmed given its hash.
         """
         truf_sdk.WaitForTx(self.client, tx_hash)
-
-    def filter_initialized_streams(
-        self, 
-        stream_ids: List[str], 
-        data_providers: Optional[List[str]] = None,
-        helper_contract_stream_id: Optional[str] = None,
-        helper_contract_data_provider: Optional[str] = None
-    ) -> List[Dict[str, str]]:
-        """
-        Filter out non-initialized streams from a list of stream IDs and data providers.
-        
-        Parameters:
-            - stream_ids: List[str] - List of stream IDs to filter
-            - data_providers: Optional[List[str]] - List of data providers corresponding to the stream IDs
-              If None, the default data provider is used for all stream IDs.
-            - helper_contract_stream_id: Optional[str] - The stream ID of the helper contract
-              If None, the default helper contract stream ID is used.
-            - helper_contract_data_provider: Optional[str] - The data provider of the helper contract
-              If None, the default helper contract data provider is used.
-            
-        Returns:
-            List[Dict[str, str]] - A list of dictionaries containing the initialized streams,
-            each with keys 'stream_id' and 'data_provider'.
-        """
-        # Prepare data providers list if provided
-        if data_providers is None:
-            data_providers = [""] * len(stream_ids)
-        
-        # Convert Python lists to Go slices
-        go_stream_ids = go.Slice_string(stream_ids)
-        go_data_providers = go.Slice_string(data_providers)
-        
-        # Call the FilterInitialized function
-        helper_stream_id = self._coalesce_str(helper_contract_stream_id)
-        helper_provider = self._coalesce_str(helper_contract_data_provider)
-        
-        go_slice_of_maps = truf_sdk.FilterInitialized(
-            self.client,
-            go_stream_ids,
-            go_data_providers,
-            helper_stream_id,
-            helper_provider
-        )
-        
-        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
 
     def get_current_account(self) -> str:
         """
@@ -579,86 +284,310 @@ class TNClient:
         self,
         stream_id: str,
         data_provider: Optional[str] = None,
-        after_date: Optional[str] = None,
-        frozen_at: Optional[str] = None,
+        after_date: Optional[int] = None,
+        frozen_at: Optional[int] = None,
     ) -> Optional[Dict[str, Union[str, float]]]:
         """
         Get the first record of a stream after a given date.
         
         Parameters:
-            - stream_id: str
-            - data_provider: Optional[str] (hex string)
-            - after_date: Optional[str] (YYYY-MM-DD)
-            - frozen_at: Optional[str] (YYYY-MM-DD)
+            - stream_id : str
+            - data_provider : Optional[str] (hex string)
+            - after_date : Optional[int] (UNIX)
+            - frozen_at : Optional[int] (UNIX)
             
         Returns:
             Optional[Dict[str, Union[str, float]]] - A dictionary containing 'date' and 'value' if found, None otherwise
         """
         data_provider = self._coalesce_str(data_provider)
-        after_date = self._coalesce_str(after_date)
-        frozen_at = self._coalesce_str(frozen_at)
-
-        result = truf_sdk.GetFirstRecord(
-            self.client,
-            stream_id,
-            data_provider,
-            after_date,
-            frozen_at,
-        )
-        
-        # Convert the result to a Python dict and convert the value to float
-        record = dict(result.items())
-        # nil from go is an empty map, not None
-        if not record:
-            return None
-        record["value"] = float(record["value"])
-        return record
-
-    def get_first_record_unix(
-        self,
-        stream_id: str,
-        data_provider: Optional[str] = None,
-        after_date: Optional[int] = None,
-        frozen_at: Optional[int] = None,
-    ) -> Optional[Dict[str, Union[int, float]]]:
-        """
-        Get the first record of a stream after a given Unix timestamp.
-        
-        Parameters:
-            - stream_id: str
-            - data_provider: Optional[str] (hex string)
-            - after_date: Optional[int] (Unix timestamp)
-            - frozen_at: Optional[int] (Unix timestamp)
-            
-        Returns:
-            Optional[Dict[str, Union[int, float]]] - A dictionary containing 'date' (Unix timestamp) and 'value' if found, None otherwise
-        """
-        data_provider = self._coalesce_str(data_provider)
         after_date = self._coalesce_int(after_date)
         frozen_at = self._coalesce_int(frozen_at)
 
-        result = truf_sdk.GetFirstRecordUnix(
-            self.client,
+        input = truf_sdk.NewGetFirstRecordInput(self.client, stream_id, data_provider, after_date, frozen_at)
+        result = truf_sdk.GetFirstRecord(self.client, input)
+        
+        # Convert the result to a Python dict and convert the value to float
+        record = dict(result.items())
+
+        # nil from go is an empty map, not None
+        if not record:
+            return None
+
+        record["value"] = float(record["value"])
+        return record
+    
+    def get_index(
+        self,
+        stream_id: str,
+        data_provider: Optional[str] = None,
+        date_from: Optional[int] = None,
+        date_to: Optional[int] = None,
+        frozen_at: Optional[int] = None,
+        base_date: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get index from a stream with the given stream ID.
+        Returns a list of indexes.
+
+        Index: Calculated values derived from stream data, representing a value's growth compared to the stream's first record.
+
+        Parameters:
+            - stream_id : str
+            - data_provider : (hex string)
+            - date_from : Optional[int] (UNIX)
+            - date_to : Optional[int] (UNIX)
+            - frozen_at : Optional[int] (UNIX)
+            - base_date : Optional[int] (UNIX)
+        """
+        data_provider = self._coalesce_str(data_provider)
+        date_from = self._coalesce_int(date_from)
+        date_to = self._coalesce_int(date_to)
+        frozen_at = self._coalesce_int(frozen_at)
+        base_date = self._coalesce_int(base_date)
+
+        input = truf_sdk.NewGetRecordInput(
+            self.client, 
             stream_id,
             data_provider,
-            after_date,
+            date_from,
+            date_to,
             frozen_at,
+            base_date
         )
+        go_slice_of_maps = truf_sdk.GetIndex(self.client, input)
+
+        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
+
+    def list_streams(
+        self, 
+        limit: Optional[int] = None, 
+        offset: Optional[int] = None, 
+        data_provider: Optional[str] = None, 
+        order_by: Optional[str] = None
+    ):
+        """
+            List all streams associated with client account
+        """
+        limit = self._coalesce_int(limit)
+        offset = self._coalesce_int(offset)
+        data_provider = self._coalesce_str(data_provider)
+        order_by = self._coalesce_str(order_by)
+
+        input = truf_sdk.NewListStreamsInput(limit, offset, data_provider, order_by)
+        go_slice_of_maps = truf_sdk.ListStreams(self.client, input)
+
+        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
         
-        # If no record found, result will be None or an empty map
-        if result is None or not result:
-            return None
-            
-        try:
-            # Convert the result to a Python dict and convert the values
-            record = dict(result.items())
-            # Convert string values to appropriate types
-            record["date"] = int(record["date"])
-            record["value"] = float(record["value"])
-            return record
-        except (AttributeError, KeyError, ValueError) as e:
-            # If any conversion fails, return None
-            return None
+    def set_taxonomy(
+        self, 
+        stream_id: str,
+        child_streams: Dict[str, int],
+        start_date: Optional[int] = None,
+        group_sequence: Optional[int] = None,
+        wait: bool = True
+    ):
+        """
+        Set Taxonomy will define taxonomy of a composed stream.
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Each child stream is expected to have dictionary of:
+          - "stream id" as the key
+          - "weight" as the value
+
+        Start date defines the starting point of value from the composed stream.
+        """
+        group_sequence = self._coalesce_int(group_sequence)
+        start_date = self._coalesce_int(start_date)
+
+        taxonomies = []
+        for id, weight in child_streams.items():
+            taxonomy_item = truf_sdk.NewTaxonomyItemInput(self.client, id, weight)
+            taxonomies.append(taxonomy_item)
+
+        taxonomies_go = truf_sdk.Slice_s2_types_TaxonomyItem(taxonomies)
+        input = truf_sdk.NewTaxonomyInput(
+            self.client, 
+            stream_id, 
+            taxonomies_go,
+            start_date,
+            group_sequence
+        )
+        tx_hash = truf_sdk.SetTaxonomy(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+    
+    def describe_taxonomy(self, stream_id: str, latest_version: bool = True):
+        """
+        Get taxonomy structure of a composed stream
+
+        If latest_version is true, then it will return only the latest version of the taxonomy
+
+        Parameters:
+            - stream_id : str
+            - latest_version : bool
+        """
+         
+        result = truf_sdk.DescribeTaxonomy(self.client, stream_id, latest_version)
+        taxonomy = dict(result.items())
+        taxonomy["child_streams"] = json.loads(taxonomy["child_streams"])
+
+        for child_stream in taxonomy["child_streams"]:
+            child_stream["weight"] = round(float(child_stream["weight"]), 2)
+
+        return taxonomy
+
+    def allow_compose_stream(self, stream_id: str, wait: bool = True):
+        """
+        Allows streams to use this stream as child, if composing is private.
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+        """
+        tx_hash = truf_sdk.AllowComposeStream(self.client, stream_id)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+    
+    def disable_compose_stream(self, stream_id: str, wait: bool = True):
+        """
+        Disable streams from using this stream as child.
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+        """
+        tx_hash = truf_sdk.DisableComposeStream(self.client, stream_id)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def allow_read_wallet(self, stream_id: str, wallet: str, wait: bool = True):
+        """
+        Allows a wallet to read the stream, if reading is private
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id : str
+            - wallet : str (Ethereum Address)
+        """
+         
+        input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
+        tx_hash = truf_sdk.AllowReadWallet(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def disable_read_wallet(self, stream_id: str, wallet: str, wait: bool = True):
+        """
+        Disables a wallet from reading the stream
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id : str
+            - wallet : str (Ethereum Address)
+        """
+
+        input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
+        tx_hash = truf_sdk.DisableReadWallet(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def set_read_visibility(self, stream_id: str, visibilityVal: str, wait: bool = True):
+        """
+        Sets the read visibility of the stream -- Private or Public
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id : str
+            - visibility : str ("public" or "private")
+        """
+        visibility = 0
+        if visibilityVal == "private":
+            visibility = 1
+
+        input = truf_sdk.NewVisibilityInput(self.client, stream_id, visibility)
+        tx_hash = truf_sdk.SetReadVisibility(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+    
+    def get_read_visibility(self, stream_id: str):
+        """
+        Gets the read visibility of the stream -- Private or Public
+        """
+
+        visibility = truf_sdk.GetReadVisibility(self.client, stream_id)
+
+        return "public" if visibility == truf_sdk.VisibilityPublic else "private"
+    
+    def set_compose_visibility(self, stream_id: str, visibilityVal: int, wait: bool = True):
+        """
+        Sets the compose visibility of the stream -- Private or Public
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash.
+
+        Parameters:
+            - stream_id : str
+            - visibility : str ("public" or "private")
+        """
+
+        visibility = 0
+        if visibilityVal == "private":
+            visibility = 1
+
+        input = truf_sdk.NewVisibilityInput(self.client, stream_id, visibility)
+        tx_hash = truf_sdk.SetComposeVisibility(self.client, input)
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+
+        return tx_hash
+
+    def get_compose_visibility(self, stream_id: str):
+        """
+        Gets the compose visibility of the stream -- Private or Public
+        """
+
+        visibility = truf_sdk.GetComposeVisibility(self.client, stream_id)
+
+        return "public" if visibility == truf_sdk.VisibilityPublic else "private"
+    
+    def get_allowed_read_wallets(self, stream_id: str):
+        """
+        Gets the wallets allowed to read the stream, if read stream is private
+        """
+
+        wallets = truf_sdk.GetAllowedReadWallets(self.client, stream_id)
+        return wallets
+    
+    def get_allowed_compose_streams(self, stream_id: str):
+        """
+        Gets the streams allowed to compose this stream, if compose stream is private
+        """
+         
+        streams = truf_sdk.GetAllowedComposeStreams(self.client, stream_id)
+        return streams
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)

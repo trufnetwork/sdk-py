@@ -2,12 +2,11 @@ package exports
 
 import (
 	"context"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"reflect"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/cockroachdb/apd/v3"
@@ -15,23 +14,20 @@ import (
 	"github.com/kwilteam/kwil-db/core/crypto"
 	"github.com/kwilteam/kwil-db/core/crypto/auth"
 	kwilTypes "github.com/kwilteam/kwil-db/core/types"
-	"github.com/kwilteam/kwil-db/core/types/client"
-	"github.com/kwilteam/kwil-db/core/types/decimal"
-	"github.com/kwilteam/kwil-db/core/types/transactions"
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
 	"github.com/trufnetwork/sdk-go/core/util"
+	"google.golang.org/genproto/googleapis/type/decimal"
 )
 
 // StreamType constants.
 const (
-	StreamTypeComposed      types.StreamType = types.StreamTypeComposed
-	StreamTypeComposedUnix  types.StreamType = types.StreamTypeComposedUnix
-	StreamTypePrimitive     types.StreamType = types.StreamTypePrimitive
-	StreamTypePrimitiveUnix types.StreamType = types.StreamTypePrimitiveUnix
-	StreamTypeHelper        types.StreamType = types.StreamTypeHelper
+	StreamTypeComposed  types.StreamType    = types.StreamTypeComposed
+	StreamTypePrimitive types.StreamType    = types.StreamTypePrimitive
+	VisibilityPublic    util.VisibilityEnum = util.PublicVisibility
+	VisibilityPrivate   util.VisibilityEnum = util.PrivateVisibility
 )
 
 // ProcedureArgs represents a slice of arguments for a procedure.
@@ -94,15 +90,6 @@ func GetCurrentAccount(client *tnclient.Client) (string, error) {
 	return address.Address(), nil
 }
 
-func GetNextNonce(client *tnclient.Client) (int64, error) {
-	kwilClient := client.GetKwilClient()
-	acct, err := kwilClient.GetAccount(context.Background(), client.Signer.Identity(), kwilTypes.AccountStatusPending)
-	if err != nil {
-		return 0, err
-	}
-	return acct.Nonce + 1, nil
-}
-
 // createSigner creates an EthPersonalSigner from a private key.
 func createSigner(privateKey string) (*auth.EthPersonalSigner, error) {
 	pk, err := crypto.Secp256k1PrivateKeyFromHex(privateKey)
@@ -132,7 +119,7 @@ func DeployStream(client *tnclient.Client, streamId string, streamType types.Str
 	if err != nil {
 		return "", errors.Wrap(err, "error deploying stream")
 	}
-	return deployTxHash.Hex(), nil
+	return deployTxHash.String(), nil
 }
 
 // DestroyStream destroys the stream with the given stream ID.
@@ -148,474 +135,108 @@ func DestroyStream(client *tnclient.Client, streamId string) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "error destroying stream")
 	}
-	return destroyTxHash.Hex(), nil
+	return destroyTxHash.String(), nil
 }
 
-// InitStream initializes the stream with the given stream ID.
-func InitStream(client *tnclient.Client, streamId string) (string, error) {
+// InsertRecord inserts single record into the stream with the given stream ID.
+func InsertRecord(client *tnclient.Client, input types.InsertRecordInput) (string, error) {
 	ctx := context.Background()
 
-	streamIdTyped, err := util.NewStreamId(streamId)
+	primitiveStream, err := client.LoadPrimitiveActions()
 	if err != nil {
-		return "", errors.Wrap(err, "error creating stream id")
+		return "", errors.Wrap(err, "error loading primitive stream")
 	}
 
-	streamLocator := client.OwnStreamLocator(*streamIdTyped)
-	stream, err := client.LoadStream(streamLocator)
+	txHash, err := primitiveStream.InsertRecord(ctx, input)
 	if err != nil {
-		return "", errors.Wrap(err, "error loading stream")
+		return "", errors.Wrap(err, "error inserting record")
 	}
-
-	txHash, err := stream.InitializeStream(ctx)
-	if err != nil {
-		return "", errors.Wrap(err, "error initializing stream")
-	}
-	return txHash.Hex(), nil
+	return txHash.String(), nil
 }
 
 // InsertRecords inserts records into the stream with the given stream ID.
-func InsertRecords(client *tnclient.Client, streamId string, inputDates []string, inputValues []float64) (string, error) {
+func InsertRecords(client *tnclient.Client, inputs []types.InsertRecordInput) (string, error) {
 	ctx := context.Background()
 
-	processedInputs, err := processInsertInputs(inputDates, inputValues)
-	if err != nil {
-		return "", errors.Wrap(err, "error processing insert inputs")
-	}
-
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return "", errors.Wrap(err, "error creating stream id")
-	}
-
-	streamLocator := client.OwnStreamLocator(*streamIdTyped)
-	primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
+	primitiveStream, err := client.LoadPrimitiveActions()
 	if err != nil {
 		return "", errors.Wrap(err, "error loading primitive stream")
 	}
 
-	txHash, err := primitiveStream.InsertRecords(ctx, processedInputs)
+	txHash, err := primitiveStream.InsertRecords(ctx, inputs)
 	if err != nil {
 		return "", errors.Wrap(err, "error inserting records")
 	}
-	return txHash.Hex(), nil
-}
-
-// InsertRecordsUnix inserts records into the stream with the given stream ID using Unix timestamps.
-func InsertRecordsUnix(client *tnclient.Client, streamId string, inputDates []int, inputValues []float64) (string, error) {
-	ctx := context.Background()
-
-	processedInputs, err := processInsertInputsUnix(inputDates, inputValues)
-	if err != nil {
-		return "", errors.Wrap(err, "error processing insert inputs")
-	}
-
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return "", errors.Wrap(err, "error creating stream id")
-	}
-
-	streamLocator := client.OwnStreamLocator(*streamIdTyped)
-	primitiveStream, err := client.LoadPrimitiveStream(streamLocator)
-	if err != nil {
-		return "", errors.Wrap(err, "error loading primitive stream")
-	}
-
-	txHash, err := primitiveStream.InsertRecordsUnix(ctx, processedInputs)
-	if err != nil {
-		return "", errors.Wrap(err, "error inserting records")
-	}
-	return txHash.Hex(), nil
-}
-
-type UnixBatch struct {
-	StreamId string                        `json:"stream_id"`
-	Inputs   []types.InsertRecordUnixInput `json:"inputs"`
-}
-
-type Batch struct {
-	StreamId string                    `json:"stream_id"`
-	Inputs   []types.InsertRecordInput `json:"inputs"`
-}
-
-// NewUnixBatch creates a new UnixBatch struct
-func NewUnixBatch(streamId string, inputs []types.InsertRecordUnixInput) UnixBatch {
-	return UnixBatch{
-		StreamId: streamId,
-		Inputs:   inputs,
-	}
-}
-
-// NewInsertRecordUnixInput creates a new InsertRecordUnixInput struct
-func NewInsertRecordUnixInput(dateVal int, val float64) types.InsertRecordUnixInput {
-	return types.InsertRecordUnixInput{
-		DateValue: dateVal,
-		Value:     val,
-	}
-}
-
-// NewBatch creates a new Batch struct
-func NewBatch(streamId string, inputs []types.InsertRecordInput) Batch {
-	return Batch{
-		StreamId: streamId,
-		Inputs:   inputs,
-	}
+	return txHash.String(), nil
 }
 
 // NewInsertRecordInput creates a new InsertRecordInput struct
-func NewInsertRecordInput(dateVal string, val float64) types.InsertRecordInput {
-	date, err := civil.ParseDate(dateVal)
+func NewInsertRecordInput(client *tnclient.Client, streamId string, date int, val float64) types.InsertRecordInput {
+	dataProvider, err := GetCurrentAccount(client)
 	if err != nil {
-		log.Printf("Warning: Failed to parse date %s: %v\n", dateVal, err)
+		log.Printf("Warning: Failed to get data provider: %v\n", err)
 		return types.InsertRecordInput{}
 	}
+
 	return types.InsertRecordInput{
-		DateValue: date,
-		Value:     val,
+		StreamId:     streamId,
+		DataProvider: dataProvider,
+		EventTime:    date,
+		Value:        val,
 	}
 }
 
-type BatchInsertResults struct {
-	TxHash string
-}
-
-type BatchInsertRecordsUnixArgs struct {
-	Batches                    []UnixBatch
-	HelperContractStreamId     string
-	HelperContractDataProvider string
-}
-
-func BatchInsertRecordsUnix(client *tnclient.Client, args BatchInsertRecordsUnixArgs) (BatchInsertResults, error) {
-	ctx := context.Background()
-
-	helperContractStreamId := args.HelperContractStreamId
-	if helperContractStreamId == "" {
-		helperContractStreamId = "helper_contract" // Default stream ID for the helper contract
+// NewGetRecordInput creates a new GetRecordInput struct
+func NewGetRecordInput(
+	client *tnclient.Client,
+	streamId string,
+	dataProvider string,
+	from int,
+	to int,
+	frozenAt int,
+	baseDate int,
+) types.GetRecordInput {
+	result := types.GetRecordInput{
+		StreamId:     streamId,
+		DataProvider: dataProvider,
 	}
 
-	helperContractDataProvider := args.HelperContractDataProvider
-	if helperContractDataProvider == "" {
-		helperContractDataProvider = "4710a8d8f0d845da110086812a32de6d90d7ff5c" // Default data provider for the helper contract
-	}
-
-	results := BatchInsertResults{
-		TxHash: "",
-	}
-
-	var helperBatchInputs types.TnRecordUnixBatch
-	for _, batch := range args.Batches {
-		streamIdTyped, err := util.NewStreamId(batch.StreamId)
+	if dataProvider == "" {
+		currentAccount, err := GetCurrentAccount(client)
 		if err != nil {
-			return results, errors.Wrap(err, "error creating stream id: "+batch.StreamId)
+			return result
 		}
-
-		streamLocator := client.OwnStreamLocator(*streamIdTyped)
-
-		for _, input := range batch.Inputs {
-			helperBatchInputs.Rows = append(helperBatchInputs.Rows, types.TNRecordUnixRow{
-				DateValue:    convertToString(input.DateValue),
-				Value:        convertToString(input.Value),
-				StreamID:     streamLocator.StreamId.String(),
-				DataProvider: streamLocator.DataProvider.Address(),
-			})
-		}
+		result.DataProvider = currentAccount
 	}
 
-	helperStreamId := util.NewRawStreamId(helperContractStreamId)
-	ethAddress, err := util.NewEthereumAddressFromString(helperContractDataProvider)
-	if err != nil {
-		return results, errors.Wrap(err, "error creating ethereum address")
-	}
-	helperStreamLocator := types.StreamLocator{
-		StreamId:     *helperStreamId,
-		DataProvider: ethAddress,
+	if from != -1 {
+		result.From = &from
 	}
 
-	helperStream, err := client.LoadHelperStream(helperStreamLocator)
-	if err != nil {
-		return results, errors.Wrap(err, "error loading helper stream")
+	if to != -1 {
+		result.To = &to
 	}
 
-	txHash, err := helperStream.InsertRecordsUnix(ctx, helperBatchInputs)
-	if err != nil {
-		return results, errors.Wrap(err, "error inserting records")
-	}
-	results.TxHash = txHash.Hex()
-
-	return results, nil
-}
-
-type BatchInsertRecordsArgs struct {
-	Batches                    []Batch
-	HelperContractStreamId     string
-	HelperContractDataProvider string
-}
-
-func BatchInsertRecords(client *tnclient.Client, args BatchInsertRecordsArgs) (BatchInsertResults, error) {
-	ctx := context.Background()
-
-	helperContractStreamId := args.HelperContractStreamId
-	if helperContractStreamId == "" {
-		helperContractStreamId = "helper_contract" // Default stream ID for the helper contract
+	if frozenAt != -1 {
+		result.FrozenAt = &frozenAt
 	}
 
-	helperContractDataProvider := args.HelperContractDataProvider
-	if helperContractDataProvider == "" {
-		helperContractDataProvider = "4710a8d8f0d845da110086812a32de6d90d7ff5c" // Default data provider for the helper contract
+	if baseDate != -1 {
+		result.BaseDate = &baseDate
 	}
 
-	results := BatchInsertResults{
-		TxHash: "",
-	}
-
-	var helperBatchInputs types.TnRecordBatch
-	for _, batch := range args.Batches {
-		streamIdTyped, err := util.NewStreamId(batch.StreamId)
-		if err != nil {
-			return results, errors.Wrap(err, "error creating stream id: "+batch.StreamId)
-		}
-
-		streamLocator := client.OwnStreamLocator(*streamIdTyped)
-
-		for _, input := range batch.Inputs {
-			helperBatchInputs.Rows = append(helperBatchInputs.Rows, types.TNRecordRow{
-				DateValue:    input.DateValue.String(),
-				Value:        convertToString(input.Value),
-				StreamID:     streamLocator.StreamId.String(),
-				DataProvider: streamLocator.DataProvider.Address(),
-			})
-		}
-	}
-
-	helperStreamId := util.NewRawStreamId(helperContractStreamId)
-	ethAddress, err := util.NewEthereumAddressFromString(helperContractDataProvider)
-	if err != nil {
-		return results, errors.Wrap(err, "error creating ethereum address")
-	}
-	helperStreamLocator := types.StreamLocator{
-		StreamId:     *helperStreamId,
-		DataProvider: ethAddress,
-	}
-
-	helperStream, err := client.LoadHelperStream(helperStreamLocator)
-	if err != nil {
-		return results, errors.Wrap(err, "error loading helper stream")
-	}
-
-	txHash, err := helperStream.InsertRecords(ctx, helperBatchInputs)
-	if err != nil {
-		return results, errors.Wrap(err, "error inserting records")
-	}
-	results.TxHash = txHash.Hex()
-
-	return results, nil
-}
-
-// processInsertInputs processes the input dates and values and returns a slice of InsertRecordInput.
-func processInsertInputs(inputDates []string, inputValues []float64) ([]types.InsertRecordInput, error) {
-	if len(inputDates) != len(inputValues) {
-		return nil, errors.New("input dates and values must have the same length")
-	}
-
-	var processedInputs []types.InsertRecordInput
-	for i, inputDate := range inputDates {
-		dateTime, err := time.Parse("2006-01-02", inputDate)
-		if err != nil {
-			return nil, errors.Wrap(err, fmt.Sprintf("invalid date format '%s'", inputDate))
-		}
-
-		processedInputs = append(processedInputs, types.InsertRecordInput{
-			DateValue: civil.DateOf(dateTime),
-			Value:     inputValues[i],
-		})
-	}
-	return processedInputs, nil
-}
-
-// processInsertInputsUnix processes the input dates and values and returns a slice of InsertRecordUnixInput.
-func processInsertInputsUnix(inputDates []int, inputValues []float64) ([]types.InsertRecordUnixInput, error) {
-	if len(inputDates) != len(inputValues) {
-		return nil, errors.New("input dates and values must have the same length")
-	}
-
-	var processedInputs []types.InsertRecordUnixInput
-	for i, inputDate := range inputDates {
-		dateTime := time.Unix(int64(inputDate), 0)
-
-		processedInputs = append(processedInputs, types.InsertRecordUnixInput{
-			DateValue: int(dateTime.Unix()),
-			Value:     inputValues[i],
-		})
-	}
-	return processedInputs, nil
-}
-
-// ExecuteProcedure executes a procedure on the stream with the given stream ID, data provider, and procedure.
-func ExecuteProcedure(client *tnclient.Client, streamId string, dataProvider string, procedure string, args ...ProcedureArgs) (string, error) {
-	ctx := context.Background()
-
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return "", errors.Wrap(err, "error creating stream id")
-	}
-
-	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-	if err != nil {
-		return "", errors.Wrap(err, "error creating data provider")
-	}
-
-	streamLocator := types.StreamLocator{
-		StreamId:     *streamIdTyped,
-		DataProvider: dataProviderTyped,
-	}
-
-	stream, err := client.LoadStream(streamLocator)
-	if err != nil {
-		return "", errors.Wrap(err, "error loading stream")
-	}
-
-	// Transpose arguments so the procedure sees them in the expected format.
-	if len(args) == 0 {
-		return "", errors.New("no procedure arguments provided")
-	}
-	expectedBatchLength := len(args[0])
-	transposedArgs := make([][]any, expectedBatchLength)
-
-	for _, arg := range args {
-		if len(arg) != expectedBatchLength {
-			return "", errors.New("all slices must have the same length")
-		}
-		for i, item := range arg {
-			transposedArgs[i] = append(transposedArgs[i], item)
-		}
-	}
-
-	txHash, err := stream.ExecuteProcedure(ctx, procedure, transposedArgs)
-	if err != nil {
-		return "", errors.Wrap(err, "error executing procedure")
-	}
-	return txHash.Hex(), nil
-}
-
-type CallProcedureArgs struct {
-	Arguments []any
-}
-
-func NewCallProcedureArgs(args ...any) CallProcedureArgs {
-	return CallProcedureArgs{
-		Arguments: args,
-	}
-}
-
-func (args *CallProcedureArgs) AddString(arg string) {
-	args.Arguments = append(args.Arguments, arg)
-}
-
-func (args *CallProcedureArgs) AddFloat(arg float64) {
-	args.Arguments = append(args.Arguments, arg)
-}
-
-func (args *CallProcedureArgs) AddInt(arg int) {
-	args.Arguments = append(args.Arguments, arg)
-}
-
-// CallProcedure calls a procedure on the stream with the given stream ID, data provider, and procedure.
-func CallProcedure(client *tnclient.Client, streamId string, dataProvider string, procedure string, args CallProcedureArgs) (*client.Records, error) {
-	ctx := context.Background()
-
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-	}
-
-	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-	}
-
-	streamLocator := types.StreamLocator{
-		StreamId:     *streamIdTyped,
-		DataProvider: dataProviderTyped,
-	}
-
-	stream, err := client.LoadStream(streamLocator)
-	if err != nil {
-		return nil, errors.Wrap(err, "error loading stream")
-	}
-
-	return stream.CallProcedure(ctx, procedure, args.Arguments)
-}
-
-// StreamExists checks if the stream with the given ID (and optional data provider) exists.
-func StreamExists(client *tnclient.Client, streamId string, dataProvider string) (bool, error) {
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return false, errors.Wrap(err, "error creating stream id")
-	}
-
-	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-	if err != nil {
-		return false, errors.Wrap(err, "error creating data provider")
-	}
-
-	streamLocator := types.StreamLocator{
-		StreamId:     *streamIdTyped,
-		DataProvider: dataProviderTyped,
-	}
-
-	_, err = client.LoadStream(streamLocator)
-	return err == nil, nil
+	return result
 }
 
 // GetRecords retrieves records from the stream with the given stream ID.
-func GetRecords(
-	client *tnclient.Client,
-	streamId string,
-	dataProvider string,
-	dateFrom string,
-	dateTo string,
-	frozenAt string,
-	baseDate string,
-) ([]map[string]string, error) {
-
-	dateFromTyped, err := parseDate(dateFrom)
-	if err != nil {
-		return nil, err
-	}
-	dateToTyped, err := parseDate(dateTo)
-	if err != nil {
-		return nil, err
-	}
-
+func GetRecords(client *tnclient.Client, input types.GetRecordInput) ([]map[string]string, error) {
 	ctx := context.Background()
-
-	// For retrieving, we generate a StreamId from the string.
-	// If your usage requires an existing ID, use `util.NewStreamId` instead.
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-	}
-
-	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-	}
-
-	streamLocator := types.StreamLocator{
-		StreamId:     *streamIdTyped,
-		DataProvider: dataProviderTyped,
-	}
-
-	stream, err := client.LoadPrimitiveStream(streamLocator)
+	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
 		return nil, err
 	}
 
-	records, err := stream.GetRecord(ctx, types.GetRecordInput{
-		DateFrom: dateFromTyped,
-		DateTo:   dateToTyped,
-		// frozenAt and baseDate are not used here.
-		// If needed, add them to GetRecordInput in the SDK & pass them here.
-	})
+	records, err := stream.GetRecord(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -623,106 +244,7 @@ func GetRecords(
 	return recordsToMapSlice(records), nil
 }
 
-// GetRecordsUnix retrieves records from the stream with the given stream ID using Unix timestamps.
-func GetRecordsUnix(
-	client *tnclient.Client,
-	streamId string,
-	dataProvider string,
-	dateFrom int,
-	dateTo int,
-	frozenAt int,
-	baseDate int,
-) ([]map[string]string, error) {
-
-	ctx := context.Background()
-
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-	}
-	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-	}
-
-	streamLocator := types.StreamLocator{
-		StreamId:     *streamIdTyped,
-		DataProvider: dataProviderTyped,
-	}
-
-	stream, err := client.LoadPrimitiveStream(streamLocator)
-	if err != nil {
-		return nil, err
-	}
-
-	frozenAtTime, err := parseUnixTime(frozenAt)
-	if err != nil {
-		return nil, err
-	}
-
-	records, err := stream.GetRecordUnix(ctx, types.GetRecordUnixInput{
-		DateFrom: intOrNil(dateFrom),
-		DateTo:   intOrNil(dateTo),
-		FrozenAt: frozenAtTime, // pointer or nil
-		BaseDate: intOrNil(baseDate),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return recordsToMapSlice(records), nil
-}
-
-// GetIndexUnix retrieves an index from the stream with the given stream ID using Unix timestamps.
-func GetIndexUnix(
-	client *tnclient.Client,
-	streamId string,
-	dataProvider string,
-	dateFrom int,
-	dateTo int,
-	frozenAt int,
-	baseDate int,
-) ([]map[string]string, error) {
-
-	ctx := context.Background()
-
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
-	}
-	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-	}
-
-	streamLocator := types.StreamLocator{
-		StreamId:     *streamIdTyped,
-		DataProvider: dataProviderTyped,
-	}
-
-	stream, err := client.LoadPrimitiveStream(streamLocator)
-	if err != nil {
-		return nil, err
-	}
-
-	frozenAtTime, err := parseUnixTime(frozenAt)
-	if err != nil {
-		return nil, err
-	}
-
-	index, err := stream.GetIndexUnix(ctx, types.GetIndexUnixInput{
-		DateFrom: intOrNil(dateFrom),
-		DateTo:   intOrNil(dateTo),
-		FrozenAt: frozenAtTime,
-		BaseDate: intOrNil(baseDate),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return recordsToMapSlice(index), nil
-}
-
+// GetType retrieves type of a stream (primitive or composed)
 func GetType(client *tnclient.Client, streamId string, dataProvider string) (types.StreamType, error) {
 	streamIdTyped, err := util.NewStreamId(streamId)
 	ctx := context.Background()
@@ -740,56 +262,51 @@ func GetType(client *tnclient.Client, streamId string, dataProvider string) (typ
 		DataProvider: dataProviderTyped,
 	}
 
-	stream, err := client.LoadStream(streamLocator)
+	stream, err := client.LoadActions()
 	if err != nil {
-		return types.StreamTypePrimitive, fmt.Errorf("error loading stream: %w", err)
+		return types.StreamTypePrimitive, err
 	}
 
-	return stream.GetType(ctx)
+	return stream.GetType(ctx, streamLocator)
 }
 
-// GetFirstRecordInput represents the input parameters for GetFirstRecord
-type GetFirstRecordInput struct {
-	AfterDate string
-	FrozenAt  string
-}
-
-// GetFirstRecord gets the first record of a stream after a given date
-func GetFirstRecord(client *tnclient.Client, streamId string, dataProvider string, afterDate string, frozenAt string) (map[string]string, error) {
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
+// NewGetFirstRecordInput creates a new GetFirstRecordInput struct
+func NewGetFirstRecordInput(
+	client *tnclient.Client,
+	streamId string,
+	dataProvider string,
+	after int,
+	frozenAt int,
+) types.GetFirstRecordInput {
+	result := types.GetFirstRecordInput{
+		StreamId:     streamId,
+		DataProvider: dataProvider,
 	}
 
-	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-	}
-
-	streamLocator := types.StreamLocator{
-		StreamId:     *streamIdTyped,
-		DataProvider: dataProviderTyped,
-	}
-
-	stream, err := client.LoadPrimitiveStream(streamLocator)
-	if err != nil {
-		return nil, err
-	}
-
-	input := types.GetFirstRecordInput{}
-
-	afterDateParsed, err := parseDate(afterDate)
-	if err != nil {
-		return nil, err
-	}
-	input.AfterDate = afterDateParsed
-
-	if frozenAt != "" {
-		t, err := time.Parse("2006-01-02", frozenAt)
+	if dataProvider == "" {
+		currentAccount, err := GetCurrentAccount(client)
 		if err != nil {
-			return nil, fmt.Errorf("invalid date format '%s': %w", frozenAt, err)
+			return result
 		}
-		input.FrozenAt = &t
+		result.DataProvider = currentAccount
+	}
+
+	if frozenAt != -1 {
+		result.FrozenAt = &frozenAt
+	}
+
+	if after != -1 {
+		result.After = &after
+	}
+
+	return result
+}
+
+// GetFirstRecord retrieves the first record of a stream after a given date
+func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (map[string]string, error) {
+	stream, err := client.LoadPrimitiveActions()
+	if err != nil {
+		return nil, err
 	}
 
 	record, err := stream.GetFirstRecord(context.Background(), input)
@@ -804,85 +321,407 @@ func GetFirstRecord(client *tnclient.Client, streamId string, dataProvider strin
 	}
 
 	result := make(map[string]string)
-	result["date"] = record.DateValue.String()
-	value, err := record.Value.Float64()
-	if err != nil {
-		return nil, fmt.Errorf("error converting value to float64: %w", err)
-	}
-	result["value"] = strconv.FormatFloat(value, 'f', -1, 64)
+	result["date"] = convertToString(record.EventTime)
+	result["value"] = convertToString(record.Value)
 
 	return result, nil
 }
 
-// GetFirstRecordUnixInput represents the input parameters for GetFirstRecordUnix
-type GetFirstRecordUnixInput struct {
-	AfterDate int
-	FrozenAt  int
+// GetIndex retrieves index values from a stream
+func GetIndex(client *tnclient.Client, input types.GetIndexInput) ([]map[string]string, error) {
+	ctx := context.Background()
+
+	stream, err := client.LoadPrimitiveActions()
+	if err != nil {
+		return nil, err
+	}
+	records, err := stream.GetIndex(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	return recordsToMapSlice(records), nil
 }
 
-// GetFirstRecordUnix gets the first record of a stream after a given Unix timestamp
-func GetFirstRecordUnix(client *tnclient.Client, streamId string, dataProvider string, afterDate int, frozenAt int) (map[string]string, error) {
-	streamIdTyped, err := util.NewStreamId(streamId)
-	if err != nil {
-		return nil, fmt.Errorf("invalid stream id '%s': %w", streamId, err)
+// NewListStreamsInput creates a new ListStreamsInput struct
+func NewListStreamsInput(limit int, offset int, dataProvider string, orderBy string) types.ListStreamsInput {
+	result := types.ListStreamsInput{}
+
+	if limit != -1 {
+		result.Limit = limit
+	}
+	if offset != -1 {
+		result.Offset = offset
+	}
+	if dataProvider != "" {
+		result.DataProvider = dataProvider
+	}
+	if orderBy != "" {
+		result.OrderBy = orderBy
 	}
 
-	dataProviderTyped, err := parseDataProvider(client, dataProvider)
-	if err != nil {
-		return nil, fmt.Errorf("invalid data provider '%s': %w", dataProvider, err)
-	}
+	return result
+}
 
-	streamLocator := types.StreamLocator{
-		StreamId:     *streamIdTyped,
-		DataProvider: dataProviderTyped,
-	}
+// ListStreams retrieves all streams associated with client
+func ListStreams(client *tnclient.Client, input types.ListStreamsInput) ([]map[string]string, error) {
+	ctx := context.Background()
 
-	stream, err := client.LoadPrimitiveStream(streamLocator)
+	streams, err := client.ListStreams(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 
-	input := types.GetFirstRecordUnixInput{}
+	return recordsToMapSlice(streams), nil
+}
 
-	if afterDate != -1 {
-		input.AfterDate = &afterDate
-	}
-
-	if frozenAt != -1 {
-		frozenAtTime, err := parseUnixTime(frozenAt)
-		if err != nil {
-			return nil, err
-		}
-		input.FrozenAt = frozenAtTime
-	}
-
-	record, err := stream.GetFirstRecordUnix(context.Background(), input)
-	if record == nil {
-		return nil, nil
-	}
+// NewTaxonomyItemInput creates a new TaxonomyItemInput struct
+func NewTaxonomyItemInput(client *tnclient.Client, stream_id string, weight float64) types.TaxonomyItem {
+	streamIdObj, err := util.NewStreamId(stream_id)
 	if err != nil {
-		if err == contractsapi.ErrorRecordNotFound {
-			return nil, nil
-		}
-		return nil, err
+		return types.TaxonomyItem{}
 	}
 
-	result := make(map[string]string)
-	result["date"] = strconv.FormatInt(int64(record.DateValue), 10)
-	value, err := record.Value.Float64()
+	return types.TaxonomyItem{
+		ChildStream: client.OwnStreamLocator(*streamIdObj),
+		Weight:      weight,
+	}
+}
+
+// NewTaxonomyInput creates a new TaxonomyInput struct
+func NewTaxonomyInput(client *tnclient.Client, streamId string, childStreams []types.TaxonomyItem, startDate int, groupSequence int) types.Taxonomy {
+	result := types.Taxonomy{
+		TaxonomyItems: childStreams,
+	}
+
+	// Assign parent stream
+	streamIdObj, err := util.NewStreamId(streamId)
 	if err != nil {
-		return nil, fmt.Errorf("error converting value to float64: %w", err)
+		return types.Taxonomy{}
 	}
-	result["value"] = strconv.FormatFloat(value, 'f', -1, 64)
+	result.ParentStream = client.OwnStreamLocator(*streamIdObj)
 
-	return result, nil
+	createdAt, err := parseDate(time.Now().Format("2006-01-02"))
+	if err != nil {
+		return types.Taxonomy{}
+	}
+
+	result.CreatedAt = *createdAt
+
+	if startDate != -1 {
+		result.StartDate = &startDate
+	}
+	if groupSequence != -1 {
+		result.GroupSequence = groupSequence
+	}
+
+	return result
+}
+
+// SetTaxonomy define the taxonomy structure of a composed stream
+func SetTaxonomy(client *tnclient.Client, input types.Taxonomy) (string, error) {
+	ctx := context.Background()
+
+	stream, err := client.LoadComposedActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.InsertTaxonomy(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// DescribeTaxonomy retrieves the taxonomy structure of a composed stream
+func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bool) (map[string]string, error) {
+	ctx := context.Background()
+
+	stream, err := client.LoadComposedActions()
+	if err != nil {
+		return map[string]string{}, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return map[string]string{}, nil
+	}
+
+	result, err := stream.DescribeTaxonomies(ctx, types.DescribeTaxonomiesParams{
+		Stream:        client.OwnStreamLocator(*streamIdObj),
+		LatestVersion: latestVersion,
+	})
+	if err != nil {
+		return map[string]string{}, err
+	}
+
+	childStreams := make([]map[string]string, 0, len(result.TaxonomyItems))
+	for _, childStream := range result.TaxonomyItems {
+		childStreams = append(childStreams, map[string]string{
+			"stream_id": childStream.ChildStream.StreamId.String(),
+			"weight":    convertToString(childStream.Weight),
+		})
+	}
+	childStreamsJSON, err := json.Marshal(childStreams)
+	if err != nil {
+		return map[string]string{}, err
+	}
+
+	res := map[string]string{
+		"stream_id":      streamId,
+		"child_streams":  string(childStreamsJSON),
+		"start_date":     parseUnixTimestamp(result.StartDate),
+		"created_at":     parseUnixTimestamp(&result.CreatedAt),
+		"group_sequence": convertToString(result.GroupSequence),
+	}
+
+	return res, nil
+}
+
+// AllowComposeStream allows stream to use this stream as child, if composing is private
+func AllowComposeStream(client *tnclient.Client, streamId string) (string, error) {
+	ctx := context.Background()
+
+	stream, err := client.LoadPrimitiveActions()
+	if err != nil {
+		return "", err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.AllowComposeStream(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// DisableComposeStream disables streams from using this stream as child
+func DisableComposeStream(client *tnclient.Client, streamId string) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadPrimitiveActions()
+	if err != nil {
+		return "", err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.DisableComposeStream(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// NewReadWalletInput creates a new ReadWalletInput struct
+func NewReadWalletInput(client *tnclient.Client, streamId string, wallet string) types.ReadWalletInput {
+	result := types.ReadWalletInput{}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return types.ReadWalletInput{}
+	}
+	result.Stream = client.OwnStreamLocator(*streamIdObj)
+	result.Wallet, err = util.NewEthereumAddressFromString(wallet)
+	if err != nil {
+		return types.ReadWalletInput{}
+	}
+
+	return result
+}
+
+// AllowReadWallet allows a wallet to read the stream, if reading is private
+func AllowReadWallet(client *tnclient.Client, input types.ReadWalletInput) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.AllowReadWallet(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// DisableReadWallet disables a wallet from reading the stream
+func DisableReadWallet(client *tnclient.Client, input types.ReadWalletInput) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.DisableReadWallet(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// NewVisibilityInput creates a new VisibilityInput struct
+func NewVisibilityInput(client *tnclient.Client, streamId string, visibility int) types.VisibilityInput {
+	result := types.VisibilityInput{}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return types.VisibilityInput{}
+	}
+
+	result.Stream = client.OwnStreamLocator(*streamIdObj)
+
+	result.Visibility, err = util.NewVisibilityEnum(visibility)
+	if err != nil {
+		return types.VisibilityInput{}
+	}
+
+	return result
+}
+
+// SetReadVisibility sets the read visibility of the stream -- Private or Public
+func SetReadVisibility(client *tnclient.Client, input types.VisibilityInput) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.SetReadVisibility(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// GetReadVisibility gets the read visibility of the stream -- Private or Public
+func GetReadVisibility(client *tnclient.Client, streamId string) (util.VisibilityEnum, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return 0, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return 0, err
+	}
+
+	visibility, err := stream.GetReadVisibility(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return 0, err
+	}
+
+	return *visibility, nil
+}
+
+// SetComposeVisibility sets the compose visibility of the stream -- Private or Public
+func SetComposeVisibility(client *tnclient.Client, input types.VisibilityInput) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.SetComposeVisibility(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return txHash.String(), nil
+}
+
+// GetComposeVisibility gets the compose visibility of the stream -- Private or Public
+func GetComposeVisibility(client *tnclient.Client, streamId string) (util.VisibilityEnum, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return 0, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return 0, err
+	}
+
+	visibility, err := stream.GetComposeVisibility(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return 0, err
+	}
+
+	return *visibility, nil
+}
+
+// GetAllowedReadWallets gets the wallets allowed to read the stream
+func GetAllowedReadWallets(client *tnclient.Client, streamId string) ([]string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return []string{}, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return []string{}, err
+	}
+
+	result, err := stream.GetAllowedReadWallets(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return []string{}, err
+	}
+
+	addresses := make([]string, 0, len(result))
+	for _, address := range result {
+		addresses = append(addresses, address.Address())
+	}
+
+	return addresses, nil
+}
+
+// GetAllowedComposeStreams gets the streams allowed to compose this stream
+func GetAllowedComposeStreams(client *tnclient.Client, streamId string) ([]string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return []string{}, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return []string{}, err
+	}
+
+	result, err := stream.GetAllowedComposeStreams(ctx, client.OwnStreamLocator(*streamIdObj))
+	if err != nil {
+		return []string{}, err
+	}
+
+	streams := make([]string, 0, len(result))
+	for _, stream := range result {
+		streams = append(streams, stream.StreamId.String())
+	}
+
+	return streams, nil
 }
 
 // WaitForTx waits for the transaction with the given hash to be confirmed.
 func WaitForTx(client *tnclient.Client, txHashHex string) error {
 	ctx := context.Background()
 
-	txHash, err := hex.DecodeString(strings.TrimPrefix(txHashHex, "0x"))
+	txHash, err := kwilTypes.NewHashFromString(txHashHex)
 	if err != nil {
 		return fmt.Errorf("invalid transaction hash '%s': %w", txHashHex, err)
 	}
@@ -893,15 +732,15 @@ func WaitForTx(client *tnclient.Client, txHashHex string) error {
 	}
 
 	// Check if tx was successful
-	if tx.TxResult.Code != uint32(transactions.CodeOk) {
-		return fmt.Errorf("transaction failed: %s", tx.TxResult.Log)
+	if tx.Result.Code != uint32(kwilTypes.CodeOk) {
+		return fmt.Errorf("transaction failed: %s", tx.Result.Log)
 	}
 	return nil
 }
 
-/*****************************************
- *            Helper Functions           *
- *****************************************/
+// /*****************************************
+//  *            Helper Functions           *
+//  *****************************************/
 
 // parseDataProvider checks if dataProvider is empty; if so, returns client's own address.
 func parseDataProvider(client *tnclient.Client, dataProvider string) (util.EthereumAddress, error) {
@@ -911,8 +750,8 @@ func parseDataProvider(client *tnclient.Client, dataProvider string) (util.Ether
 	return util.NewEthereumAddressFromString(dataProvider)
 }
 
-// parseDate parses a date string in YYYY-MM-DD format and returns a *civil.Date.
-func parseDate(dateStr string) (*civil.Date, error) {
+// parseDate parses a date string in YYYY-MM-DD format and returns a UNIX timestamp *int.
+func parseDate(dateStr string) (*int, error) {
 	if dateStr == "" {
 		return nil, nil
 	}
@@ -920,16 +759,20 @@ func parseDate(dateStr string) (*civil.Date, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid date format '%s': %w", dateStr, err)
 	}
-	return &date, nil
+	unixTime := int(date.In(time.UTC).Unix())
+	return &unixTime, nil
 }
 
-// parseUnixTime parses a Unix timestamp (int). If value is -1, it returns nil.
-func parseUnixTime(value int) (*time.Time, error) {
-	if value == -1 {
-		return nil, nil
+func parseUnixTimestamp(timestamp *int) string {
+	if timestamp == nil {
+		return ""
 	}
-	t := time.Unix(int64(value), 0)
-	return &t, nil
+
+	unixTimestamp := int64(*timestamp)
+	t := time.Unix(unixTimestamp, 0).UTC()
+	formattedDate := t.Format("2006-01-02")
+
+	return formattedDate
 }
 
 // intOrNil returns a pointer to value unless it's -1, in which case it returns nil.
@@ -993,54 +836,4 @@ func convertToString(val any) string {
 		log.Printf("Warning: Failed to convert argument to string from type %T: %v\n", val, val)
 		return fmt.Sprintf("%v", val)
 	}
-}
-
-// FilterInitialized filters out non-initialized streams from a list of stream IDs and data providers.
-func FilterInitialized(client *tnclient.Client, streamIds []string, dataProviders []string, helperContractStreamId string, helperContractDataProvider string) ([]map[string]string, error) {
-	ctx := context.Background()
-
-	// Use default helper contract stream ID if not provided
-	if helperContractStreamId == "" {
-		helperContractStreamId = "helper_contract" // Default stream ID for the helper contract
-	}
-
-	// Use default helper contract data provider if not provided
-	if helperContractDataProvider == "" {
-		helperContractDataProvider = "4710a8d8f0d845da110086812a32de6d90d7ff5c" // Default data provider for the helper contract
-	}
-
-	helperStreamId := util.NewRawStreamId(helperContractStreamId)
-	ethAddress, err := util.NewEthereumAddressFromString(helperContractDataProvider)
-	if err != nil {
-		return nil, errors.Wrap(err, "error creating ethereum address")
-	}
-	helperStreamLocator := types.StreamLocator{
-		StreamId:     *helperStreamId,
-		DataProvider: ethAddress,
-	}
-
-	helperStream, err := client.LoadHelperStream(helperStreamLocator)
-	if err != nil {
-		return nil, errors.Wrap(err, "error loading helper stream")
-	}
-
-	filterInput := types.FilterInitializedInput{
-		StreamIDs:     streamIds,
-		DataProviders: dataProviders,
-	}
-
-	results, err := helperStream.FilterInitialized(ctx, filterInput)
-	if err != nil {
-		return nil, errors.Wrap(err, "error filtering initialized streams")
-	}
-
-	output := make([]map[string]string, len(results))
-	for i, result := range results {
-		output[i] = map[string]string{
-			"stream_id":     result.StreamID,
-			"data_provider": result.DataProvider,
-		}
-	}
-
-	return output, nil
 }

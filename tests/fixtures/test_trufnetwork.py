@@ -15,7 +15,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define the network name to use
-NETWORK_NAME = "tsn_network"
+NETWORK_NAME = "truf-test-network"
+
+# Define the private key for database operations, matching server_fixture.go
+DB_PRIVATE_KEY = "0000000000000000000000000000000000000000000000000000000000000001"
+KWIL_PROVIDER_URL = "http://localhost:8484"
 
 
 @dataclass
@@ -44,33 +48,40 @@ POSTGRES_CONTAINER = ContainerSpec(
     name="test-kwil-postgres",
     image="kwildb/postgres:latest",
     tmpfs_path="/var/lib/postgresql/data",
-    env_vars=["POSTGRES_HOST_AUTH_METHOD=trust"]
+    env_vars=["POSTGRES_HOST_AUTH_METHOD=trust"],
+    ports={"5432": "5432"}
 )
 
-TSN_DB_CONTAINER = ContainerSpec(
-    name="test-tsn-db",
-    image="tsn-db:local",
+TN_DB_CONTAINER = ContainerSpec(
+    name="test-tn-db",
+    image="tn-db:local",
     tmpfs_path="/root/.kwild",
     entrypoint="/app/kwild",
     args=[
         "start",
         "--autogen",
+        "--root",
+        "/root/.kwild",
         "--db-owner",
-        "0xecCc1ffEe06311c50Aa16e0E2acf2CD142d63905",
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
         "--db.host",
         "test-kwil-postgres",
+        "--consensus.propose-timeout",
+        "500ms",
+        "--consensus.empty-block-timeout",
+        "30s",
     ],
     env_vars=[
         "CONFIG_PATH=/root/.kwild",
-        "KWILD_APP_HOSTNAME=test-tsn-db",
+        "KWILD_APP_HOSTNAME=test-tn-db",
         "KWILD_APP_PG_DB_HOST=test-kwil-postgres",
         "KWILD_APP_PG_DB_PORT=5432",
         "KWILD_APP_PG_DB_USER=postgres",
         "KWILD_APP_PG_DB_PASSWORD=",
         "KWILD_APP_PG_DB_NAME=postgres",
-        "KWILD_CHAIN_P2P_EXTERNAL_ADDRESS=http://test-tsn-db:26656",
+        "KWILD_CHAIN_P2P_EXTERNAL_ADDRESS=http://test-tn-db:26656",
     ],
-    ports={"50051": "50051", "50151": "50151", "8080": "8080", "8484": "8484", "26656": "26656", "26657": "26657"},
+    ports={"8080": "8080", "8484": "8484", "26656": "26656"},
 )
 
 
@@ -123,33 +134,78 @@ def wait_for_postgres_health(max_attempts: int = 30) -> bool:
     return False
 
 
-def wait_for_tsn_health(max_attempts: int = 10) -> bool:
+def wait_for_tn_health(max_attempts: int = 10) -> bool:
     """
-    Wait for TSN-DB node to be healthy and produce first block
+    Wait for TN-DB node to be healthy and produce first block
 
     Args:
         max_attempts: Maximum number of health check attempts
 
     Returns:
-        bool: True if TSN-DB becomes healthy, False otherwise
+        bool: True if TN-DB becomes healthy, False otherwise
     """
     import requests
 
     for i in range(max_attempts):
         try:
-            logger.info(f"Checking TSN-DB health (attempt {i+1}/{max_attempts})")
+            logger.info(f"Checking TN-DB health (attempt {i+1}/{max_attempts})")
             response = requests.get("http://localhost:8484/api/v1/health")
             if response.status_code == 200:
                 data = response.json()
                 if data.get("healthy") and data.get("services").get("user").get("block_height") >= 1:
-                    logger.info(f"TSN-DB is healthy after {i+1} attempts")
+                    logger.info(f"TN-DB is healthy after {i+1} attempts")
                     logger.debug(f"Health check response: {json.dumps(data, indent=2)}")
                     return True
-            logger.debug(f"TSN-DB not healthy yet (attempt {i+1}/{max_attempts}): {response.text}")
+            logger.debug(f"TN-DB not healthy yet (attempt {i+1}/{max_attempts}): {response.text}")
         except Exception as e:
-            logger.debug(f"Error checking TSN-DB health (attempt {i+1}/{max_attempts}): {e!s}")
+            logger.debug(f"Error checking TN-DB health (attempt {i+1}/{max_attempts}): {e!s}")
         time.sleep(1)
     return False
+
+
+def run_migration_task() -> bool:
+    """
+    Run the migration task using the command from server_fixture.go.
+
+    Returns:
+        bool: True if migration task is successful, False otherwise.
+    """
+    logger.info("Running migration task...")
+    node_repo_dir = os.environ.get("NODE_REPO_DIR")
+    if not node_repo_dir:
+        logger.error("NODE_REPO_DIR environment variable not set. Migration task cannot run.")
+        return False
+
+    provider_arg = f"PROVIDER={KWIL_PROVIDER_URL}"
+    private_key_arg = f"PRIVATE_KEY={DB_PRIVATE_KEY}"
+    command = ["task", "action:migrate", provider_arg, private_key_arg]
+
+    logger.info(f"Executing command in {node_repo_dir}: {' '.join(command)}")
+    try:
+        result = subprocess.run(
+            command,
+            cwd=node_repo_dir,
+            capture_output=True,
+            text=True,
+            check=True  # Raise CalledProcessError on non-zero exit
+        )
+        logger.info(f"Migration task successful. Output:\n{result.stdout}")
+        if result.stderr:
+            logger.warning(f"Migration task stderr:\n{result.stderr}")
+        return True
+    except FileNotFoundError:
+        logger.error(
+            f"Migration task command 'task' not found. Ensure it's in PATH or NODE_REPO_DIR ({node_repo_dir}) is correct and contains the executable."
+        )
+        return False
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Migration task failed in {node_repo_dir}. Error: {e}")
+        logger.error(f"Stdout: {e.stdout}")
+        logger.error(f"Stderr: {e.stderr}")
+        return False
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during migration task: {e!s}")
+        return False
 
 
 def start_container(spec: ContainerSpec, network: str) -> bool:
@@ -222,8 +278,8 @@ def stop_container(name: str) -> bool:
         return False
     finally:
         # Clean up config dir if it exists
-        if name == TSN_DB_CONTAINER.name and hasattr(TSN_DB_CONTAINER, "_config_dir"):
-            shutil.rmtree(getattr(TSN_DB_CONTAINER, "_config_dir"), ignore_errors=True)
+        if name == TN_DB_CONTAINER.name and hasattr(TN_DB_CONTAINER, "_config_dir"):
+            shutil.rmtree(getattr(TN_DB_CONTAINER, "_config_dir"), ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
@@ -267,12 +323,12 @@ def docker_network():
 @pytest.fixture(scope="session")
 def tn_node(docker_network):
     """
-    Pytest fixture that sets up a TSN-DB node with Postgres for testing.
+    Pytest fixture that sets up a TN-DB node with Postgres for testing.
 
     This fixture:
     1. Starts a Postgres container
     2. Waits for Postgres to be healthy
-    3. Starts the TSN-DB node
+    3. Starts the TN-DB node
     4. Waits for the node to be healthy and produce its first block
     5. Cleans up both containers after tests
 
@@ -280,7 +336,7 @@ def tn_node(docker_network):
         docker_network: The docker network fixture
 
     Returns:
-        str: The API endpoint URL for the TSN-DB node
+        str: The API endpoint URL for the TN-DB node
 
     Raises:
         pytest.FixureError: If container setup fails
@@ -294,22 +350,28 @@ def tn_node(docker_network):
         stop_container(POSTGRES_CONTAINER.name)
         pytest.fail("Postgres failed to become healthy")
 
-    logger.info("Starting TSN-DB container...")
-    if not start_container(TSN_DB_CONTAINER, docker_network):
+    logger.info("Starting TN-DB container...")
+    if not start_container(TN_DB_CONTAINER, docker_network):
         stop_container(POSTGRES_CONTAINER.name)
-        pytest.fail("Failed to start TSN-DB container")
+        pytest.fail("Failed to start TN-DB container")
 
-    logger.info("Waiting for TSN-DB node to be healthy...")
-    if not wait_for_tsn_health():
-        stop_container(TSN_DB_CONTAINER.name)
+    logger.info("Waiting for TN-DB node to be healthy...")
+    if not wait_for_tn_health():
+        stop_container(TN_DB_CONTAINER.name)
         stop_container(POSTGRES_CONTAINER.name)
-        pytest.fail("TSN-DB node failed to become healthy")
+        pytest.fail("TN-DB node failed to become healthy")
+
+    logger.info("Running migration task after TN-DB is healthy...")
+    if not run_migration_task():
+        stop_container(TN_DB_CONTAINER.name)
+        stop_container(POSTGRES_CONTAINER.name)
+        pytest.fail("Migration task failed")
 
     try:
-        yield "http://localhost:8484"
+        yield KWIL_PROVIDER_URL
     finally:
         logger.info("Cleaning up containers...")
-        stop_container(TSN_DB_CONTAINER.name)
+        stop_container(TN_DB_CONTAINER.name)
         stop_container(POSTGRES_CONTAINER.name)
 
 
@@ -321,7 +383,7 @@ class TrufNetworkProvider:
         Initialize the provider
 
         Args:
-            api_endpoint: The API endpoint URL for the TSN node
+            api_endpoint: The API endpoint URL for the TN node
         """
         self.api_endpoint = api_endpoint
         self.provider = self
@@ -334,10 +396,10 @@ class TrufNetworkProvider:
 @pytest.fixture(scope="session")
 def tn_provider(tn_node) -> TrufNetworkProvider:
     """
-    Returns a TrufNetworkProvider instance configured to use the test TSN node.
+    Returns a TrufNetworkProvider instance configured to use the test TN node.
 
     Args:
-        tn_node: The TSN node fixture providing the API endpoint
+        tn_node: The TN node fixture providing the API endpoint
 
     Returns:
         TrufNetworkProvider: Configured provider instance
@@ -361,8 +423,8 @@ class TestTrufNetworkFixtures:
         result = run_docker_command(["network", "inspect", docker_network])
         assert result.returncode == 0, "Docker network should exist during test"
 
-    def test_tsn_node_fixture(self, tn_node):
-        """Test TSN node setup and health"""
+    def test_tn_node_fixture(self, tn_node):
+        """Test TN node setup and health"""
         import requests
 
         # Verify endpoint is accessible
@@ -374,7 +436,7 @@ class TestTrufNetworkFixtures:
         assert data.get("services").get("user").get("block_height") >= 1
 
         # Verify containers are running
-        for container in [POSTGRES_CONTAINER.name, TSN_DB_CONTAINER.name]:
+        for container in [POSTGRES_CONTAINER.name, TN_DB_CONTAINER.name]:
             result = run_docker_command(["container", "inspect", container])
             assert result.returncode == 0, f"Container {container} should be running"
 

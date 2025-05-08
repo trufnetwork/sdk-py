@@ -3,32 +3,29 @@ import pytest
 from trufnetwork_sdk_py.client import TNClient
 from trufnetwork_sdk_py.utils import generate_stream_id
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
+from tests.fixtures.test_trufnetwork import tn_node, DB_PRIVATE_KEY
 
 # Test configuration
-TEST_PROVIDER_URL = "http://localhost:8484"  
 TEST_OWNER_PRIVATE_KEY = (
     "0121234567890123456789012345678901234567890123456789012345178901"
 )
-TEST_READER_PRIVATE_KEY = (
-    "0000000000000000000000000000000000000000000000000000000000000001"
-)
 
 @pytest.fixture(scope="module")
-def owner_client():
+def owner_client(tn_node):
     """
     Pytest fixture to create a TNClient instance for testing.
     Uses the tn_node fixture to get a running server.
     """
-    client = TNClient(TEST_PROVIDER_URL, TEST_OWNER_PRIVATE_KEY)
+    client = TNClient(tn_node, TEST_OWNER_PRIVATE_KEY)
     return client
 
 @pytest.fixture(scope="module")
-def reader_client():
+def reader_client(tn_node):
     """
     Pytest fixture to create a TNClient instance for testing.
     Uses the tn_node fixture to get a running server.
     """
-    client = TNClient(TEST_PROVIDER_URL, TEST_READER_PRIVATE_KEY)
+    client = TNClient(tn_node, DB_PRIVATE_KEY)
     return client
 
 def test_primitive_permissions(owner_client, reader_client):

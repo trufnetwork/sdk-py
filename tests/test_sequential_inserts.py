@@ -4,19 +4,17 @@ from trufnetwork_sdk_py.client import TNClient, RecordBatch, Record
 from trufnetwork_sdk_py.utils import generate_stream_id
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 from typing import List
-from tests.fixtures.test_trufnetwork import DEFAULT_TN_PRIVATE_KEY
+from tests.fixtures.test_trufnetwork import DEFAULT_TN_PRIVATE_KEY, tn_node
 from datetime import datetime, timedelta, timezone  # Import datetime and timedelta
 
-# Test configuration
-TEST_PROVIDER_URL = "http://localhost:8484"  
 
 @pytest.fixture(scope="module")
-def client():
+def client(tn_node):
     """
     Pytest fixture to create a TNClient instance for testing.
     Uses the tn_node fixture which provides a running test environment.
     """
-    client = TNClient(TEST_PROVIDER_URL, DEFAULT_TN_PRIVATE_KEY)
+    client = TNClient(tn_node, DEFAULT_TN_PRIVATE_KEY)
     return client
 
 @pytest.fixture(scope="module")

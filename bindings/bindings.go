@@ -837,3 +837,92 @@ func convertToString(val any) string {
 		return fmt.Sprintf("%v", val)
 	}
 }
+
+// NewStreamDefinitionForBinding creates a new types.StreamDefinition for binding purposes.
+// It takes string representations of streamId and streamType and converts them.
+func NewStreamDefinitionForBinding(streamIdStr string, streamTypeStr string) (*types.StreamDefinition, error) {
+	sid, err := util.NewStreamId(streamIdStr)
+	if err != nil {
+		return nil, errors.Wrapf(err, "error creating stream id from string: %s", streamIdStr)
+	}
+
+	var st types.StreamType
+	if streamTypeStr == string(types.StreamTypeComposed) {
+		st = types.StreamTypeComposed
+	} else if streamTypeStr == string(types.StreamTypePrimitive) {
+		st = types.StreamTypePrimitive
+	} else {
+		return nil, fmt.Errorf("unsupported stream type string: %s, expected 'primitive' or 'composed'", streamTypeStr)
+	}
+
+	return &types.StreamDefinition{
+		StreamId:   *sid,
+		StreamType: st,
+	}, nil
+}
+
+// NewStreamLocatorForBinding creates a new types.StreamLocator for binding purposes.
+func NewStreamLocatorForBinding(streamIdStr string, dataProviderAddressStr string) (*types.StreamLocator, error) {
+	sid, err := util.NewStreamId(streamIdStr)
+	if err != nil {
+		return nil, errors.Wrapf(err, "error creating stream id from string: %s", streamIdStr)
+	}
+	dp, err := util.NewEthereumAddressFromString(dataProviderAddressStr)
+	if err != nil {
+		return nil, errors.Wrapf(err, "error creating ethereum address from string: %s", dataProviderAddressStr)
+	}
+	return &types.StreamLocator{
+		StreamId:     *sid,
+		DataProvider: dp,
+	}, nil
+}
+
+// BatchDeployStreams deploys multiple streams.
+// It expects a slice of types.StreamDefinition, which Python side should construct.
+func BatchDeployStreams(client *tnclient.Client, definitions []types.StreamDefinition) (string, error) {
+	ctx := context.Background()
+	txHash, err := client.BatchDeployStreams(ctx, definitions)
+	if err != nil {
+		return "", errors.Wrap(err, "error batch deploying streams")
+	}
+	return txHash.String(), nil
+}
+
+// BatchStreamExists checks for the existence of multiple streams.
+// It expects a slice of types.StreamLocator and returns a slice of maps.
+func BatchStreamExists(client *tnclient.Client, locators []types.StreamLocator) ([]map[string]string, error) {
+	ctx := context.Background()
+	results, err := client.BatchStreamExists(ctx, locators)
+	if err != nil {
+		return nil, errors.Wrap(err, "error checking batch stream existence")
+	}
+
+	output := make([]map[string]string, len(results))
+	for i, res := range results {
+		output[i] = map[string]string{
+			"stream_id":     res.StreamLocator.StreamId.String(),
+			"data_provider": res.StreamLocator.DataProvider.Address(),
+			"exists":        strconv.FormatBool(res.Exists),
+		}
+	}
+	return output, nil
+}
+
+// BatchFilterStreamsByExistence filters a list of streams based on their existence.
+// It expects a slice of types.StreamLocator and a boolean, returns a slice of maps (locators).
+func BatchFilterStreamsByExistence(client *tnclient.Client, locators []types.StreamLocator, returnExisting bool) ([]map[string]string, error) {
+	ctx := context.Background()
+	results, err := client.BatchFilterStreamsByExistence(ctx, locators, returnExisting)
+	if err != nil {
+		return nil, errors.Wrap(err, "error filtering batch streams by existence")
+	}
+
+	output := make([]map[string]string, len(results))
+	for i, res := range results {
+		output[i] = map[string]string{
+			"stream_id":     res.StreamId.String(),
+			"data_provider": res.DataProvider.Address(),
+		}
+	}
+	return output, nil
+}

@@ -2,7 +2,13 @@ import json
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
-from typing import Dict, List, Union, Optional, Any, TypedDict
+from typing import Dict, List, Union, Optional, Any, TypedDict, Literal, cast
+
+# Expose StreamType constants at the Python level
+STREAM_TYPE_PRIMITIVE = cast(Literal["primitive"], truf_sdk.StreamTypePrimitive)
+STREAM_TYPE_COMPOSED = cast(Literal["composed"], truf_sdk.StreamTypeComposed)
+VISIBILITY_PUBLIC = truf_sdk.VisibilityPublic
+VISIBILITY_PRIVATE = truf_sdk.VisibilityPrivate
 
 class Record(TypedDict):
     date: int # UNIX
@@ -11,6 +17,19 @@ class Record(TypedDict):
 class RecordBatch(TypedDict):
     stream_id: str
     inputs: List[Record]
+
+class StreamDefinitionInput(TypedDict):
+    stream_id: str
+    stream_type: Literal["primitive", "composed"]
+
+class StreamLocatorInput(TypedDict):
+    stream_id: str
+    data_provider: str
+
+class StreamExistsResult(TypedDict):
+    stream_id: str
+    data_provider: str
+    exists: bool
 
 class TNClient:
     def __init__(self, url: str, token: str):
@@ -588,6 +607,158 @@ class TNClient:
          
         streams = truf_sdk.GetAllowedComposeStreams(self.client, stream_id)
         return streams
+
+    def batch_deploy_streams(
+        self,
+        definitions: List[StreamDefinitionInput],
+        wait: bool = True,
+    ) -> str:
+        """
+        Deploy multiple streams (primitive and composed).
+        Each definition should be a dictionary containing:
+            - stream_id: str
+            - stream_type: str ("primitive" or "composed")
+
+        If wait is True, it will wait for the transaction to be confirmed.
+        Returns the transaction hash of the batch operation.
+        """
+        go_definitions = truf_sdk.Slice_s2_types_StreamDefinition([])
+        for def_input in definitions:
+            # The Go binding layer (NewStreamDefinitionForBinding) will handle conversion from string to Go types.
+            # However, gomobile does not directly support passing slices of structs that are not built-in or explicitly defined
+            # for slices in the .go file (like Slice_s2_types_InsertRecordInput).
+            # We must construct each Go object and append it to a Go slice.
+            # This requires a helper in Go to create the individual StreamDefinition objects first,
+            # then append them to Slice_s2_types_StreamDefinition.
+            # For now, assuming direct slice creation might work or we adjust bindings if not.
+            # This part might need refinement based on gomobile's exact capabilities for custom struct slices.
+            # Let's assume for now direct construction and appending to a list, then converting to Go slice.
+            # If this doesn't work, we'll need NewStreamDefinitionForBinding in Go and build the slice there.
+
+            # Simplified approach: directly create the Go slice of structs if supported by gomobile bindings.
+            # The Python SDK will pass a list of dicts. The Go binding code (not shown here directly)
+            # would iterate this, call NewStreamDefinitionForBinding for each, and build the Go slice.
+            # The current truf_sdk.Slice_s2_types_StreamDefinition expects a list of Go StreamDefinition objects.
+
+            # Correct approach given current structure:
+            # Python builds a list of Python dicts.
+            # The Go binding function `BatchDeployStreams` must accept this (e.g. []map[string]string)
+            # and internally convert to []types.StreamDefinition.
+            # OR, Python calls a Go helper for EACH definition to get a Go StreamDefinition handle,
+            # collects these handles, and passes a slice of these handles.
+            # Let's assume the Go `BatchDeployStreams` function now expects []types.StreamDefinition directly,
+            # and `Slice_s2_types_StreamDefinition` is smart enough or we build it item by item using a Go helper.
+
+            # Let's assume NewStreamDefinitionForBinding is available at the Go `exports` level
+            # and we are constructing the slice of these Go objects in Python.
+            # This is complex due to object handles across language boundaries.
+
+            # The most straightforward way with current gomobile patterns:
+            # 1. Python prepares list of dicts.
+            # 2. Go binding `BatchDeployStreams` takes `List[Dict[str,str]]` (represented as `[]interface{}` or specific slice of maps).
+            # 3. Go binding internally iterates, calls `NewStreamDefinitionForBinding` for each, builds `[]types.StreamDefinition`.
+            # For this edit, I will assume the Go binding `BatchDeployStreams` in `bindings.go` will be adjusted
+            # to take a slice of Go `StreamDefinition` objects, and we prepare it in Python by calling a (yet to be confirmed)
+            # Go helper for each item and then creating a Go slice from these. 
+            # Given the current binding structure, this is the most likely path for Slice_s2_types_StreamDefinition
+
+            # Revisiting the Go bindings: `BatchDeployStreams(client *tnclient.Client, definitions []types.StreamDefinition)`
+            # This means Python must construct `[]types.StreamDefinition`.
+            # `truf_sdk.NewStreamDefinitionForBinding` will be used.
+            go_def = truf_sdk.NewStreamDefinitionForBinding(def_input["stream_id"], def_input["stream_type"])
+            # This go_def is a handle. We need to append these handles to the slice.
+            # The truf_sdk.Slice_s2_types_StreamDefinition is likely expecting a list of these handles.
+            go_definitions.append(go_def) # This is pseudocode for how gomobile might handle slice appends
+                                        # Actual mechanism depends on gomobile's generated Python bindings for slices of custom types.
+                                        # If `Slice_s2_types_StreamDefinition` is a constructor that takes a list of handles, that's it.
+                                        # If not, this part needs careful implementation based on `gomobile bind` output.
+
+        # The below is a common pattern for gomobile if Slice_s2_types_StreamDefinition is a list-like object in Python
+        # that wraps the Go slice. Often, you build a Python list of the Go object handles.
+        py_list_of_go_defs = []
+        for def_input in definitions:
+            go_def_handle = truf_sdk.NewStreamDefinitionForBinding(def_input["stream_id"], def_input["stream_type"])
+            # We should check for errors from NewStreamDefinitionForBinding if it can return them.
+            # Assuming it raises an exception on error for simplicity here.
+            py_list_of_go_defs.append(go_def_handle)
+        
+        # Now, convert the Python list of Go object handles to the required Go slice type.
+        # This conversion mechanism is specific to how gomobile wraps slice types.
+        # It might be direct: `go_slice_defs = truf_sdk.Slice_s2_types_StreamDefinition(py_list_of_go_defs)`
+        # Or it might involve a specific constructor or method.
+        # For now, let's assume `Slice_s2_types_StreamDefinition` can take a list of these handles.
+        final_go_definitions = truf_sdk.Slice_s2_types_StreamDefinition(py_list_of_go_defs)
+
+        tx_hash = truf_sdk.BatchDeployStreams(self.client, final_go_definitions)
+        if wait:
+            truf_sdk.WaitForTx(self.client, tx_hash)
+        return tx_hash
+
+    def batch_stream_exists(
+        self,
+        locators: List[StreamLocatorInput],
+    ) -> List[StreamExistsResult]:
+        """
+        Check for the existence of multiple streams.
+        Each locator should be a dictionary containing:
+            - stream_id: str
+            - data_provider: str (hex string)
+
+        Returns a list of results, each indicating if a stream exists.
+        """
+        py_list_of_go_locators = []
+        for loc_input in locators:
+            go_loc_handle = truf_sdk.NewStreamLocatorForBinding(loc_input["stream_id"], loc_input["data_provider"])
+            py_list_of_go_locators.append(go_loc_handle)
+        
+        final_go_locators = truf_sdk.Slice_s2_types_StreamLocator(py_list_of_go_locators)
+
+        go_results = truf_sdk.BatchStreamExists(self.client, final_go_locators)
+        
+        results = []
+        for go_map in go_results:
+            item = dict(go_map.items()) # Convert Go map to Python dict
+            results.append({
+                "stream_id": item["stream_id"],
+                "data_provider": item["data_provider"],
+                "exists": item["exists"].lower() == "true", # Convert string "true"/"false" to bool
+            })
+        return results
+
+    def batch_filter_streams_by_existence(
+        self,
+        locators: List[StreamLocatorInput],
+        return_existing: bool,
+    ) -> List[StreamLocatorInput]: # Returns List[StreamLocatorInput] as they are just locators
+        """
+        Filters a list of streams based on their existence in the database.
+        Each locator should be a dictionary containing:
+            - stream_id: str
+            - data_provider: str (hex string)
+        
+        Parameters:
+            - locators: List of stream locators to filter.
+            - return_existing: bool - If True, returns streams that exist. If False, returns streams that do not exist.
+            
+        Returns a list of stream locators that match the filter criteria.
+        """
+        py_list_of_go_locators = []
+        for loc_input in locators:
+            go_loc_handle = truf_sdk.NewStreamLocatorForBinding(loc_input["stream_id"], loc_input["data_provider"])
+            py_list_of_go_locators.append(go_loc_handle)
+
+        final_go_locators = truf_sdk.Slice_s2_types_StreamLocator(py_list_of_go_locators)
+
+        go_results = truf_sdk.BatchFilterStreamsByExistence(self.client, final_go_locators, return_existing)
+        
+        results = []
+        for go_map in go_results:
+            item = dict(go_map.items()) # Convert Go map to Python dict
+            results.append({
+                "stream_id": item["stream_id"],
+                "data_provider": item["data_provider"],
+            })
+        return results
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)

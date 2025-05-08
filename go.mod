@@ -6,9 +6,9 @@ require (
 	github.com/cockroachdb/apd/v3 v3.2.1
 	github.com/go-python/gopy v0.4.10
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9
-	github.com/kwilteam/kwil-db/core v0.4.1
+	github.com/kwilteam/kwil-db/core v0.4.2-0.20250506000241-da9d3ddea45e
 	github.com/pkg/errors v0.9.1
-	github.com/trufnetwork/sdk-go v0.2.2-0.20250507130133-13a50f06b059
+	github.com/trufnetwork/sdk-go v0.3.1-0.20250508033514-75eed7527fb4
 	google.golang.org/genproto v0.0.0-20250324211829-b45e905df463
 )
 

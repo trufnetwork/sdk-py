@@ -108,6 +108,8 @@ github.com/kwilteam/kwil-db/core v0.3.1-0.20241118220427-bd35ded7db55 h1:OY95vFq
 github.com/kwilteam/kwil-db/core v0.3.1-0.20241118220427-bd35ded7db55/go.mod h1:rTXHWgWannGuOaR0vK2o7/kBXu5opLWZOqlAhLSRP1Y=
 github.com/kwilteam/kwil-db/core v0.4.1 h1:6ZOCLBMvO6EnVfsgwP2KxD0yWF2lIvmismSfRZLDXkc=
 github.com/kwilteam/kwil-db/core v0.4.1/go.mod h1:clG9Pk1NNs83dbIZZZn/6I+F4C9xntYTHbMFjL1HQ0w=
+github.com/kwilteam/kwil-db/core v0.4.2-0.20250506000241-da9d3ddea45e h1:v0spmBGP7AGA/NBoW3CSbXUd+AGZMIzguNuS6Oppd/c=
+github.com/kwilteam/kwil-db/core v0.4.2-0.20250506000241-da9d3ddea45e/go.mod h1:clG9Pk1NNs83dbIZZZn/6I+F4C9xntYTHbMFjL1HQ0w=
 github.com/kwilteam/kwil-db/parse v0.3.1-0.20241118220427-bd35ded7db55 h1:qCF3pS4+rrQJYhOBpI/dPjXYiDR45GyR74gBDjGOCU4=
 github.com/kwilteam/kwil-db/parse v0.3.1-0.20241118220427-bd35ded7db55/go.mod h1:juw5CvmJrQdZkdczzessfRhxq3k7H6H2KYhMrRSFehk=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
@@ -164,8 +166,8 @@ github.com/trufnetwork/sdk-go v0.2.1-0.20250228124404-8b2ad6bf70b4 h1:mWl8sGlkVI
 github.com/trufnetwork/sdk-go v0.2.1-0.20250228124404-8b2ad6bf70b4/go.mod h1:XMszfniaEGqyyj+EuFy73S3YUcxLzk0WhQpC3AUwFnE=
 github.com/trufnetwork/sdk-go v0.2.1-0.20250331144736-8f0c9d7c829e h1:0yxL7ehUDJ3zXj8NiOvFbcuww8ITBvcwv4AgB+GFNSQ=
 github.com/trufnetwork/sdk-go v0.2.1-0.20250331144736-8f0c9d7c829e/go.mod h1:9EF6TLPTHyKiTN+wLNgSAzB88ZeZlKYX4mpZ01praJc=
-github.com/trufnetwork/sdk-go v0.2.2-0.20250507130133-13a50f06b059 h1:8MOTfTrrNhLqo+F77joVSg5g/Hzee0Knv6U0BPJEWEU=
-github.com/trufnetwork/sdk-go v0.2.2-0.20250507130133-13a50f06b059/go.mod h1:9EF6TLPTHyKiTN+wLNgSAzB88ZeZlKYX4mpZ01praJc=
+github.com/trufnetwork/sdk-go v0.3.1-0.20250508033514-75eed7527fb4 h1:mMVm9sCzHFV/HX6IiNommN1UTEEnfVp6r4BL9aI070w=
+github.com/trufnetwork/sdk-go v0.3.1-0.20250508033514-75eed7527fb4/go.mod h1:vcSgIR+ZRpkUJZ3DWaQVj0YSaPYkfcCPLd332Oo6RUM=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=

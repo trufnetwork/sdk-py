@@ -45,3 +45,5 @@ venv.bak/
 .idea
 gitignore
 trufnetwork_sdk_c_bindings
+.repomix
+.cursorrules

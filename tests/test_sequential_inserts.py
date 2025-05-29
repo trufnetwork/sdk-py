@@ -55,7 +55,7 @@ def test_batch_small_batches(client):
                 records.append(
                     Record(
                         date=date_string_to_unix(record_date.strftime("%Y-%m-%d")),  # Format the date
-                        value=float(batch * 100 + i)
+                        value=float(batch * 100 + i + 1)  # prevent 0 values
                     )
                 )
             batches.append(RecordBatch(
@@ -64,8 +64,8 @@ def test_batch_small_batches(client):
             ))
 
         # Insert all batches at once
-        tx_hashes = client.batch_insert_records(batches, wait=False)
-        assert tx_hashes
+        tx_hash = client.batch_insert_records(batches, wait=False)
+        assert tx_hash
 
         insert_duration = time.time() - insert_start
         print(f"[Small Batches] All insertions completed in {insert_duration:.2f}s "
@@ -75,12 +75,11 @@ def test_batch_small_batches(client):
         # Time the confirmations
         confirm_start = time.time()
         
-        # Wait for all transactions after sending them all
-        for tx_hash in tx_hashes:
-            client.wait_for_tx(tx_hash)
+        # Wait for the single transaction after sending all records
+        client.wait_for_tx(tx_hash)
 
         confirm_duration = time.time() - confirm_start
-        print(f"[Small Batches] All transactions confirmed in {confirm_duration:.2f}s")
+        print(f"[Small Batches] Transaction confirmed in {confirm_duration:.2f}s")
 
         # Verify total number of records
         total_records = NUM_BATCHES * RECORDS_PER_BATCH
@@ -116,13 +115,13 @@ def test_batch_single_record_inserts(client):
                 stream_id=stream_id,
                 inputs=[Record(
                     date=date_string_to_unix(record_date.strftime("%Y-%m-%d")),  # Format the date
-                    value=float(i)
+                    value=float(i+1) # prevent 0 values
                 )]
             ))
 
         # Insert all records at once
-        tx_hashes = client.batch_insert_records(batches, wait=False)
-        assert tx_hashes
+        tx_hash = client.batch_insert_records(batches, wait=False)
+        assert tx_hash
 
         insert_duration = time.time() - insert_start
         print(f"[Single Records] All insertions completed in {insert_duration:.2f}s "
@@ -131,12 +130,11 @@ def test_batch_single_record_inserts(client):
         # Time the confirmations
         confirm_start = time.time()
         
-        # Wait for all transactions after sending them all
-        for tx_hash in tx_hashes:
-            client.wait_for_tx(tx_hash)
+        # Wait for the single transaction after sending all records
+        client.wait_for_tx(tx_hash)
 
         confirm_duration = time.time() - confirm_start
-        print(f"[Single Records] All transactions confirmed in {confirm_duration:.2f}s")
+        print(f"[Single Records] Transaction confirmed in {confirm_duration:.2f}s")
 
         # Verify all records were inserted
         retrieved_records = client.get_records(

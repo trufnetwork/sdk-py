@@ -182,9 +182,9 @@ class TNClient:
         self,
         batches: List[RecordBatch],
         wait: bool = True,
-    ) -> List[str]:
+    ) -> str:
         """
-        Insert multiple batches of records into different streams.
+        Insert multiple batches of records into different streams in a single transaction.
         Each batch should be a dictionary containing:
             - stream_id: str
             - inputs: List[Dict[int, float]] where each dict has:
@@ -196,34 +196,35 @@ class TNClient:
             - wait : bool - Whether to wait for transactions to be confirmed
 
         Returns:
-            String array containing the transaction hashes
+            Single transaction hash for all the records
         """
-        tx_hashes = [] 
-        for _, batch in enumerate(batches):
+        all_inputs = []
+        
+        # Collect all records from all batches into a single list
+        for batch in batches:
+            stream_id = batch["stream_id"]
             inputs = batch["inputs"]
-            input_list = []
             
-            for _, record in enumerate(inputs):
-                # Create InsertRecordInput struct
-                go_input = truf_sdk.NewInsertRecordInput(self.client, batch["stream_id"], record["date"], record["value"])
-                input_list.append(go_input)
-            
-            go_input_list = truf_sdk.Slice_s2_types_InsertRecordInput(input_list)
+            for record in inputs:
+                # Create InsertRecordInput struct for each record
+                go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
+                all_inputs.append(go_input)
+        
+        # Convert to Go slice and make a single call to InsertRecords
+        go_input_list = truf_sdk.Slice_s2_types_InsertRecordInput(all_inputs)
 
-            try:
-                insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)
-                tx_hashes.append(insert_tx_hash)
-            except Exception as e:
-                error_str = str(e)
-                if "failed to estimate price" in error_str:
-                    raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
-                raise e
+        try:
+            insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)
+        except Exception as e:
+            error_str = str(e)
+            if "failed to estimate price" in error_str:
+                raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
+            raise e
         
         if wait:
-            for tx_hash in tx_hashes:
-                truf_sdk.WaitForTx(self.client, tx_hash)
+            truf_sdk.WaitForTx(self.client, insert_tx_hash)
 
-        return tx_hashes
+        return insert_tx_hash
 
     def get_records(
         self,

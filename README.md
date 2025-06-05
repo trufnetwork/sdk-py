@@ -1,10 +1,39 @@
-# Truf Network (TN) SDK - Python
+# TRUF NETWORK (TN) SDK - Python
 
-Python SDK for interacting with the Truf Network. Uses C bindings to load the TN SDK (Go) library under the hood.
+Python SDK for interacting with the TURF NETWORK, a decentralized platform for publishing, composing, and consuming economic data streams. This SDK uses C bindings to load the TN SDK (Go) library under the hood.
+
+## Support
+
+If you need help, don't hesitate to [open an issue](https://github.com/trufnetwork/sdk-py/issues).
 
 ## Requirements
-- Go
-- Python
+- Go (for compiling C bindings)
+- Python 3.8 or later
+
+## Quick Start
+
+### Installation
+
+You can install the SDK as a dependency using pip with a git URL:
+
+```bash
+pip install trufnetwork-sdk-py@git+https://github.com/trufnetwork/sdk-py.git@main
+```
+
+Alternatively, if you are using a `pyproject.toml` file for dependency management, add the following:
+```toml
+[project]
+dependencies = [
+    "trufnetwork-sdk-py@git+https://github.com/trufnetwork/sdk-py.git@main"
+]
+name = "my-truf-project"
+version = "0.1.0"
+```
+
+Then install the dependencies:
+```bash
+pip install .
+```
 
 ## Development
 
@@ -30,7 +59,7 @@ make
 from trufnetwork_sdk_py.client import TNClient
 
 # Connect to mainnet
-client = TNClient("https://gateway.infra.truf.network", "YOUR_PRIVATE_KEY")
+client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
 ```
 
 ### Example: Query AI Index Stream
@@ -42,7 +71,7 @@ from trufnetwork_sdk_py.client import TNClient
 from datetime import datetime, timezone
 
 # Connect to Truf Network mainnet
-client = TNClient("https://gateway.infra.truf.network", "YOUR_PRIVATE_KEY")
+client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
 
 # AI Index stream details from explorer
 stream_id = "st527bf3897aa3d6f5ae15a0af846db6"

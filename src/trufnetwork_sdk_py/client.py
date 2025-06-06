@@ -170,7 +170,7 @@ class TNClient:
             go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
             input_list.append(go_input)
         
-        go_input_list = truf_sdk.Slice_s2_types_InsertRecordInput(input_list)
+        go_input_list = truf_sdk.Slice_s1_types_InsertRecordInput(input_list)
         insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)
 
         if wait:
@@ -211,7 +211,7 @@ class TNClient:
                 all_inputs.append(go_input)
         
         # Convert to Go slice and make a single call to InsertRecords
-        go_input_list = truf_sdk.Slice_s2_types_InsertRecordInput(all_inputs)
+        go_input_list = truf_sdk.Slice_s1_types_InsertRecordInput(all_inputs)
 
         try:
             insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)
@@ -425,7 +425,7 @@ class TNClient:
             taxonomy_item = truf_sdk.NewTaxonomyItemInput(self.client, id, weight)
             taxonomies.append(taxonomy_item)
 
-        taxonomies_go = truf_sdk.Slice_s2_types_TaxonomyItem(taxonomies)
+        taxonomies_go = truf_sdk.Slice_s1_types_TaxonomyItem(taxonomies)
         input = truf_sdk.NewTaxonomyInput(
             self.client, 
             stream_id, 

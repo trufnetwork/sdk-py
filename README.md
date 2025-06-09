@@ -41,7 +41,7 @@ It is recommended to use a virtual environment to develop the SDK.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .[dev]
+pip install -e ."[dev]"
 ```
 
 ### Recompile the C bindings

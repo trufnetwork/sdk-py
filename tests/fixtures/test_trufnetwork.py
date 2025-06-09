@@ -5,10 +5,11 @@ import os
 import shutil
 import subprocess
 import time
-from typing import Optional
-
 import pytest
+from typing import Optional
+from dotenv import load_dotenv
 
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -172,6 +173,7 @@ def run_migration_task() -> bool:
     """
     logger.info("Running migration task...")
     node_repo_dir = os.environ.get("NODE_REPO_DIR")
+    node_repo_dir = os.path.expanduser(node_repo_dir)
     if not node_repo_dir:
         logger.error("NODE_REPO_DIR environment variable not set. Migration task cannot run.")
         return False

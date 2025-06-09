@@ -383,7 +383,8 @@ class TNClient:
         limit: Optional[int] = None, 
         offset: Optional[int] = None, 
         data_provider: Optional[str] = None, 
-        order_by: Optional[str] = None
+        order_by: Optional[str] = None,
+        block_height: Optional[int] = 0
     ):
         """
             List all streams associated with client account
@@ -393,7 +394,7 @@ class TNClient:
         data_provider = self._coalesce_str(data_provider)
         order_by = self._coalesce_str(order_by)
 
-        input = truf_sdk.NewListStreamsInput(limit, offset, data_provider, order_by)
+        input = truf_sdk.NewListStreamsInput(limit, offset, data_provider, order_by, block_height)
         go_slice_of_maps = truf_sdk.ListStreams(self.client, input)
 
         return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)

@@ -344,8 +344,10 @@ func GetIndex(client *tnclient.Client, input types.GetIndexInput) ([]map[string]
 }
 
 // NewListStreamsInput creates a new ListStreamsInput struct
-func NewListStreamsInput(limit int, offset int, dataProvider string, orderBy string) types.ListStreamsInput {
-	result := types.ListStreamsInput{}
+func NewListStreamsInput(limit int, offset int, dataProvider string, orderBy string, blockHeight int) types.ListStreamsInput {
+	result := types.ListStreamsInput{
+		BlockHeight: blockHeight,
+	}
 
 	if limit != -1 {
 		result.Limit = limit

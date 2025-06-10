@@ -38,7 +38,11 @@ class RoleMembershipStatus(TypedDict):
 class TNClient:
     def __init__(self, url: str, token: str):
         """
-        Initialize a new client by calling the Go-layer's NewClient.
+        Initialize a new client.
+
+        Args:
+            url (str): The RPC endpoint URL of the TRUF.NETWORK node.
+            token (str): The user's private key for signing transactions.
         """
         self.client = truf_sdk.NewClient(url, token)
 
@@ -123,7 +127,7 @@ class TNClient:
         """
         deploy_tx_hash = truf_sdk.DeployStream(self.client, stream_id, stream_type)
         if wait:
-            truf_sdk.WaitForTx(self.client, deploy_tx_hash)
+            self.wait_for_tx(deploy_tx_hash)
         return deploy_tx_hash
     
     def insert_record(
@@ -140,6 +144,10 @@ class TNClient:
         Record is expected to have:
           - "date": int (UNIX timestamp)
           - "value": float or int
+        
+        Note:
+            For inserting multiple records rapidly, use `batch_insert_records`
+            instead to avoid potential nonce errors.
         """
         go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
         insert_tx_hash = truf_sdk.InsertRecord(self.client, go_input)
@@ -164,8 +172,9 @@ class TNClient:
           - "date": int (UNIX timestamp) 
           - "value": float or int
 
-        Note: Do not use this for inserting multiple records rapidly. Use batch inserts instead.
-        Or else you can have nonce errors.
+        Note:
+            For inserting multiple records rapidly, use `batch_insert_records`
+            instead to avoid potential nonce errors.
         """
 
         input_list = []
@@ -189,18 +198,23 @@ class TNClient:
     ) -> str:
         """
         Insert multiple batches of records into different streams in a single transaction.
-        Each batch should be a dictionary containing:
+        This is the most efficient way to insert large amounts of data.
+
+        Each batch should be a dictionary conforming to the RecordBatch TypedDict:
             - stream_id: str
-            - inputs: List[Dict[int, float]] where each dict has:
+            - inputs: List[Record] where each record has:
                 - date: int (UNIX timestamp)
-                - value: float
+                - value: float or int
 
         Parameters:
-            - batches : List of batch dictionaries
-            - wait : bool - Whether to wait for transactions to be confirmed
+            - batches : A list of batch objects.
+            - wait : Whether to wait for the transaction to be confirmed.
 
         Returns:
-            Single transaction hash for all the records
+            A single transaction hash for all inserted records.
+        
+        Raises:
+            ValueError: If the total batch size is too large for the network to process.
         """
         all_inputs = []
         
@@ -250,6 +264,10 @@ class TNClient:
             - date_to : Optional[int] (UNIX)
             - frozen_at : Optional[int] (UNIX)
             - base_date : Optional[int] (UNIX)
+        
+        Returns:
+            A list of dictionaries, where each dictionary represents a record.
+            Note: Keys from the Go layer are capitalized (e.g., `EventTime`, `Value`).
         """
         data_provider = self._coalesce_str(data_provider)
         date_from = self._coalesce_int(date_from)
@@ -281,6 +299,10 @@ class TNClient:
     def wait_for_tx(self, tx_hash: str) -> None:
         """
         Wait for a transaction to be confirmed given its hash.
+
+        Raises:
+            Exception: If the transaction fails to execute on-chain (e.g., due to
+                       a permission error, invalid input, or other logic error).
         """
         truf_sdk.WaitForTx(self.client, tx_hash)
 
@@ -406,7 +428,7 @@ class TNClient:
     def set_taxonomy(
         self, 
         stream_id: str,
-        child_streams: Dict[str, int],
+        child_streams: Dict[str, Union[int, float]],
         start_date: Optional[int] = None,
         group_sequence: Optional[int] = None,
         wait: bool = True
@@ -416,11 +438,12 @@ class TNClient:
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
 
-        Each child stream is expected to have dictionary of:
-          - "stream id" as the key
-          - "weight" as the value
-
-        Start date defines the starting point of value from the composed stream.
+        Parameters:
+            - stream_id: The composed stream to define.
+            - child_streams: A dictionary mapping child stream IDs to their float weights.
+            - start_date: Optional UNIX timestamp for when the taxonomy becomes effective.
+            - group_sequence: Optional integer for ordering taxonomies.
+            - wait: If True, waits for the transaction to be confirmed.
         """
         group_sequence = self._coalesce_int(group_sequence)
         start_date = self._coalesce_int(start_date)

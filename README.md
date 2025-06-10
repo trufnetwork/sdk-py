@@ -1,6 +1,6 @@
 # TRUF NETWORK (TN) SDK - Python
 
-Python SDK for interacting with the TURF NETWORK, a decentralized platform for publishing, composing, and consuming economic data streams. This SDK uses C bindings to load the TN SDK (Go) library under the hood.
+Python SDK for interacting with the [TRUF.NETWORK](https://truf.network), a decentralized platform for publishing, composing, and consuming economic data streams. This SDK uses C bindings to load the [TN SDK (Go)](https://github.com/trufnetwork/sdk-go) library under the hood.
 
 ## Support
 

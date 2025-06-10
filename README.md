@@ -1,12 +1,13 @@
 # TRUF NETWORK (TN) SDK - Python
 
-Python SDK for interacting with the TURF NETWORK, a decentralized platform for publishing, composing, and consuming economic data streams. This SDK uses C bindings to load the TN SDK (Go) library under the hood.
+Python SDK for interacting with the [TRUF.NETWORK](https://truf.network), a decentralized platform for publishing, composing, and consuming economic data streams. This SDK uses C bindings to load the [TN SDK (Go)](https://github.com/trufnetwork/sdk-go) library under the hood.
 
 ## Support
 
 If you need help, don't hesitate to [open an issue](https://github.com/trufnetwork/sdk-py/issues).
 
 ## Requirements
+
 - Go (for compiling C bindings)
 - Python 3.8 or later
 
@@ -21,6 +22,7 @@ pip install trufnetwork-sdk-py@git+https://github.com/trufnetwork/sdk-py.git@mai
 ```
 
 Alternatively, if you are using a `pyproject.toml` file for dependency management, add the following:
+
 ```toml
 [project]
 dependencies = [
@@ -31,6 +33,7 @@ version = "0.1.0"
 ```
 
 Then install the dependencies:
+
 ```bash
 pip install .
 ```
@@ -38,6 +41,7 @@ pip install .
 ## Development
 
 It is recommended to use a virtual environment to develop the SDK.
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -47,6 +51,7 @@ pip install -e ."[dev]"
 ### Recompile the C bindings
 
 To recompile the C bindings, run the following command:
+
 ```bash
 make
 ```
@@ -61,6 +66,8 @@ from trufnetwork_sdk_py.client import TNClient
 # Connect to mainnet
 client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
 ```
+
+To run the SDK against a local node, see [Local Node Testing and Development](#local-node-testing-and-development).
 
 ### Example: Query AI Index Stream
 
@@ -96,18 +103,10 @@ for record in records:
     print(f"Date: {date.strftime('%Y-%m-%d')}, Value: {record['Value']}")
 ```
 
-For more examples, check the [examples](./examples/main.py).
+For more comprehensive examples, please see the following guides:
 
-## Advanced Usage: Complex Stream Management
-
-For a comprehensive example demonstrating the full lifecycle of stream management, check out the [Complex Example](./examples/complex_example/README.md). 
-
-This example showcases:
-- Generating unique stream IDs
-- Creating primitive and composed streams
-- Setting stream taxonomy
-- Inserting and reading records
-- Stream destruction
+- **[Basic Example: Reading a Stream](./examples/README.md)**: Learn how to connect and read records from an existing stream.
+- **[Advanced Example: Full Stream Lifecycle](./examples/complex_example/README.md)**: A comprehensive walkthrough of creating, managing, and destroying primitive and composed streams.
 
 ```python
 # Quick preview of complex stream creation
@@ -136,12 +135,13 @@ For the full example, refer to the [Complex Example README](./examples/complex_e
 
 TRUF.NETWORK supports two primary stream types:
 
-1. **Primitive Streams**: 
+1. **Primitive Streams**:
+
    - Basic time-series data streams
    - Represent single, linear data points
    - Ideal for individual metrics or indicators
 
-2. **Composed Streams**: 
+2. **Composed Streams**:
    - Aggregate data from multiple primitive streams
    - Allow weighted combination of different data sources
    - Create complex, derived economic indicators
@@ -154,7 +154,7 @@ TRUF.NETWORK supports two primary stream types:
 from trufnetwork_sdk_py.client import TNClient, STREAM_TYPE_PRIMITIVE
 from trufnetwork_sdk_py.utils import generate_stream_id
 
-# Initialize client
+# Initialize client (e.g. connected to a local node)
 client = TNClient("http://localhost:8484", "YOUR_PRIVATE_KEY")
 
 # Generate a unique stream ID
@@ -192,7 +192,7 @@ ai_stream_id = generate_stream_id("ai_innovation")
 
 # Set taxonomy for the composed stream
 client.set_taxonomy(
-    tech_innovation_index, 
+    tech_innovation_index,
     {
         market_stream_id: 0.4,  # 40% weight
         tech_stream_id: 0.3,    # 30% weight
@@ -233,12 +233,77 @@ client.destroy_stream(stream_id)
 
 For a comprehensive example demonstrating the full stream lifecycle, refer to our [Complex Example](./examples/complex_example/README.md).
 
-## Testing
+## Local Node Testing and Development
 
-1. Build the TN Node container image by running the `task single:start` command on `node` repository.
-2. Stop the TN Node container if it is running, but do not remove the image as it is needed.
-3. Before running the tests, make sure the TN Node is not running. The tests will start a TN Node in the background and stop it after the tests are finished.
-4. Then, run the tests with the following command:
+This section describes how to set up a local development environment, including running a local node for testing and running the SDK's test suite.
+
+### Setting Up a Local Node for Development
+
+For development and testing, you can run a local TRUF.NETWORK node. This will start a node with a fresh, empty database.
+
+**Prerequisites:**
+
+- Docker
+- Docker Compose
+- Git
+
+**Steps:**
+
+1.  **Clone the TN Node Repository:**
+
+    ```bash
+    git clone https://github.com/trufnetwork/node.git
+    cd node
+    ```
+
+2.  **Start the Local Node:**
+
+    ```bash
+    # Start the node in development mode
+    task single:start
+    ```
+
+    When your local node is running, you can connect to it from the SDK by initializing the `TNClient` with the local node's URL, which is typically `http://localhost:8484`.
+
+    > **Note:** Note: Setting up a local node as described above will initialize an empty database. This setup is primarily for testing the technology or development purposes. If you are a node operator and wish to sync with the TRUF.NETWORK to access real data, please follow the [Node Operator Guide](https://github.com/trufnetwork/node/blob/main/docs/node-operator-guide.md#7-verify-node-synchronization) for instructions on connecting to the network and syncing data.
+
+3.  **Connecting the SDK to the Local Node:**
+
+    When your local node is running, initialize the `TNClient` with the local node's URL:
+
+    ```python
+    from trufnetwork_sdk_py.client import TNClient
+
+    # Connect to a local node
+    client = TNClient("http://localhost:8484", "YOUR_PRIVATE_KEY")
+    ```
+
+### Verifying Node Synchronization
+
+When running a local node connected to the network (e.g., as a node operator), it's crucial to ensure it's fully synchronized before querying data. Use the following command to check node status:
+
 ```bash
-python -m pytest tests/<test_file>.py
+kwild admin status
 ```
+
+> **Note:** This command is not needed if you are running a local setup for development without connecting to the main network.
+
+### Running the SDK Test Suite
+
+1.  First, ensure you have a local node image available. Follow the steps in "Setting Up a Local Node" to build and start the node once.
+2.  Stop the TN Node container if it is running, but do not remove the Docker image as it is needed for the tests.
+3.  Before running the tests, make sure the TN Node is not running.
+    The tests will start a TN Node in the background and stop it after
+    the tests are finished.
+4.  Run the tests using `pytest`:
+    ```bash
+    # Run a specific test file
+    python -m pytest tests/<test_file>.py
+    ```
+
+## Resources
+
+- [Node Repository](https://github.com/trufnetwork/node): For building and running a local node for testing.
+- [Basic Example: Reading a Stream](./examples/README.md): Learn how to connect and read records from an existing stream.
+- [Advanced Example: Full Stream Lifecycle](./examples/complex_example/README.md): A comprehensive walkthrough of the entire stream lifecycle.
+- **[API Reference](./docs/api-reference.md)**: Detailed documentation of the SDK's public API.

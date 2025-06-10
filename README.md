@@ -67,6 +67,8 @@ from trufnetwork_sdk_py.client import TNClient
 client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
 ```
 
+To run the SDK against a local node, see [Local Node Testing and Development](#local-node-testing-and-development).
+
 ### Example: Query AI Index Stream
 
 The following example demonstrates how to query data from the AI Index stream:
@@ -231,19 +233,75 @@ client.destroy_stream(stream_id)
 
 For a comprehensive example demonstrating the full stream lifecycle, refer to our [Complex Example](./examples/complex_example/README.md).
 
-## Testing
+## Local Node Testing and Development
 
-1. Build the TN Node container image by running the `task single:start` command on `node` repository.
-2. Stop the TN Node container if it is running, but do not remove the image as it is needed.
-3. Before running the tests, make sure the TN Node is not running. The tests will start a TN Node in the background and stop it after the tests are finished.
-4. Then, run the tests with the following command:
+This section describes how to set up a local development environment, including running a local node for testing and running the SDK's test suite.
+
+### Setting Up a Local Node for Development
+
+For development and testing, you can run a local TRUF.NETWORK node. This will start a node with a fresh, empty database.
+
+**Prerequisites:**
+
+- Docker
+- Docker Compose
+- Git
+
+**Steps:**
+
+1.  **Clone the TN Node Repository:**
+
+    ```bash
+    git clone https://github.com/trufnetwork/node.git
+    cd node
+    ```
+
+2.  **Start the Local Node:**
+
+    ```bash
+    # Start the node in development mode
+    task single:start
+    ```
+
+    When your local node is running, you can connect to it from the SDK by initializing the `TNClient` with the local node's URL, which is typically `http://localhost:8484`.
+
+    > **Note:** Note: Setting up a local node as described above will initialize an empty database. This setup is primarily for testing the technology or development purposes. If you are a node operator and wish to sync with the TRUF.NETWORK to access real data, please follow the [Node Operator Guide](https://github.com/trufnetwork/node/blob/main/docs/node-operator-guide.md#7-verify-node-synchronization) for instructions on connecting to the network and syncing data.
+
+3.  **Connecting the SDK to the Local Node:**
+
+    When your local node is running, initialize the `TNClient` with the local node's URL:
+
+    ```python
+    from trufnetwork_sdk_py.client import TNClient
+
+    # Connect to a local node
+    client = TNClient("http://localhost:8484", "YOUR_PRIVATE_KEY")
+    ```
+
+### Verifying Node Synchronization
+
+When running a local node connected to the network (e.g., as a node operator), it's crucial to ensure it's fully synchronized before querying data. Use the following command to check node status:
 
 ```bash
-python -m pytest tests/<test_file>.py
+kwild admin status
 ```
 
-## Resources
+> **Note:** This command is not needed if you are running a local setup for development without connecting to the main network.
 
+### Running the SDK Test Suite
+
+1.  First, ensure you have a local node image available. Follow the steps in "Setting Up a Local Node" to build and start the node once.
+2.  Stop the TN Node container if it is running, but do not remove the Docker image as it is needed for the tests.
+3.  Before running the tests, make sure the TN Node is not running.
+    The tests will start a TN Node in the background and stop it after
+    the tests are finished.
+4.  Run the tests using `pytest`:
+    ```bash
+    # Run a specific test file
+    python -m pytest tests/<test_file>.py
+    ```
+
+## Resources
 
 - [Node Repository](https://github.com/trufnetwork/node): For building and running a local node for testing.
 - [Basic Example: Reading a Stream](./examples/README.md): Learn how to connect and read records from an existing stream.

@@ -928,3 +928,74 @@ func BatchFilterStreamsByExistence(client *tnclient.Client, locators []types.Str
 	}
 	return output, nil
 }
+
+// GrantRole grants a role to multiple wallets.
+func GrantRole(client *tnclient.Client, owner string, roleName string, wallets []string) (string, error) {
+	ctx := context.Background()
+
+	roleMgmt, err := client.LoadRoleManagementActions()
+	if err != nil {
+		return "", errors.Wrap(err, "error loading role management actions")
+	}
+
+	input := types.GrantRoleInput{
+		Owner:    owner,
+		RoleName: roleName,
+		Wallets:  wallets,
+	}
+
+	txHash, err := roleMgmt.GrantRole(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "error granting role")
+	}
+	return txHash.String(), nil
+}
+
+// RevokeRole revokes a role from multiple wallets.
+func RevokeRole(client *tnclient.Client, owner string, roleName string, wallets []string) (string, error) {
+	ctx := context.Background()
+
+	roleMgmt, err := client.LoadRoleManagementActions()
+	if err != nil {
+		return "", errors.Wrap(err, "error loading role management actions")
+	}
+
+	input := types.RevokeRoleInput{
+		Owner:    owner,
+		RoleName: roleName,
+		Wallets:  wallets,
+	}
+
+	txHash, err := roleMgmt.RevokeRole(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "error revoking role")
+	}
+	return txHash.String(), nil
+}
+
+// AreMembersOf checks if a list of wallets are members of a specific role.
+// NOTE: This assumes that the underlying go-sdk's IRoleManagement interface
+// has been updated to include an AreMembersOf method, and that corresponding
+// input (AreMembersOfInput) and output (e.g. []*RoleMemberStatus) types exist.
+func AreMembersOf(client *tnclient.Client, owner string, roleName string, wallets []string) ([]map[string]string, error) {
+	ctx := context.Background()
+
+	roleMgmt, err := client.LoadRoleManagementActions()
+	if err != nil {
+		return nil, errors.Wrap(err, "error loading role management actions")
+	}
+
+	// This assumes AreMembersOf and AreMembersOfInput are added to the underlying go-sdk.
+	input := types.AreMembersOfInput{
+		Owner:    owner,
+		RoleName: roleName,
+		Wallets:  wallets,
+	}
+
+	results, err := roleMgmt.AreMembersOf(ctx, input)
+	if err != nil {
+		return nil, errors.Wrap(err, "error checking role members")
+	}
+
+	return recordsToMapSlice(results), nil
+}

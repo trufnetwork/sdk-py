@@ -31,6 +31,10 @@ class StreamExistsResult(TypedDict):
     data_provider: str
     exists: bool
 
+class RoleMembershipStatus(TypedDict):
+    wallet: str
+    is_member: bool
+
 class TNClient:
     def __init__(self, url: str, token: str):
         """
@@ -759,6 +763,106 @@ class TNClient:
             results.append({
                 "stream_id": item["stream_id"],
                 "data_provider": item["data_provider"],
+            })
+        return results
+
+    # --------------------------------------------------
+    #               Role Management Methods
+    # --------------------------------------------------
+
+    def grant_role(
+        self,
+        owner: str,
+        role_name: str,
+        wallets: List[str],
+        wait: bool = True,
+    ) -> str:
+        """
+        Grants a role to a list of wallets.
+
+        Permissions:
+        - Only the role owner or members of the designated manager role can execute this.
+
+        Parameters:
+            - owner: The owner of the role (e.g., 'system' or an Ethereum address).
+            - role_name: The name of the role.
+            - wallets: A list of wallet addresses to grant the role to.
+            - wait: If True, waits for the transaction to be confirmed.
+
+        Returns:
+            The transaction hash.
+        """
+        go_wallets = go.Slice_string(wallets)
+        tx_hash = truf_sdk.GrantRole(self.client, owner, role_name, go_wallets)
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
+    def revoke_role(
+        self,
+        owner: str,
+        role_name: str,
+        wallets: List[str],
+        wait: bool = True,
+    ) -> str:
+        """
+        Revokes a role from a list of wallets.
+
+        Permissions:
+        - Only the role owner or members of the designated manager role can execute this.
+
+        Parameters:
+            - owner: The owner of the role.
+            - role_name: The name of the role.
+            - wallets: A list of wallet addresses to revoke the role from.
+            - wait: If True, waits for the transaction to be confirmed.
+
+        Returns:
+            The transaction hash.
+        """
+        go_wallets = go.Slice_string(wallets)
+        tx_hash = truf_sdk.RevokeRole(self.client, owner, role_name, go_wallets)
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
+    def are_members_of(
+        self,
+        owner: str,
+        role_name: str,
+        wallets: List[str],
+    ) -> List[RoleMembershipStatus]:
+        """
+        Checks if a list of wallets are members of a specific role.
+
+        This is a public view action and requires no special permissions.
+
+        Parameters:
+            - owner: The owner of the role.
+            - role_name: The name of the role.
+            - wallets: A list of wallet addresses to check.
+
+        Returns:
+            A list of objects, each representing the membership status of a wallet.
+        """
+        go_wallets = go.Slice_string(wallets)
+        go_results = truf_sdk.AreMembersOf(self.client, owner, role_name, go_wallets)
+
+        results: List[RoleMembershipStatus] = []
+        for go_map in go_results:
+            item = dict(go_map.items())
+            # The keys from Go are capitalized struct fields: `Wallet`, `IsMember`.
+            # We map them to snake_case Python dict keys and correct types.
+            wallet_address = item.get("Wallet", "")
+            is_member_str = str(item.get("IsMember", "false")).lower()
+            
+            results.append({
+                "wallet": wallet_address,
+                "is_member": is_member_str == "true",
             })
         return results
 

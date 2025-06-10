@@ -43,6 +43,12 @@ market_index_stream_id = generate_stream_id('market_index')
 
 ## Stream Deployment
 
+> **Note: Stream Deployment Permissions**
+>
+> Deploying new streams on the TRUF.NETWORK requires the `system:network_writer` role.
+>
+> If you're interested in deploying streams, please contact the TRUF.NETWORK team for assistance.
+
 ### `client.deploy_stream(stream_id: str, stream_type: str) -> str`
 Deploys a new stream to the TRUF.NETWORK.
 
@@ -166,6 +172,77 @@ tx_hash = client.set_taxonomy(
 )
 ```
 
+## Role Management
+
+### `client.grant_role(owner: str, role_name: str, wallets: List[str]) -> str`
+Grants a specified role to a list of wallet addresses.
+
+#### Parameters
+- `owner: str` - The owner of the role (e.g., 'system' or an Ethereum address).
+- `role_name: str` - The name of the role to grant.
+- `wallets: List[str]` - A list of wallet addresses to grant the role to.
+
+#### Returns
+- `str` - Transaction hash of the role grant operation.
+
+#### Example
+```python
+# Grant the system:network_writer role to a specific wallet
+tx_hash = client.grant_role(
+    "system",
+    "network_writer",
+    ["0xAbC...123"]
+)
+```
+
+### `client.revoke_role(owner: str, role_name: str, wallets: List[str]) -> str`
+Revokes a specified role from a list of wallet addresses.
+
+#### Parameters
+- `owner: str` - The owner of the role.
+- `role_name: str` - The name of the role to revoke.
+- `wallets: List[str]` - A list of wallet addresses from which to revoke the role.
+
+#### Returns
+- `str` - Transaction hash of the role revocation operation.
+
+#### Example
+```python
+tx_hash = client.revoke_role(
+    "system",
+    "network_writer",
+    ["0xAbC...123"]
+)
+```
+
+### `client.are_members_of(owner: str, role_name: str, wallets: List[str]) -> List[Dict]`
+Checks if a list of wallets are members of a specific role.
+
+#### Parameters
+- `owner: str` - The owner of the role to check against.
+- `role_name: str` - The name of the role.
+- `wallets: List[str]` - A list of wallet addresses to check.
+
+#### Returns
+- `List[Dict]` - A list of objects, each containing:
+  - `wallet: str` - The wallet address checked.
+  - `is_member: bool` - True if the wallet is a member, false otherwise.
+
+#### Example
+```python
+wallets_to_check = ["0xAbC...123", "0xDeF...456"]
+membership_status = client.are_members_of(
+    "system",
+    "network_writer",
+    wallets_to_check
+)
+# Example output:
+# [
+#   {'wallet': '0xabc...123', 'is_member': True},
+#   {'wallet': '0xdef...456', 'is_member': False}
+# ]
+```
+
 ## Visibility and Permissions
 
 ### `client.set_read_visibility(stream_id: str, visibility: str) -> str`
@@ -206,8 +283,8 @@ client.wait_for_tx(tx_hash)
 ```
 
 ## Performance Recommendations
-- Use batch record insertions
-- Handle errors with specific exception handling
+- Use `batch_insert_records` for multiple records to one or more streams to reduce network overhead and transaction costs.
+- Handle errors with specific exception handling to build robust applications.
 
 ## SDK Compatibility
 - Minimum Python Version: 3.8 

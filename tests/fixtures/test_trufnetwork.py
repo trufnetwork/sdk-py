@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 import pytest
+from eth_account import Account
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -20,7 +21,15 @@ NETWORK_NAME = "truf-test-network"
 
 # Define the private key for database operations, matching server_fixture.go
 DB_PRIVATE_KEY = "0000000000000000000000000000000000000000000000000000000000000001"
+
+# Manager wallet (used for system-level roles and admin tasks)
+MANAGER_PRIVATE_KEY = "1111111111111111111111111111111111111111111111111111111111111111"
+
 KWIL_PROVIDER_URL = "http://localhost:8484"
+
+SYSTEM_OWNER = "system"
+
+NETWORK_WRITER_ROLE = "network_writer"
 
 
 @dataclass
@@ -180,7 +189,16 @@ def run_migration_task() -> bool:
 
     provider_arg = f"PROVIDER={KWIL_PROVIDER_URL}"
     private_key_arg = f"PRIVATE_KEY={DB_PRIVATE_KEY}"
+
+    # Derive the admin wallet (manager address) so migrations can assign manager roles
+    admin_wallet_arg: Optional[str] = None
+    admin_wallet_address = Account.from_key(MANAGER_PRIVATE_KEY).address.lower()
+    admin_wallet_arg = f"ADMIN_WALLET={admin_wallet_address}"
+    logger.info(f"Derived admin wallet {admin_wallet_address} from manager private key")
+
     command = ["task", "action:migrate", provider_arg, private_key_arg]
+    if admin_wallet_arg:
+        command.append(admin_wallet_arg)
 
     logger.info(f"Executing command in {node_repo_dir}: {' '.join(command)}")
     try:
@@ -450,4 +468,31 @@ class TestTrufNetworkFixtures:
 
 DEFAULT_TN_PRIVATE_KEY = "0" * 63 + "1"  # 64 zeros ending with 1
 
+# ---------------------------------------------------------------------------
+# Manager fixtures
+# ---------------------------------------------------------------------------
 
+
+@pytest.fixture(scope="session")
+def manager_private_key() -> str:
+    """Returns the manager's private key as a hex-encoded string."""
+    return MANAGER_PRIVATE_KEY
+
+
+@pytest.fixture(scope="session")
+def manager_client(tn_node):
+    """A TNClient instance authenticated as the manager wallet.
+
+    This client can be used in tests that need elevated system-level privileges
+    (e.g., granting/revoking roles that require the *network_writers_manager* role).
+
+    Args:
+        tn_node: The TN node fixture providing the API endpoint.
+
+    Returns:
+        trufnetwork_sdk_py.TNClient: Configured client instance.
+    """
+    # Local import to avoid heavy dependency at import time for unrelated tests
+    from trufnetwork_sdk_py import TNClient
+
+    return TNClient(url=tn_node, token=MANAGER_PRIVATE_KEY)

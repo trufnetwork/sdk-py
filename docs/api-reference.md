@@ -174,6 +174,8 @@ tx_hash = client.set_taxonomy(
 
 ## Role Management
 
+> Only wallets with manager privileges (e.g. `system:network_writers_manager`) can grant or revoke roles. Regular users should request access from the TRUF.NETWORK team.
+
 ### `client.grant_role(owner: str, role_name: str, wallets: List[str]) -> str`
 Grants a specified role to a list of wallet addresses.
 
@@ -244,6 +246,15 @@ membership_status = client.are_members_of(
 ```
 
 ## Visibility and Permissions
+
+### System vs. User Roles
+
+| Role Namespace | Example | Who can create/manage | Typical purpose |
+|----------------|---------|-----------------------|-----------------|
+| `system:`      | `system:network_writer` | Core protocol maintainers | Gate network-wide operations (e.g. create streams) |
+| `<wallet>:`    | `0x1234…abcd:pro_subscribers` | The wallet prefix (owner) | Business-specific read/write groups |
+
+> Tip: You can list all roles owned by a wallet with `client.list_role_members(owner, role_name)`.
 
 ### `client.set_read_visibility(stream_id: str, visibility: str) -> str`
 Controls stream read access.

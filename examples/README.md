@@ -73,6 +73,8 @@ Date: 2024-01-16, Value: 106.50
 
 ## Notes
 
+> **Permission note:** This script only *reads* public streams, so no roles are required. Deploying streams needs the `system:network_writer` role; contact the TRUF.NETWORK team to obtain it.
+
 - Always handle private keys securely
 - Be mindful of rate limits
 - This is a basic example; adapt for your specific use case

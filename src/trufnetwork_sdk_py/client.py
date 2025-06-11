@@ -35,6 +35,11 @@ class RoleMembershipStatus(TypedDict):
     wallet: str
     is_member: bool
 
+class RoleMember(TypedDict):
+    wallet: str
+    granted_at: int
+    granted_by: str
+
 class TNClient:
     def __init__(self, url: str, token: str):
         """
@@ -651,14 +656,14 @@ class TNClient:
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash of the batch operation.
         """
-        go_definitions = truf_sdk.Slice_s2_types_StreamDefinition([])
+        go_definitions = truf_sdk.Slice_s1_types_StreamDefinition([])
         for def_input in definitions:
             # The Go binding layer (NewStreamDefinitionForBinding) will handle conversion from string to Go types.
             # However, gomobile does not directly support passing slices of structs that are not built-in or explicitly defined
-            # for slices in the .go file (like Slice_s2_types_InsertRecordInput).
+            # for slices in the .go file (like Slice_s1_types_InsertRecordInput).
             # We must construct each Go object and append it to a Go slice.
             # This requires a helper in Go to create the individual StreamDefinition objects first,
-            # then append them to Slice_s2_types_StreamDefinition.
+            # then append them to Slice_s1_types_StreamDefinition.
             # For now, assuming direct slice creation might work or we adjust bindings if not.
             # This part might need refinement based on gomobile's exact capabilities for custom struct slices.
             # Let's assume for now direct construction and appending to a list, then converting to Go slice.
@@ -667,7 +672,7 @@ class TNClient:
             # Simplified approach: directly create the Go slice of structs if supported by gomobile bindings.
             # The Python SDK will pass a list of dicts. The Go binding code (not shown here directly)
             # would iterate this, call NewStreamDefinitionForBinding for each, and build the Go slice.
-            # The current truf_sdk.Slice_s2_types_StreamDefinition expects a list of Go StreamDefinition objects.
+            # The current truf_sdk.Slice_s1_types_StreamDefinition expects a list of Go StreamDefinition objects.
 
             # Correct approach given current structure:
             # Python builds a list of Python dicts.
@@ -676,7 +681,7 @@ class TNClient:
             # OR, Python calls a Go helper for EACH definition to get a Go StreamDefinition handle,
             # collects these handles, and passes a slice of these handles.
             # Let's assume the Go `BatchDeployStreams` function now expects []types.StreamDefinition directly,
-            # and `Slice_s2_types_StreamDefinition` is smart enough or we build it item by item using a Go helper.
+            # and `Slice_s1_types_StreamDefinition` is smart enough or we build it item by item using a Go helper.
 
             # Let's assume NewStreamDefinitionForBinding is available at the Go `exports` level
             # and we are constructing the slice of these Go objects in Python.
@@ -689,20 +694,20 @@ class TNClient:
             # For this edit, I will assume the Go binding `BatchDeployStreams` in `bindings.go` will be adjusted
             # to take a slice of Go `StreamDefinition` objects, and we prepare it in Python by calling a (yet to be confirmed)
             # Go helper for each item and then creating a Go slice from these. 
-            # Given the current binding structure, this is the most likely path for Slice_s2_types_StreamDefinition
+            # Given the current binding structure, this is the most likely path for Slice_s1_types_StreamDefinition
 
             # Revisiting the Go bindings: `BatchDeployStreams(client *tnclient.Client, definitions []types.StreamDefinition)`
             # This means Python must construct `[]types.StreamDefinition`.
             # `truf_sdk.NewStreamDefinitionForBinding` will be used.
             go_def = truf_sdk.NewStreamDefinitionForBinding(def_input["stream_id"], def_input["stream_type"])
             # This go_def is a handle. We need to append these handles to the slice.
-            # The truf_sdk.Slice_s2_types_StreamDefinition is likely expecting a list of these handles.
+            # The truf_sdk.Slice_s1_types_StreamDefinition is likely expecting a list of these handles.
             go_definitions.append(go_def) # This is pseudocode for how gomobile might handle slice appends
                                         # Actual mechanism depends on gomobile's generated Python bindings for slices of custom types.
-                                        # If `Slice_s2_types_StreamDefinition` is a constructor that takes a list of handles, that's it.
+                                        # If `Slice_s1_types_StreamDefinition` is a constructor that takes a list of handles, that's it.
                                         # If not, this part needs careful implementation based on `gomobile bind` output.
 
-        # The below is a common pattern for gomobile if Slice_s2_types_StreamDefinition is a list-like object in Python
+        # The below is a common pattern for gomobile if Slice_s1_types_StreamDefinition is a list-like object in Python
         # that wraps the Go slice. Often, you build a Python list of the Go object handles.
         py_list_of_go_defs = []
         for def_input in definitions:
@@ -713,10 +718,10 @@ class TNClient:
         
         # Now, convert the Python list of Go object handles to the required Go slice type.
         # This conversion mechanism is specific to how gomobile wraps slice types.
-        # It might be direct: `go_slice_defs = truf_sdk.Slice_s2_types_StreamDefinition(py_list_of_go_defs)`
+        # It might be direct: `go_slice_defs = truf_sdk.Slice_s1_types_StreamDefinition(py_list_of_go_defs)`
         # Or it might involve a specific constructor or method.
-        # For now, let's assume `Slice_s2_types_StreamDefinition` can take a list of these handles.
-        final_go_definitions = truf_sdk.Slice_s2_types_StreamDefinition(py_list_of_go_defs)
+        # For now, let's assume `Slice_s1_types_StreamDefinition` can take a list of these handles.
+        final_go_definitions = truf_sdk.Slice_s1_types_StreamDefinition(py_list_of_go_defs)
 
         tx_hash = truf_sdk.BatchDeployStreams(self.client, final_go_definitions)
         if wait:
@@ -740,7 +745,7 @@ class TNClient:
             go_loc_handle = truf_sdk.NewStreamLocatorForBinding(loc_input["stream_id"], loc_input["data_provider"])
             py_list_of_go_locators.append(go_loc_handle)
         
-        final_go_locators = truf_sdk.Slice_s2_types_StreamLocator(py_list_of_go_locators)
+        final_go_locators = truf_sdk.Slice_s1_types_StreamLocator(py_list_of_go_locators)
 
         go_results = truf_sdk.BatchStreamExists(self.client, final_go_locators)
         
@@ -776,7 +781,7 @@ class TNClient:
             go_loc_handle = truf_sdk.NewStreamLocatorForBinding(loc_input["stream_id"], loc_input["data_provider"])
             py_list_of_go_locators.append(go_loc_handle)
 
-        final_go_locators = truf_sdk.Slice_s2_types_StreamLocator(py_list_of_go_locators)
+        final_go_locators = truf_sdk.Slice_s1_types_StreamLocator(py_list_of_go_locators)
 
         go_results = truf_sdk.BatchFilterStreamsByExistence(self.client, final_go_locators, return_existing)
         
@@ -888,6 +893,57 @@ class TNClient:
                 "is_member": is_member_str == "true",
             })
         return results
+
+    def list_role_members(
+        self,
+        owner: str,
+        role_name: str,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+    ) -> List[RoleMember]:
+        """
+        Lists the members of a role with optional pagination.
+
+        Parameters:
+            - owner: The owner namespace of the role (e.g., 'system').
+            - role_name: The role to list members for.
+            - limit: Maximum number of results to return. Defaults to SDK / DB default if None.
+            - offset: Number of records to skip. Defaults to 0 if None.
+
+        Returns:
+            A list of RoleMember dictionaries.
+        """
+        # Coalesce optional ints into sentinel values expected by the Go layer.
+        limit_val = self._coalesce_int(limit, 0) if limit is not None else 0
+        offset_val = self._coalesce_int(offset, 0)
+
+        go_results = truf_sdk.ListRoleMembers(
+            self.client,
+            owner,
+            role_name,
+            limit_val,
+            offset_val,
+        )
+
+        members: List[RoleMember] = []
+        for go_map in go_results:
+            item = dict(go_map.items())
+            wallet = item.get("Wallet", "")
+            granted_at_str = item.get("GrantedAt", "0")
+            granted_by = item.get("GrantedBy", "")
+
+            try:
+                granted_at = int(granted_at_str)
+            except ValueError:
+                granted_at = 0
+
+            members.append({
+                "wallet": wallet,
+                "granted_at": granted_at,
+                "granted_by": granted_by,
+            })
+
+        return members
 
 def all_is_list_of_strings(arg_list: list[Any]) -> bool:
     return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)

@@ -832,6 +832,10 @@ func convertToString(val any) string {
 		return v.String()
 	case civil.Date:
 		return v.String()
+	case util.EthereumAddress:
+		return v.Address()
+	case *util.EthereumAddress:
+		return v.Address()
 	case fmt.Stringer:
 		return v.String()
 	default:
@@ -929,6 +933,19 @@ func BatchFilterStreamsByExistence(client *tnclient.Client, locators []types.Str
 	return output, nil
 }
 
+// helper to convert slice of hex wallet strings to []util.EthereumAddress
+func strSliceToEthAddrs(wallets []string) ([]util.EthereumAddress, error) {
+	out := make([]util.EthereumAddress, len(wallets))
+	for i, w := range wallets {
+		addr, err := util.NewEthereumAddressFromString(w)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = addr
+	}
+	return out, nil
+}
+
 // GrantRole grants a role to multiple wallets.
 func GrantRole(client *tnclient.Client, owner string, roleName string, wallets []string) (string, error) {
 	ctx := context.Background()
@@ -938,10 +955,15 @@ func GrantRole(client *tnclient.Client, owner string, roleName string, wallets [
 		return "", errors.Wrap(err, "error loading role management actions")
 	}
 
+	addrs, err := strSliceToEthAddrs(wallets)
+	if err != nil {
+		return "", errors.Wrap(err, "invalid wallet address")
+	}
+
 	input := types.GrantRoleInput{
 		Owner:    owner,
 		RoleName: roleName,
-		Wallets:  wallets,
+		Wallets:  addrs,
 	}
 
 	txHash, err := roleMgmt.GrantRole(ctx, input)
@@ -960,10 +982,15 @@ func RevokeRole(client *tnclient.Client, owner string, roleName string, wallets 
 		return "", errors.Wrap(err, "error loading role management actions")
 	}
 
+	addrs, err := strSliceToEthAddrs(wallets)
+	if err != nil {
+		return "", errors.Wrap(err, "invalid wallet address")
+	}
+
 	input := types.RevokeRoleInput{
 		Owner:    owner,
 		RoleName: roleName,
-		Wallets:  wallets,
+		Wallets:  addrs,
 	}
 
 	txHash, err := roleMgmt.RevokeRole(ctx, input)
@@ -985,16 +1012,45 @@ func AreMembersOf(client *tnclient.Client, owner string, roleName string, wallet
 		return nil, errors.Wrap(err, "error loading role management actions")
 	}
 
-	// This assumes AreMembersOf and AreMembersOfInput are added to the underlying go-sdk.
+	addrs, err := strSliceToEthAddrs(wallets)
+	if err != nil {
+		return nil, errors.Wrap(err, "invalid wallet address")
+	}
+
 	input := types.AreMembersOfInput{
 		Owner:    owner,
 		RoleName: roleName,
-		Wallets:  wallets,
+		Wallets:  addrs,
 	}
 
 	results, err := roleMgmt.AreMembersOf(ctx, input)
 	if err != nil {
 		return nil, errors.Wrap(err, "error checking role members")
+	}
+
+	return recordsToMapSlice(results), nil
+}
+
+// ListRoleMembers lists the current members of a role with optional pagination.
+// It returns a slice of map[string]string where each map contains `Wallet`, `GrantedAt`, and `GrantedBy`.
+func ListRoleMembers(client *tnclient.Client, owner string, roleName string, limit int, offset int) ([]map[string]string, error) {
+	ctx := context.Background()
+
+	roleMgmt, err := client.LoadRoleManagementActions()
+	if err != nil {
+		return nil, errors.Wrap(err, "error loading role management actions")
+	}
+
+	input := types.ListRoleMembersInput{
+		Owner:    owner,
+		RoleName: roleName,
+		Limit:    limit,
+		Offset:   offset,
+	}
+
+	results, err := roleMgmt.ListRoleMembers(ctx, input)
+	if err != nil {
+		return nil, errors.Wrap(err, "error listing role members")
 	}
 
 	return recordsToMapSlice(results), nil

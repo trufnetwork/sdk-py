@@ -15,6 +15,10 @@ def create_example_streams(client):
     5. Inserting records into primitive streams
     6. Reading records from streams
     7. Cleaning up (destroying) streams
+    
+    ⚠️  **Permissions:** Running this example requires the calling wallet to
+    hold the `system:network_writer` role. Contact the TRUF.NETWORK team to
+    obtain the role before executing the script.
     """
     # Generate unique stream IDs
     market_stream_id = generate_stream_id("market_performance")

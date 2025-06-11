@@ -9,12 +9,13 @@ from datetime import datetime, timedelta, timezone  # Import datetime and timede
 
 
 @pytest.fixture(scope="module")
-def client(tn_node):
+def client(tn_node, grant_network_writer):
     """
     Pytest fixture to create a TNClient instance for testing.
     Uses the tn_node fixture which provides a running test environment.
     """
     client = TNClient(tn_node, DEFAULT_TN_PRIVATE_KEY)
+    grant_network_writer(client)
     return client
 
 @pytest.fixture(scope="module")

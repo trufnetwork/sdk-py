@@ -129,6 +129,14 @@ client.deploy_stream(composite_stream_id, STREAM_TYPE_COMPOSED)
 
 For the full example, refer to the [Complex Example README](./examples/complex_example/README.md).
 
+## Role-based Permissions
+
+> **Heads-up:** Deploying streams requires the `system:network_writer` role; reading public streams is permissionless.
+
+Don't have the role? Contact the TRUF.NETWORK team to get whitelisted.
+
+Check your role status using the **Role Management** APIs in the [API Reference](./docs/api-reference.md#role-management).
+
 ## Stream Creation and Management
 
 ### Stream Types

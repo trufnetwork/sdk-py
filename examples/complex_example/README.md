@@ -17,6 +17,7 @@ This example demonstrates the full lifecycle of stream management in the TRUF.NE
 - Python 3.8+
 - `venv` module (usually comes with Python standard library)
 - A valid private key for the TRUF.NETWORK gateway
+- Your wallet must **hold `system:network_writer`** or the deployment steps will fail. Contact the TRUF.NETWORK team if you need access.
 
 ## Setup
 

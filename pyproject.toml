@@ -20,7 +20,8 @@ dev = [
     "pytest-mock>=3.14.0",
     "requests>=2.31.0",
     "pybindgen",
-    "python-dotenv"
+    "python-dotenv",
+    "eth_account>=0.8.0"
 ]
 
 [project.urls]

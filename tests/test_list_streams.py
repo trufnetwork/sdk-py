@@ -9,12 +9,13 @@ TEST_PRIVATE_KEY = (
 )
 
 @pytest.fixture(scope="module")
-def client(tn_node):
+def client(tn_node, grant_network_writer):
     """
     Pytest fixture to create a TNClient instance for testing.
     Uses the tn_node fixture to get a running server.
     """
     client = TNClient(tn_node, TEST_PRIVATE_KEY)
+    grant_network_writer(client)
     return client
 
 def test_list_streams(client):

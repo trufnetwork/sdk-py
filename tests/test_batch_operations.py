@@ -13,13 +13,16 @@ def generate_unique_formatted_stream_id(prefix: str) -> str:
     return sdk_generate_stream_id(unique_name) # Use the SDK utility
 
 @pytest.fixture(scope="module")
-def client(tn_node) -> TNClient: # Use the tn_node fixture from test_trufnetwork.py
+def client(tn_node, grant_network_writer) -> TNClient:
     """Provides a TNClient instance configured for the test TSN node."""
     node_url = tn_node # tn_node fixture yields the URL string
     # Ensure your TNClient can be initialized with url and token (private_key)
     # The TNClient constructor is `__init__(self, url: str, token: str)`
     # where token is the private key.
-    return TNClient(url=node_url, token=TEST_PRIVATE_KEY)
+    client = TNClient(url=node_url, token=TEST_PRIVATE_KEY)
+    # enable this client to deploy streams
+    grant_network_writer(client)
+    return client
 
 class TestBatchOperations:
 

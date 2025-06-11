@@ -1001,9 +1001,6 @@ func RevokeRole(client *tnclient.Client, owner string, roleName string, wallets 
 }
 
 // AreMembersOf checks if a list of wallets are members of a specific role.
-// NOTE: This assumes that the underlying go-sdk's IRoleManagement interface
-// has been updated to include an AreMembersOf method, and that corresponding
-// input (AreMembersOfInput) and output (e.g. []*RoleMemberStatus) types exist.
 func AreMembersOf(client *tnclient.Client, owner string, roleName string, wallets []string) ([]map[string]string, error) {
 	ctx := context.Background()
 

@@ -15,10 +15,20 @@ If you need help, don't hesitate to [open an issue](https://github.com/trufnetwo
 
 ### Installation
 
-You can install the SDK as a dependency using pip with a git URL:
+Install the pre-built wheel for your platform by substituting the desired version and platform in the URL:
 
-```bash
-pip install trufnetwork-sdk-py@git+https://github.com/trufnetwork/sdk-py.git@main
+```
+pip install https://github.com/trufnetwork/sdk-py/releases/download/v<version>/trufnetwork_sdk_py-<platform>.whl
+```
+
+Examples:
+- Linux:
+```
+pip install https://github.com/trufnetwork/sdk-py/releases/download/v0.3.2/trufnetwork_sdk_py-0.3.2-py3-none-manylinux_2_28_x86_64.whl
+```
+- macOS:
+```
+pip install https://github.com/trufnetwork/sdk-py/releases/download/v0.3.2/trufnetwork_sdk_py-0.3.2-py3-none-macosx_11_0_universal2.whl
 ```
 
 Alternatively, if you are using a `pyproject.toml` file for dependency management, add the following:

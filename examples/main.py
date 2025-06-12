@@ -22,8 +22,7 @@ def main():
     )
     print("AI Index Records:")
     for record in ai_records:
-        date = datetime.fromtimestamp(int(record["EventTime"]), tz=timezone.utc)
-        print(f"Date: {date.strftime('%Y-%m-%d')}, Value: {record['Value']}")
+        print(f"Time: {record['EventTime']}, Value: {record['Value']}")
 
 if __name__ == "__main__":
     main()

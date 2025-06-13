@@ -8,6 +8,8 @@ on:
   # Also allow manual re-runs
   workflow_dispatch:
 
+permissions: write-all
+
 jobs:
   build:
     name: Build for ${{ matrix.os }}

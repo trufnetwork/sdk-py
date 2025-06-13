@@ -836,6 +836,8 @@ func convertToString(val any) string {
 		return v.Address()
 	case *util.EthereumAddress:
 		return v.Address()
+	case bool:
+		return strconv.FormatBool(v)
 	case fmt.Stringer:
 		return v.String()
 	default:

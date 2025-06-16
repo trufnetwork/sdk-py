@@ -21,7 +21,7 @@ dev = [
     "requests>=2.31.0",
     "pybindgen",
     "python-dotenv",
-    "eth_account>=0.8.0"
+    "eth_account>=0.8.0",
 ]
 
 [project.urls]
@@ -30,7 +30,7 @@ dev = [
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
 include-package-data = true
-package-data = { "*" = ["*.so", "*.dll"] }
+package-data = { "*" = ["*.so", "*.dll", "*.dylib"] }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

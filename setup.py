@@ -2,6 +2,7 @@ import setuptools
 from setuptools.command.install import install
 from setuptools.command.develop import develop
 from setuptools.command.egg_info import egg_info
+from setuptools.command.build_ext import build_ext
 import os
 
 # Check if we're installing from source
@@ -51,10 +52,18 @@ class CustomEggInfoCommand(egg_info):
         print("Building SDK egg_info")
         egg_info.run(self)
 
+class CustomBuildExt(build_ext):
+    def run(self):
+        check_dependencies()
+        if os.system("make gopy_build") != 0:
+            raise RuntimeError("gopy build failed")
+        build_ext.run(self)
+
 setuptools.setup(
     cmdclass={
         'install': CustomInstallCommand,
         'develop': CustomDevelopCommand,
         'egg_info': CustomEggInfoCommand,
+        'build_ext': CustomBuildExt,
     },
 )

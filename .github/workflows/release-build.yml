@@ -49,7 +49,7 @@ jobs:
 
       - name: Install build tools
         run: |
-          python3 -m pip install --upgrade pip setuptools wheel pybindgen
+          python3 -m pip install --upgrade pip setuptools wheel pybindgen build
 
       - name: Build gopy bindings
         run: make gopy_build

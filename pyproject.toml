@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trufnetwork_sdk_py"
-version = "0.1.0"
+version = "0.3.3"
 authors = [{ name = "Truf Network", email = "developer@truf.network" }]
 description = "A Python SDK for Truf Network"
 readme = "README.md"

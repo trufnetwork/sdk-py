@@ -299,3 +299,40 @@ client.wait_for_tx(tx_hash)
 
 ## SDK Compatibility
 - Minimum Python Version: 3.8 
+
+## Custom Procedure Calls
+
+### `client.call_procedure(procedure: str, args: List[Any]) -> Dict`
+Invokes a **read-only stored procedure** (sometimes referred to as a _custom procedure_) that is deployed on the TRUF.NETWORK gateway.  This is useful for aggregations, analytics, or any bespoke SQL logic that cannot be expressed via the higher-level SDK helpers.
+
+#### Parameters
+- `procedure: str` – The name of the stored procedure to execute.
+- `args: List[Any]` – A list of positional arguments that will be forwarded as-is to the procedure.  Use `None` for optional parameters you wish to skip.
+
+#### Returns
+- `Dict` – A dictionary with the keys:
+  - `column_names: List[str]` – Names of the returned columns.
+  - `values: List[List[Any]]` – Row-major 2-D array containing the result set.
+
+#### Example
+```python
+from datetime import datetime, timezone, timedelta
+from trufnetwork_sdk_py.client import TNClient
+
+client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
+
+# Call a 5-argument read-only procedure
+one_week_ago = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp())
+now = int(datetime.now(timezone.utc).timestamp())
+time_interval = 31_536_000  # 1 year in seconds
+
+args = [one_week_ago, now, None, None, time_interval]
+result = client.call_procedure("get_divergence_index_change", args)
+
+print("Columns:", result["column_names"])
+for row in result["values"]:
+    print(row)
+```
+
+> **Note**  
+> `call_procedure` is *read-only* and therefore free of on-chain gas costs.  For state-changing procedures, use `client.execute_procedure` which returns a transaction hash. 

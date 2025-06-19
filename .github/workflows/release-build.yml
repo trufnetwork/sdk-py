@@ -12,7 +12,7 @@ permissions: write-all
 
 jobs:
   build:
-    name: Build for ${{ matrix.os }}
+    name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -35,72 +35,52 @@ jobs:
           echo "$HOME/go/bin" >> $GITHUB_PATH
         shell: bash
 
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:.
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install build tools
-        run: python -m pip install --upgrade pip setuptools wheel build pybindgen
-        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip setuptools wheel pybindgen build
 
       - name: Build gopy bindings
         run: make gopy_build
         shell: bash
 
-      - name: Build wheel
-        run: python -m build --wheel --outdir dist
-        shell: bash
+      - name: Build wheels
+        run: python -m build --wheel --outdir wheelhouse
 
       - name: Upload wheels as artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}
-          path: dist/*.whl
+          path: wheelhouse/*.whl
 
   publish:
     name: Publish Wheels to Release
     needs: build
-    runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # 1) Download both artifacts
-      - name: Download Linux wheel
+      - name: Download all built wheels
         uses: actions/download-artifact@v4
         with:
-          name: wheels-ubuntu-latest
-          path: dist/linux
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist/
 
-      - name: Download macOS wheel
-        uses: actions/download-artifact@v4
-        with:
-          name: wheels-macos-latest
-          path: dist/macos
-
-      # 2) Rename to valid PEP-427 wheel filenames
-      - name: Rename wheels to proper platform tags
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-
-          # Linux: manylinux_2_28_x86_64
-          mv dist/linux/*.whl \
-             dist/trufnetwork_sdk_py-${VERSION}-py3-none-manylinux_2_28_x86_64.whl
-
-          # macOS: universal2 (adjust if you need x86_64-only)
-          mv dist/macos/*.whl \
-             dist/trufnetwork_sdk_py-${VERSION}-py3-none-macosx_11_0_universal2.whl
-        shell: bash
-
-      # 3) Upload both to the GitHub Release
-      - name: Publish Release & Upload Wheels
+      - name: Publish GitHub Release with Wheels
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/trufnetwork_sdk_py-*-py3-none-manylinux_2_28_x86_64.whl
-            dist/trufnetwork_sdk_py-*-py3-none-macosx_11_0_universal2.whl
+          files: dist/*.whl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

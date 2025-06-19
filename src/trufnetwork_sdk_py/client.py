@@ -794,6 +794,30 @@ class TNClient:
             })
         return results
 
+    def call_procedure(self, procedure: str, args: List[Any]) -> Dict[str, Any]:
+        """Call a **read-only** stored procedure on the gateway.
+
+        Parameters
+        ----------
+        procedure : str
+            Name of the stored procedure to invoke.
+        args : List[Any]
+            Positional arguments expected by the procedure. Use ``None`` for SQL
+            NULL / optional parameters you want to skip.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A mapping with two keys:
+                • ``column_names`` – list of column names returned
+                • ``values`` – 2-D list with the result rows
+        """
+        # Convert Python list to Go slice wrapper
+        str_args = ["" if a is None else str(a) for a in args]
+        go_slice = go.Slice_string(str_args)
+        result_json = truf_sdk.CallProcedureStrings(self.client, procedure, go_slice)
+        return json.loads(result_json)
+
     # --------------------------------------------------
     #               Role Management Methods
     # --------------------------------------------------

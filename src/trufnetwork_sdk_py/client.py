@@ -4,6 +4,8 @@ import trufnetwork_sdk_c_bindings.go as go
 
 from typing import Dict, List, Union, Optional, Any, TypedDict, Literal, cast
 
+from pydantic import BaseModel
+
 # Expose StreamType constants at the Python level
 STREAM_TYPE_PRIMITIVE = cast(Literal["primitive"], truf_sdk.StreamTypePrimitive)
 STREAM_TYPE_COMPOSED = cast(Literal["composed"], truf_sdk.StreamTypeComposed)
@@ -24,7 +26,7 @@ class StreamDefinitionInput(TypedDict):
 
 class StreamLocatorInput(TypedDict):
     stream_id: str
-    data_provider: str
+    data_provider: Optional[str]
 
 class StreamExistsResult(TypedDict):
     stream_id: str
@@ -39,6 +41,17 @@ class RoleMember(TypedDict):
     wallet: str
     granted_at: int
     granted_by: str
+
+class TaxonomyDetails(TypedDict):
+    stream_id: str
+    child_streams: List['TaxonomyDefinition']
+    # start_date: int
+    created_at: int
+    # group_sequence: int
+
+class TaxonomyDefinition(BaseModel):
+    stream: StreamLocatorInput
+    weight: Union[int, float]
 
 class TNClient:
     def __init__(self, url: str, token: str):
@@ -441,9 +454,8 @@ class TNClient:
     def set_taxonomy(
         self, 
         stream_id: str,
-        child_streams: Dict[str, Union[int, float]],
+        taxonomies: list[TaxonomyDefinition],
         start_date: Optional[int] = None,
-        group_sequence: Optional[int] = None,
         wait: bool = True
     ):
         """
@@ -453,26 +465,31 @@ class TNClient:
 
         Parameters:
             - stream_id: The composed stream to define.
-            - child_streams: A dictionary mapping child stream IDs to their float weights.
+            - taxonomies: A list of TaxonomyDefinition objects.
             - start_date: Optional UNIX timestamp for when the taxonomy becomes effective.
             - group_sequence: Optional integer for ordering taxonomies.
             - wait: If True, waits for the transaction to be confirmed.
         """
-        group_sequence = self._coalesce_int(group_sequence)
         start_date = self._coalesce_int(start_date)
 
-        taxonomies = []
-        for id, weight in child_streams.items():
-            taxonomy_item = truf_sdk.NewTaxonomyItemInput(self.client, id, weight)
-            taxonomies.append(taxonomy_item)
+        taxonomy_items = []
+        for taxonomy in taxonomies:
+            data_provider = self._coalesce_str(taxonomy.stream.get("data_provider"))
+            taxonomy_item = truf_sdk.NewTaxonomyItemInput(
+                self.client,
+                data_provider,
+                taxonomy.stream["stream_id"],
+                taxonomy.weight,
+            )
+            taxonomy_items.append(taxonomy_item)
 
-        taxonomies_go = truf_sdk.Slice_s1_types_TaxonomyItem(taxonomies)
+        taxonomy_items_go = truf_sdk.Slice_s1_types_TaxonomyItem(taxonomy_items)
         input = truf_sdk.NewTaxonomyInput(
             self.client, 
             stream_id, 
-            taxonomies_go,
+            taxonomy_items_go,
             start_date,
-            group_sequence
+            0
         )
         tx_hash = truf_sdk.SetTaxonomy(self.client, input)
 
@@ -481,7 +498,7 @@ class TNClient:
 
         return tx_hash
     
-    def describe_taxonomy(self, stream_id: str, latest_version: bool = True):
+    def describe_taxonomy(self, stream_id: str, latest_version: bool = True) -> Optional[TaxonomyDetails]:
         """
         Get taxonomy structure of a composed stream
 
@@ -491,15 +508,35 @@ class TNClient:
             - stream_id : str
             - latest_version : bool
         """
-         
         result = truf_sdk.DescribeTaxonomy(self.client, stream_id, latest_version)
-        taxonomy = dict(result.items())
-        taxonomy["child_streams"] = json.loads(taxonomy["child_streams"])
+        taxonomy_data = dict(result.items())
 
-        for child_stream in taxonomy["child_streams"]:
-            child_stream["weight"] = round(float(child_stream["weight"]), 2)
+        if not taxonomy_data:
+            return None
 
-        return taxonomy
+        child_streams_json = taxonomy_data.get("child_streams")
+        raw_taxonomy_list = json.loads(child_streams_json) if child_streams_json else []
+
+        processed_taxonomies = []
+        for item in raw_taxonomy_list:
+            processed_taxonomies.append(
+                TaxonomyDefinition(
+                    stream={
+                        "stream_id": item.get("stream_id"),
+                        "data_provider": item.get("data_provider"),
+                    },
+                    weight=float(item["weight"]),
+                )
+            )
+        
+        return cast(TaxonomyDetails, {
+            "stream_id": taxonomy_data.get("stream_id"),
+            "child_streams": processed_taxonomies,
+            # temporarily disabled
+            # "start_date": int(taxonomy_data.get("start_date", 0)),
+            "created_at": int(taxonomy_data.get("created_at", 0)),
+            # "group_sequence": int(taxonomy_data.get("group_sequence", 0)),
+        })
 
     def allow_compose_stream(self, stream_id: str, wait: bool = True):
         """

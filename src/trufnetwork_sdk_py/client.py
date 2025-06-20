@@ -257,6 +257,7 @@ class TNClient:
         date_to: Optional[int] = None,
         frozen_at: Optional[int] = None,
         base_date: Optional[int] = None,
+        prefix: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Get records from a stream with the given stream ID.
@@ -269,6 +270,7 @@ class TNClient:
             - date_to : Optional[int] (UNIX)
             - frozen_at : Optional[int] (UNIX)
             - base_date : Optional[int] (UNIX)
+            - prefix : Optional[str]
         
         Returns:
             A list of dictionaries, where each dictionary represents a record.
@@ -279,6 +281,7 @@ class TNClient:
         date_to = self._coalesce_int(date_to)
         frozen_at = self._coalesce_int(frozen_at)
         base_date = self._coalesce_int(base_date)
+        prefix = self._coalesce_str(prefix)
 
         input = truf_sdk.NewGetRecordInput(
             self.client, 
@@ -287,7 +290,8 @@ class TNClient:
             date_from,
             date_to,
             frozen_at,
-            base_date
+            base_date,
+            prefix
         )
         go_slice_of_maps = truf_sdk.GetRecords(self.client, input)
 
@@ -375,6 +379,7 @@ class TNClient:
         date_to: Optional[int] = None,
         frozen_at: Optional[int] = None,
         base_date: Optional[int] = None,
+        prefix: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Get index from a stream with the given stream ID.
@@ -389,12 +394,14 @@ class TNClient:
             - date_to : Optional[int] (UNIX)
             - frozen_at : Optional[int] (UNIX)
             - base_date : Optional[int] (UNIX)
+            - prefix : Optional[str]
         """
         data_provider = self._coalesce_str(data_provider)
         date_from = self._coalesce_int(date_from)
         date_to = self._coalesce_int(date_to)
         frozen_at = self._coalesce_int(frozen_at)
         base_date = self._coalesce_int(base_date)
+        prefix = self._coalesce_str(prefix)
 
         input = truf_sdk.NewGetRecordInput(
             self.client, 
@@ -403,7 +410,8 @@ class TNClient:
             date_from,
             date_to,
             frozen_at,
-            base_date
+            base_date,
+            prefix
         )
         go_slice_of_maps = truf_sdk.GetIndex(self.client, input)
 

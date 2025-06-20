@@ -380,15 +380,30 @@ func ListStreams(client *tnclient.Client, input types.ListStreamsInput) ([]map[s
 }
 
 // NewTaxonomyItemInput creates a new TaxonomyItemInput struct
-func NewTaxonomyItemInput(client *tnclient.Client, stream_id string, weight float64) types.TaxonomyItem {
+func NewTaxonomyItemInput(client *tnclient.Client, dataProvider string, stream_id string, weight float64) types.TaxonomyItem {
 	streamIdObj, err := util.NewStreamId(stream_id)
 	if err != nil {
 		return types.TaxonomyItem{}
 	}
 
+	if dataProvider == "" {
+		currentAccount, err := GetCurrentAccount(client)
+		if err != nil {
+			return types.TaxonomyItem{}
+		}
+		dataProvider = currentAccount
+	}
+	dataProviderTyped, err := parseDataProvider(client, dataProvider)
+	if err != nil {
+		return types.TaxonomyItem{}
+	}
+
 	return types.TaxonomyItem{
-		ChildStream: client.OwnStreamLocator(*streamIdObj),
-		Weight:      weight,
+		ChildStream: types.StreamLocator{
+			StreamId:     *streamIdObj,
+			DataProvider: dataProviderTyped,
+		},
+		Weight: weight,
 	}
 }
 
@@ -464,8 +479,9 @@ func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bo
 	childStreams := make([]map[string]string, 0, len(result.TaxonomyItems))
 	for _, childStream := range result.TaxonomyItems {
 		childStreams = append(childStreams, map[string]string{
-			"stream_id": childStream.ChildStream.StreamId.String(),
-			"weight":    convertToString(childStream.Weight),
+			"stream_id":     childStream.ChildStream.StreamId.String(),
+			"data_provider": childStream.ChildStream.DataProvider.Address(),
+			"weight":        convertToString(childStream.Weight),
 		})
 	}
 	childStreamsJSON, err := json.Marshal(childStreams)
@@ -476,8 +492,8 @@ func DescribeTaxonomy(client *tnclient.Client, streamId string, latestVersion bo
 	res := map[string]string{
 		"stream_id":      streamId,
 		"child_streams":  string(childStreamsJSON),
-		"start_date":     parseUnixTimestamp(result.StartDate),
-		"created_at":     parseUnixTimestamp(&result.CreatedAt),
+		"start_date":     convertToString(result.StartDate),
+		"created_at":     convertToString(result.CreatedAt),
 		"group_sequence": convertToString(result.GroupSequence),
 	}
 
@@ -767,18 +783,6 @@ func parseDate(dateStr string) (*int, error) {
 	return &unixTime, nil
 }
 
-func parseUnixTimestamp(timestamp *int) string {
-	if timestamp == nil {
-		return ""
-	}
-
-	unixTimestamp := int64(*timestamp)
-	t := time.Unix(unixTimestamp, 0).UTC()
-	formattedDate := t.Format("2006-01-02")
-
-	return formattedDate
-}
-
 // intOrNil returns a pointer to value unless it's -1, in which case it returns nil.
 func intOrNil(value int) *int {
 	if value == -1 {
@@ -1059,9 +1063,9 @@ func ListRoleMembers(client *tnclient.Client, owner string, roleName string, lim
 
 // CallProcedure executes a read-only stored procedure and returns its query result in a JSON-like map.
 // The returned map has two keys:
-//   • "column_names": []string – names of the columns returned by the procedure
-//   • "values": [][]string – row-major 2-D slice with stringified cell values
-//   
+//   - "column_names": []string – names of the columns returned by the procedure
+//   - "values": [][]string – row-major 2-D slice with stringified cell values
+//
 // All procedure arguments are forwarded as-is. Use nil for SQL NULLs / optional params.
 func CallProcedure(client *tnclient.Client, procedure string, args []any) (map[string]any, error) {
 	ctx := context.Background()

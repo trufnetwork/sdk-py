@@ -42,12 +42,8 @@ github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRI
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.10.0 h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOfJA=
 github.com/stretchr/testify v1.10.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
-github.com/trufnetwork/sdk-go v0.3.1-0.20250605170548-90336b5849e0 h1:POu08dKYKli/SALB1btYO1WhqFEZNGhi29yIMb5d2NA=
-github.com/trufnetwork/sdk-go v0.3.1-0.20250605170548-90336b5849e0/go.mod h1:vcSgIR+ZRpkUJZ3DWaQVj0YSaPYkfcCPLd332Oo6RUM=
-github.com/trufnetwork/sdk-go v0.3.2-0.20250610130152-da8b60294d3f h1:NlLw5UykCxuxvPYgI/XTD1RintMDSfLZP5kUyp8KlMg=
-github.com/trufnetwork/sdk-go v0.3.2-0.20250610130152-da8b60294d3f/go.mod h1:vcSgIR+ZRpkUJZ3DWaQVj0YSaPYkfcCPLd332Oo6RUM=
-github.com/trufnetwork/sdk-go v0.3.2-0.20250611160829-e760d3bd55e1 h1:t1gmok1YGKI8WxQ3s/igQ7reRAmKQzUczx0p7Qe8JII=
-github.com/trufnetwork/sdk-go v0.3.2-0.20250611160829-e760d3bd55e1/go.mod h1:vcSgIR+ZRpkUJZ3DWaQVj0YSaPYkfcCPLd332Oo6RUM=
+github.com/trufnetwork/sdk-go v0.3.2-0.20250620093045-0155e2dac953 h1:ZK82IHRIwe3OAC59Nk1p31WocMyJpxuGFda8dWH8o4M=
+github.com/trufnetwork/sdk-go v0.3.2-0.20250620093045-0155e2dac953/go.mod h1:vcSgIR+ZRpkUJZ3DWaQVj0YSaPYkfcCPLd332Oo6RUM=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=

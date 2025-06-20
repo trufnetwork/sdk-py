@@ -195,10 +195,12 @@ func NewGetRecordInput(
 	to int,
 	frozenAt int,
 	baseDate int,
+	prefix string,
 ) types.GetRecordInput {
 	result := types.GetRecordInput{
 		StreamId:     streamId,
 		DataProvider: dataProvider,
+		Prefix:       &prefix,
 	}
 
 	if dataProvider == "" {

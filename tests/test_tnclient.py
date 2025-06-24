@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 import pytest
-from trufnetwork_sdk_py.client import TNClient
+from trufnetwork_sdk_py.client import TNClient, TaxonomyDefinition
 from trufnetwork_sdk_py.utils import generate_stream_id
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 from unittest.mock import patch, MagicMock
@@ -216,7 +216,7 @@ def test_get_type(client):
     client.destroy_stream(stream_id)
     client.destroy_stream(composed_stream_id)
 
-def test_taxonomy(client):
+def test_taxonomy(client: TNClient):
     """
     Test set and retrieve taxonomy of composed stream
     """
@@ -236,19 +236,48 @@ def test_taxonomy(client):
     client.deploy_stream(child_stream_id_1)
     client.deploy_stream(child_stream_id_2)
 
-    child_streams = {
-        child_stream_id_1: 1,
-        child_stream_id_2: 2,
-    }
-    tx_hash = client.set_taxonomy(stream_id, child_streams)
+    taxonomies = [
+        TaxonomyDefinition(
+            stream={
+                "stream_id": child_stream_id_1,
+                "data_provider": "0x1234567890123456789012345678901234567890",
+            },
+            weight=0.5,
+        ),
+        TaxonomyDefinition(
+            stream={
+                "stream_id": child_stream_id_2,
+                "data_provider": None,
+            },
+            weight=0.5,
+        ),
+    ]
+    tx_hash = client.set_taxonomy(stream_id, taxonomies, wait=True)
     assert tx_hash is not None
 
-    taxonomies = client.describe_taxonomy(stream_id)
-    assert taxonomies is not None
-    assert len(taxonomies["child_streams"]) == 2
+    taxonomy_details = client.describe_taxonomy(stream_id)
+    assert taxonomy_details is not None
+    assert taxonomy_details["stream_id"] == stream_id
 
-    for child_stream in taxonomies["child_streams"]:
-        assert child_stream["weight"] == child_streams[child_stream["stream_id"]]
+    described_taxonomies = taxonomy_details["child_streams"]
+    assert len(described_taxonomies) == 2
+
+    taxonomy_map = {t.stream["stream_id"]: t for t in described_taxonomies}
+
+    # Check first taxonomy
+    assert child_stream_id_1 in taxonomy_map
+    taxonomy1 = taxonomy_map[child_stream_id_1]
+    assert taxonomy1.weight == 0.5
+    assert (
+        taxonomy1.stream["data_provider"]
+        == "0x1234567890123456789012345678901234567890"
+    )
+
+    # Check second taxonomy
+    assert child_stream_id_2 in taxonomy_map
+    taxonomy2 = taxonomy_map[child_stream_id_2]
+    assert taxonomy2.weight == 0.5
+    assert taxonomy2.stream["data_provider"] == client.get_current_account()
 
     client.destroy_stream(stream_id)
     client.destroy_stream(child_stream_id_1)

@@ -147,6 +147,65 @@ records = client.get_records(
 )
 ```
 
+> **What does `get_records` actually return?**  
+> • **Primitive streams** – the raw numeric values recorded at each `date`.  When you request an interval (`date_from`/`date_to`) the function also injects the **last value _before_ the range** so that charts can be plotted without breaks.  
+> • **Composed streams** – a synthetic value calculated on-the-fly by recursively aggregating the weighted values of *all* child primitives for every point in time.  The same gap-filling logic is applied so you always get a continuous series.  
+> All permission checks (`read`, `compose`) are enforced server-side – if you don't have access the call fails with an explicit error.
+
+### `client.get_index(stream_id: str, **kwargs) -> List[Dict]`
+Returns a **rebased index** of the stream where the value at `base_date` (defaults to the metadata key `default_base_time`) is normalised to **100**.
+
+Mathematically:
+
+```
+index(t) = 100 × value(t) / value(baseDate)
+```
+
+`get_index` supports the same filtering arguments as `get_records` (`date_from`, `date_to`, `frozen_at`, etc.) and applies *exactly* the same gap-filling and permission rules – the only difference is the final normalisation step.
+
+Typical use-cases include CPI or stock-index style charts where you want to visualise growth relative to a fixed point in time.
+
+#### Additional Parameters
+- `base_date: Optional[int]` – Unix timestamp to use as the rebasing point.  If omitted the server falls back to the stream's `default_base_time` metadata or, if that is missing, the first ever record.
+
+#### Example
+```python
+indexed = client.get_index(
+    stream_id,
+    date_from=int(datetime.now().timestamp()) - 31_536_000,  # Last 12 months
+    date_to=int(datetime.now().timestamp()),
+    base_date=int(datetime.now().timestamp()) - 31_536_000    # Re-base 1y ago
+)
+```
+
+### `client.get_index_change(stream_id: str, time_interval: int, **kwargs) -> List[Dict]`
+Computes the **percentage change** of the **index** over a fixed time interval.  Internally the SDK:
+1. Calls `get_index` to obtain the rebased series.
+2. For every returned row at timestamp `t`, finds the closest index value *at or before* `t – time_interval`.
+3. Emits the delta expressed in percent.
+
+Formula:
+
+```
+Δindex(t) = ( index(t) − index(t − Δ) ) / index(t − Δ) × 100
+```
+where `Δ = time_interval` (seconds).
+
+Only rows for which a matching *previous* value exists **and is non-zero** are returned, ensuring the output is well-defined.
+
+#### Required Parameter
+- `time_interval: int` – Interval in **seconds** used for the delta computation.  Common values: 86 400 (day-over-day), 31 536 000 (year-over-year).
+
+#### Example – Year-on-Year (%) change
+```python
+yoy = client.get_index_change(
+    stream_id,
+    time_interval=31_536_000,             # 365 days
+    date_from=int(datetime.now().timestamp()) - 31_536_000 * 2,  # Two years of data
+    date_to=int(datetime.now().timestamp())
+)
+```
+
 ## Composition Management
 
 ### `client.set_taxonomy(stream_id: str, child_streams: Dict[str, float], start_date: Optional[int] = None) -> str`
@@ -299,3 +358,40 @@ client.wait_for_tx(tx_hash)
 
 ## SDK Compatibility
 - Minimum Python Version: 3.8 
+
+## Custom Procedure Calls
+
+### `client.call_procedure(procedure: str, args: List[Any]) -> Dict`
+Invokes a **read-only stored procedure** (sometimes referred to as a _custom procedure_) that is deployed on the TRUF.NETWORK gateway.  This is useful for aggregations, analytics, or any bespoke SQL logic that cannot be expressed via the higher-level SDK helpers.
+
+#### Parameters
+- `procedure: str` – The name of the stored procedure to execute.
+- `args: List[Any]` – A list of positional arguments that will be forwarded as-is to the procedure.  Use `None` for optional parameters you wish to skip.
+
+#### Returns
+- `Dict` – A dictionary with the keys:
+  - `column_names: List[str]` – Names of the returned columns.
+  - `values: List[List[Any]]` – Row-major 2-D array containing the result set.
+
+#### Example
+```python
+from datetime import datetime, timezone, timedelta
+from trufnetwork_sdk_py.client import TNClient
+
+client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
+
+# Call a 5-argument read-only procedure
+one_week_ago = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp())
+now = int(datetime.now(timezone.utc).timestamp())
+time_interval = 31_536_000  # 1 year in seconds
+
+args = [one_week_ago, now, None, None, time_interval]
+result = client.call_procedure("get_divergence_index_change", args)
+
+print("Columns:", result["column_names"])
+for row in result["values"]:
+    print(row)
+```
+
+> **Note**  
+> `call_procedure` is *read-only* and therefore free of on-chain gas costs.  For state-changing procedures, use `client.execute_procedure` which returns a transaction hash. 

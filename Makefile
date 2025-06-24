@@ -1,2 +1,5 @@
 gopy_build:
-	gopy build -output=src/trufnetwork_sdk_c_bindings -vm=python3 -name trufnetwork_sdk_c_bindings ./bindings
+	rm -f src/trufnetwork_sdk_c_bindings/*.so
+	gopy gen -output=src/trufnetwork_sdk_c_bindings -vm=python3 -name=trufnetwork_sdk_c_bindings ./bindings
+	cd src/trufnetwork_sdk_c_bindings && \
+	make build

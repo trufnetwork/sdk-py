@@ -3,6 +3,7 @@ from setuptools.command.install import install
 from setuptools.command.develop import develop
 from setuptools.command.egg_info import egg_info
 from setuptools.command.build_ext import build_ext
+from setuptools.dist import Distribution
 
 import os
 
@@ -11,6 +12,7 @@ def check_dependencies():
         raise RuntimeError("Go is not installed. Install it from https://golang.org/doc/install")
     if os.system('which gopy >/dev/null 2>&1') != 0:
         raise RuntimeError("gopy is not installed. Install it from https://github.com/go-python/gopy")
+
 class CustomInstallCommand(install):
     def run(self):
         check_dependencies()
@@ -34,6 +36,7 @@ class CustomEggInfoCommand(egg_info):
             raise RuntimeError("Failed to build gopy")
         print("Building SDK egg_info")
         egg_info.run(self)
+
 class CustomBuildExt(build_ext):
     def run(self):
         check_dependencies()
@@ -42,7 +45,13 @@ class CustomBuildExt(build_ext):
             raise RuntimeError("gopy build failed")
         super().run()
 
+class BinaryDistribution(Distribution):
+    def has_ext_modules(self):
+        return True
+
 setup(
+    distclass=BinaryDistribution,
+    zip_safe=False, # for packages that include compiled extensions 
     cmdclass={
         'install': CustomInstallCommand,
         'develop': CustomDevelopCommand,

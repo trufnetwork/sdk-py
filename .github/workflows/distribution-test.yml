@@ -18,15 +18,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install Docker (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install --cask docker
+          sudo /Applications/Docker.app/Contents/MacOS/Docker --unattended --install-privileged-components
+          open -a Docker
+          # Wait for Docker to start
+          while ! docker system info > /dev/null 2>&1; do sleep 1; done
+
       - name: Build and Run Test
         run: |
           docker build --progress=plain -t sdk-py-dist-test -f tests/distribution/Dockerfile.get_account .
-          docker run \
+          docker run --rm --name sdk-py-dist-test \
             -e TN_ENDPOINT="https://gateway.mainnet.truf.network" \
             sdk-py-dist-test
-
-      - name: Stop and remove containers
-        if: always()
-        run: |
-          docker logs sdk-py-dist-test || true
-          docker stop sdk-py-dist-test && docker rm sdk-py-dist-test

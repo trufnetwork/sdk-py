@@ -1,4 +1,4 @@
-name: Distribution Test
+name: Distribution and Build Test
 
 on:
   pull_request:
@@ -7,29 +7,64 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-distribution:
-    name: Test Distribution on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+  test-docker-distribution:
+    name: Test Docker Distribution (Linux)
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Docker (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install --cask docker
-          sudo /Applications/Docker.app/Contents/MacOS/Docker --unattended --install-privileged-components
-          open -a Docker
-          # Wait for Docker to start
-          while ! docker system info > /dev/null 2>&1; do sleep 1; done
-
-      - name: Build and Run Test
+      - name: Build and Run Docker Test
         run: |
           docker build --progress=plain -t sdk-py-dist-test -f tests/distribution/Dockerfile.get_account .
           docker run --rm --name sdk-py-dist-test \
             -e TN_ENDPOINT="https://gateway.mainnet.truf.network" \
             sdk-py-dist-test
+
+  test-native-build:
+    name: Test Native Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24.1'
+
+      - name: Install gopy & goimports
+        run: |
+          go install github.com/go-python/gopy@v0.4.10
+          go install golang.org/x/tools/cmd/goimports@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+        shell: bash
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Build and Test Natively
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv pip install setuptools wheel pybindgen build
+          make gopy_build
+          python -m build --wheel --outdir /tmp/wheelhouse
+          uv pip install /tmp/wheelhouse/*.whl
+          python tests/distribution/get_account_test.py
+        shell: bash

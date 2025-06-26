@@ -1,0 +1,80 @@
+FROM python:3.12-slim-bullseye AS builder
+
+# ---------------------------
+# Build stage – compile wheel
+# ---------------------------
+
+# 1. System dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       build-essential \
+       git \
+       curl \
+       patchelf \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Install uv for faster Python package management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && mv /root/.local/bin/uv /usr/local/bin/uv
+
+# 3. Install Go (matching CI workflow)
+ENV GO_VERSION=1.24.1
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz
+# Add Go's default user binary path to the system PATH
+ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
+
+# 4. Install gopy & goimports
+RUN go install github.com/go-python/gopy@v0.4.10 \
+    && go install golang.org/x/tools/cmd/goimports@latest
+
+# 5. Copy source code into the builder context
+WORKDIR /workspace
+COPY . /workspace
+
+# 6. Python build dependencies
+RUN uv pip install --system setuptools wheel pybindgen build
+
+# 7. Build gopy bindings and wheel (mirrors release-build.yml)
+RUN make gopy_build \
+    && python -m build --wheel --outdir /tmp/wheelhouse
+
+# ---------------------------
+# Runtime stage – lightweight image with SDK wheel only
+# ---------------------------
+
+FROM python:3.12-slim-bullseye AS runtime
+
+# install curl
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Environment arguments (can be overridden at build/run time)
+ARG TN_ENDPOINT=http://localhost:8484
+ARG TN_PRIV_KEY=0000000000000000000000000000000000000000000000000000000000000001
+
+ENV TN_ENDPOINT=${TN_ENDPOINT}
+ENV TN_PRIV_KEY=${TN_PRIV_KEY}
+
+# Install uv for faster Python package management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && mv /root/.local/bin/uv /usr/local/bin/uv
+
+# Copy the freshly built wheel from builder stage
+COPY --from=builder /tmp/wheelhouse/*.whl /tmp/
+
+# Install minimal deps & the wheel
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && uv pip install --system /tmp/*.whl
+
+# Copy the smoke-test script
+COPY ./tests/distribution/get_account_test.py /app/get_account_test.py
+
+WORKDIR /app
+
+# Default entrypoint: run the test
+CMD ["python", "/app/get_account_test.py"] 

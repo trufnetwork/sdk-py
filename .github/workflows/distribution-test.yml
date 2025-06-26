@@ -1,0 +1,32 @@
+name: Distribution Test
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test-distribution:
+    name: Test Distribution on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build and Run Test
+        run: |
+          docker build --progress=plain -t sdk-py-dist-test -f tests/distribution/Dockerfile.get_account .
+          docker run \
+            -e TN_ENDPOINT="https://gateway.mainnet.truf.network" \
+            sdk-py-dist-test
+
+      - name: Stop and remove containers
+        if: always()
+        run: |
+          docker logs sdk-py-dist-test || true
+          docker stop sdk-py-dist-test && docker rm sdk-py-dist-test

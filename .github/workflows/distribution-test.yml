@@ -65,6 +65,6 @@ jobs:
           uv pip install setuptools wheel pybindgen build
           make gopy_build
           python -m build --wheel --outdir /tmp/wheelhouse
-          uv pip install /tmp/wheelhouse/*.whl
+          uv pip install /tmp/wheelhouse/*.whl --system
           python tests/distribution/get_account_test.py
         shell: bash

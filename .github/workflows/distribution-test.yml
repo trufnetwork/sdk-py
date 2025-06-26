@@ -62,7 +62,7 @@ jobs:
       - name: Build and Test Natively
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          uv pip install setuptools wheel pybindgen build
+          uv pip install setuptools wheel pybindgen build --system
           make gopy_build
           python -m build --wheel --outdir /tmp/wheelhouse
           uv pip install /tmp/wheelhouse/*.whl --system

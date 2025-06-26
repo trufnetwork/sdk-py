@@ -48,22 +48,6 @@ Then install the dependencies:
 pip install .
 ```
 
-### 🛠  Troubleshooting Linux shared-library import errors
-
-If you encounter an error like:
-
-```text
-ImportError: trufnetwork_sdk_c_bindings_go.so: cannot open shared object file: No such file or directory
-```
-
-it usually means the dynamic linker cannot locate the Go runtime library that
-ships with the wheel. You can add the package directory to `LD_LIBRARY_PATH` **after activating your
-virtual-env**:
-
-```bash
-export LD_LIBRARY_PATH=${VIRTUAL_ENV}/lib/python3.12/site-packages/trufnetwork_sdk_c_bindings:$LD_LIBRARY_PATH
-```
-
 ## Development
 
 It is recommended to use a virtual environment to develop the SDK.

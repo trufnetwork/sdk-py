@@ -11,9 +11,9 @@ import (
 
 	"github.com/cockroachdb/apd/v3"
 	"github.com/golang-sql/civil"
-	"github.com/kwilteam/kwil-db/core/crypto"
-	"github.com/kwilteam/kwil-db/core/crypto/auth"
-	kwilTypes "github.com/kwilteam/kwil-db/core/types"
+	"github.com/trufnetwork/kwil-db/core/crypto"
+	"github.com/trufnetwork/kwil-db/core/crypto/auth"
+	kwilTypes "github.com/trufnetwork/kwil-db/core/types"
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"

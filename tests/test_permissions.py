@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 import pytest
-from trufnetwork_sdk_py.client import TNClient
+from trufnetwork_sdk_py.client import StreamLocatorInput, TNClient, TaxonomyDefinition
 from trufnetwork_sdk_py.utils import generate_stream_id
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 from tests.fixtures.test_trufnetwork import tn_node, DB_PRIVATE_KEY
@@ -87,7 +87,7 @@ def test_primitive_permissions(owner_client, reader_client):
 
     owner_client.destroy_stream(stream_id)
 
-def test_composed_permissions(owner_client, reader_client):
+def test_composed_permissions(owner_client: TNClient, reader_client: TNClient):
     """
     Test composed stream permissions
     """
@@ -110,9 +110,12 @@ def test_composed_permissions(owner_client, reader_client):
     assert insert_tx_hash is not None
 
     # define composed stream taxonomy
-    child_streams = {
-        primitive_stream_id: 1
-    }
+    child_streams = [
+        TaxonomyDefinition(
+            stream=StreamLocatorInput(stream_id=primitive_stream_id, data_provider=None),
+            weight=1
+        )
+    ]   
     tx_hash = owner_client.set_taxonomy(composed_stream_id, child_streams)
     assert tx_hash is not None
 
@@ -190,9 +193,12 @@ def test_stream_composition_permissions(owner_client, reader_client):
     assert insert_tx_hash is not None
 
     # define composed stream taxonomy
-    child_streams = {
-        primitive_stream_id: 1
-    }
+    child_streams = [
+        TaxonomyDefinition(
+            stream=StreamLocatorInput(stream_id=primitive_stream_id, data_provider=None),
+            weight=1
+        )
+    ]
     tx_hash = owner_client.set_taxonomy(composed_stream_id, child_streams)
     assert tx_hash is not None
 

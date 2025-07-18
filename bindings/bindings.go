@@ -15,7 +15,6 @@ import (
 	"github.com/trufnetwork/kwil-db/core/crypto"
 	"github.com/trufnetwork/kwil-db/core/crypto/auth"
 	kwilTypes "github.com/trufnetwork/kwil-db/core/types"
-	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
 	"github.com/trufnetwork/sdk-go/core/util"
@@ -58,12 +57,6 @@ type Record struct {
 
 type DataResponse struct {
 	Data      []Record      `json:"data"`
-	CacheHit  bool          `json:"cache_hit"`
-	Timestamp OptionalInt64 `json:"timestamp"`
-}
-
-type SingleRecordResponse struct {
-	Data      *Record       `json:"data"`
 	CacheHit  bool          `json:"cache_hit"`
 	Timestamp OptionalInt64 `json:"timestamp"`
 }
@@ -237,6 +230,7 @@ func NewGetRecordInput(
 		StreamId:     streamId,
 		DataProvider: dataProvider,
 		Prefix:       &prefix,
+		UseCache:     &useCache,
 	}
 
 	if dataProvider == "" {
@@ -267,7 +261,7 @@ func NewGetRecordInput(
 }
 
 // GetRecords retrieves records from the stream with the given stream ID.
-func GetRecords(client *tnclient.Client, input types.GetRecordInput, useCache bool) (DataResponse, error) {
+func GetRecords(client *tnclient.Client, input types.GetRecordInput) (DataResponse, error) {
 	ctx := context.Background()
 	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
@@ -337,6 +331,7 @@ func NewGetFirstRecordInput(
 	result := types.GetFirstRecordInput{
 		StreamId:     streamId,
 		DataProvider: dataProvider,
+		UseCache:     &useCache,
 	}
 
 	if dataProvider == "" {
@@ -359,31 +354,35 @@ func NewGetFirstRecordInput(
 }
 
 // GetFirstRecord retrieves the first record of a stream after a given date
-func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput, useCache bool) (SingleRecordResponse, error) {
+// we return a slice even if we expect only one record because we can't return nil in this interface
+func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (DataResponse, error) {
 	ctx := context.Background()
 	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
-		return SingleRecordResponse{}, err
+		return DataResponse{}, err
 	}
 
 	// Call WithMetadata variant for cache support
 	record, err := stream.GetFirstRecord(ctx, input)
-	if err != nil {
-		if err == contractsapi.ErrorRecordNotFound {
-			return SingleRecordResponse{}, nil
-		}
-		return SingleRecordResponse{}, err
+
+	// Guard against empty results
+	if len(record.Results) == 0 {
+		return DataResponse{
+			Data:      []Record{},
+			CacheHit:  record.Metadata.CacheHit,
+			Timestamp: toOptionalInt64(record.Metadata.CachedAt),
+		}, nil
 	}
 
 	// Convert to Record struct
-	recordData := &Record{
+	recordData := Record{
 		Date:  record.Results[0].EventTime,
 		Value: record.Results[0].Value.String(),
 	}
 
 	// Build cache-aware response with metadata
-	result := SingleRecordResponse{
-		Data:      recordData,
+	result := DataResponse{
+		Data:      []Record{recordData},
 		CacheHit:  record.Metadata.CacheHit,
 		Timestamp: toOptionalInt64(record.Metadata.CachedAt),
 	}
@@ -392,7 +391,7 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput, us
 }
 
 // GetIndex retrieves index values from a stream
-func GetIndex(client *tnclient.Client, input types.GetIndexInput, useCache bool) (DataResponse, error) {
+func GetIndex(client *tnclient.Client, input types.GetIndexInput) (DataResponse, error) {
 	ctx := context.Background()
 	stream, err := client.LoadPrimitiveActions()
 	if err != nil {

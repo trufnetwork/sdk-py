@@ -117,7 +117,7 @@ def test_insert_and_retrieve_records(client):
     client.destroy_stream(stream_id)
 
 
-def test_get_first_record(client):
+def test_get_first_record(client: TNClient):
     """Test getting the first record from a stream."""
     stream_id = generate_stream_id("test_get_first_record")
 

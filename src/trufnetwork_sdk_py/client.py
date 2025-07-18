@@ -1,15 +1,39 @@
+"""
+TRUF NETWORK Python SDK – Client
+
+Migration notice (Cache API)
+----------------------------
+•   Version ≤ cache update: The methods get_records, get_first_record, and get_index returned
+    bare lists / StreamRecord objects.
+•   Version cache update+1 introduced cache-aware responses.  For backward compatibility we
+    keep a *bridge* behavior: if `use_cache` is **omitted**, the old format is
+    returned **with a DeprecationWarning**.
+•   The bridge will be removed in **version cache update+1.0.0** (next major).  After that,
+    ommitting `use_cache` will just return the new CacheAwareResponse structure, but without a warning, defaulting to False.
+Action (current version):
+    –   **Always pass** the `use_cache` keyword when you migrate:
+         • `use_cache=False`  → bypass cache **and** return the **new** `CacheAwareResponse` structure (no warning).
+         • `use_cache=True`   → consult cache and return `CacheAwareResponse`.
+    –   Omitting `use_cache` continues to yield the **legacy** list/record structure but emits a `DeprecationWarning`.
+
+After bridge removal (next major):
+    • Omitting `use_cache` will behave exactly the same as `use_cache=False` – it will return a `CacheAwareResponse` **without** any warning.
+    • The legacy structure will no longer be available.
+
+See tests in `tests/test_cache_support.py` for working examples.
+"""
+
 import json
 import warnings
 
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
-from typing import  Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Callable
+from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar
 
 from pydantic import BaseModel
-from dataclasses import dataclass
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 # Sentinel meaning "keyword not supplied"
 _UNSET: Literal[None] = None
@@ -73,6 +97,7 @@ class TaxonomyDefinition(BaseModel):
 
 # Cache-related type definitions
 
+
 class StreamRecord(BaseModel):
     """Represents a single stream record matching client.py response format"""
 
@@ -83,6 +108,7 @@ class StreamRecord(BaseModel):
 
     def __getitem__(self, item):
         return getattr(self, item)
+
 
 class CacheMetadata(BaseModel):
     """Cache metadata information"""
@@ -181,16 +207,18 @@ class TNClient:
             result.append(record_dict)
         return result
 
-    def _map_cache_metadata(self, response: truf_sdk.DataResponse | truf_sdk.SingleRecordResponse) -> CacheMetadata:
+    def _map_cache_metadata(self, response: truf_sdk.DataResponse) -> CacheMetadata:
         """
         Map cache metadata from Go binding response to Python CacheMetadata structure.
         Handles any mapping errors gracefully.
         """
         try:
-            if hasattr(response, 'CacheHit') and response.CacheHit:
+            if hasattr(response, "CacheHit") and response.CacheHit:
                 return CacheMetadata(
-                    hit=response.CacheHit, 
-                    cached_at=response.Timestamp.Value if hasattr(response, 'Timestamp') and response.Timestamp.IsSet else None
+                    hit=response.CacheHit,
+                    cached_at=response.Timestamp.Value
+                    if hasattr(response, "Timestamp") and response.Timestamp.IsSet
+                    else None,
                 )
             else:
                 return CacheMetadata(hit=False, cached_at=None)
@@ -198,48 +226,55 @@ class TNClient:
             warnings.warn(f"Failed to map cache metadata from Go: {e}", UserWarning)
             return CacheMetadata(hit=False, cached_at=None)
 
-    def _extract_records_data(self, response: truf_sdk.DataResponse) -> list[StreamRecord]:
+    def _extract_records_data(
+        self, response: truf_sdk.DataResponse
+    ) -> list[StreamRecord]:
         """Extract and format records data from DataResponse."""
         data = []
         for record in response.Data:
-            data.append(StreamRecord(
-                EventTime=str(record.Date),
-                Value=float(record.Value)
-            ))
+            data.append(
+                StreamRecord(EventTime=str(record.Date), Value=float(record.Value))
+            )
         return data
 
-    def _extract_single_record_data(self, response: truf_sdk.SingleRecordResponse) -> StreamRecord | None:
+    def _extract_single_record_data(
+        self, response: truf_sdk.DataResponse
+    ) -> StreamRecord | None:
         """Extract and format single record data from SingleRecordResponse."""
-        if response.Data is not None:
-            return StreamRecord(
-                EventTime=str(response.Data.Date),
-                Value=float(response.Data.Value)
-            )
+        records = list(response.Data)
+        if len(records) > 0:
+            # warn if it's returning more than one record
+            if len(records) > 1:
+                warnings.warn(
+                    "Returning more than one record, returning the first one. This is a bug, please report it.",
+                    UserWarning,
+                )
+            # return the first record
+            record = records[0]
+            return StreamRecord(EventTime=str(record.Date), Value=float(record.Value))
         return None
 
-    def _format_records_response(self, response: truf_sdk.DataResponse) -> CacheAwareResponse[list[StreamRecord]]:
+    def _format_records_response(
+        self, response: truf_sdk.DataResponse
+    ) -> CacheAwareResponse[list[StreamRecord]]:
         """
         Format DataResponse into cache-aware response for list-based methods (get_records, get_index).
         """
         cache_metadata = self._map_cache_metadata(response)
         data = self._extract_records_data(response)
-        
-        return CacheAwareResponse(
-            data=data,
-            cache=cache_metadata
-        )
 
-    def _format_single_record_response(self, response: truf_sdk.SingleRecordResponse) -> CacheAwareResponse[StreamRecord | None]:
+        return CacheAwareResponse(data=data, cache=cache_metadata)
+
+    def _format_single_record_response(
+        self, response: truf_sdk.DataResponse
+    ) -> CacheAwareResponse[StreamRecord | None]:
         """
         Format SingleRecordResponse into cache-aware response for single record methods (get_first_record).
         """
         cache_metadata = self._map_cache_metadata(response)
         data = self._extract_single_record_data(response)
-        
-        return CacheAwareResponse(
-            data=data,
-            cache=cache_metadata
-        )
+
+        return CacheAwareResponse(data=data, cache=cache_metadata)
 
     def _format_legacy_response[T](self, response: CacheAwareResponse[T]) -> T:
         """
@@ -395,22 +430,8 @@ class TNClient:
         base_date: int | None = None,
         prefix: str | None = None,
         *,
-        use_cache: Literal[True],
+        use_cache: bool,
     ) -> CacheAwareResponse[list[StreamRecord]]: ...
-
-    @overload
-    def get_records(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        date_from: int | None = None,
-        date_to: int | None = None,
-        frozen_at: int | None = None,
-        base_date: int | None = None,
-        prefix: str | None = None,
-        *,
-        use_cache: Literal[False],
-    ) -> list[StreamRecord]: ...
 
     @overload
     def get_records(
@@ -454,15 +475,6 @@ class TNClient:
             A list of dictionaries or CacheAwareResponse, depending on use_cache flag.
             Note: Keys from the Go layer are capitalized (e.g., `EventTime`, `Value`).
         """
-        if use_cache is _UNSET:
-            warnings.warn(
-                "get_records: Omitting 'use_cache' is deprecated (legacy response) and will be removed in the next major version. "
-                "Pass use_cache=False or use_cache=True to receive the new response formats.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            use_cache = False
-
         data_provider = self._coalesce_str(data_provider)
         date_from = self._coalesce_int(date_from)
         date_to = self._coalesce_int(date_to)
@@ -481,13 +493,19 @@ class TNClient:
             prefix,
             use_cache,
         )
-        go_response = truf_sdk.GetRecords(self.client, input, use_cache)
+        go_response = truf_sdk.GetRecords(self.client, input)
         response = self._format_records_response(go_response)
 
-        if use_cache:
-            return response
-        else:
+        if use_cache is _UNSET:
+            warnings.warn(
+                "get_records: Omitting 'use_cache' is deprecated (legacy response) and will be removed in the next major version. "
+                "Pass use_cache=False or use_cache=True to receive the new response formats.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             return response.data
+        else:
+            return response
 
     def get_type(self, stream_id: str, data_provider: str | None = None) -> str:
         """
@@ -535,19 +553,8 @@ class TNClient:
         after_date: int | None = None,
         frozen_at: int | None = None,
         *,
-        use_cache: Literal[True],
+        use_cache: bool,
     ) -> CacheAwareResponse[StreamRecord | None]: ...
-
-    @overload
-    def get_first_record(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        after_date: int | None = None,
-        frozen_at: int | None = None,
-        *,
-        use_cache: Literal[False],
-    ) -> StreamRecord | None: ...
 
     @overload
     def get_first_record(
@@ -568,15 +575,6 @@ class TNClient:
         use_cache: bool | None = _UNSET,
     ) -> StreamRecord | None | CacheAwareResponse[StreamRecord | None]:
         """Get the first record of a stream after a given date."""
-        if use_cache is _UNSET:
-            warnings.warn(
-                "get_first_record: Omitting 'use_cache' is deprecated (legacy response) and will be removed in the next major version. "
-                "Pass use_cache=False or use_cache=True to receive the new response formats.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            use_cache = False
-
         data_provider = self._coalesce_str(data_provider)
         after_date = self._coalesce_int(after_date)
         frozen_at = self._coalesce_int(frozen_at)
@@ -584,13 +582,19 @@ class TNClient:
         input = truf_sdk.NewGetFirstRecordInput(
             self.client, stream_id, data_provider, after_date, frozen_at, use_cache
         )
-        go_response = truf_sdk.GetFirstRecord(self.client, input, use_cache)
+        go_response = truf_sdk.GetFirstRecord(self.client, input)
         response = self._format_single_record_response(go_response)
 
-        if use_cache:
-            return response
-        else:
+        if use_cache is _UNSET:
+            warnings.warn(
+                "get_first_record: Omitting 'use_cache' is deprecated (legacy response) and will be removed in the next major version. "
+                "Pass use_cache=False or use_cache=True to receive the new response formats.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             return response.data
+        else:
+            return response
 
     @overload
     def get_index(
@@ -603,22 +607,8 @@ class TNClient:
         base_date: int | None = None,
         prefix: str | None = None,
         *,
-        use_cache: Literal[True],
+        use_cache: bool,
     ) -> CacheAwareResponse[list[StreamRecord]]: ...
-
-    @overload
-    def get_index(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        date_from: int | None = None,
-        date_to: int | None = None,
-        frozen_at: int | None = None,
-        base_date: int | None = None,
-        prefix: str | None = None,
-        *,
-        use_cache: Literal[False],
-    ) -> list[StreamRecord]: ...
 
     @overload
     def get_index(
@@ -643,17 +633,8 @@ class TNClient:
         prefix: str | None = None,
         *,
         use_cache: bool | None = _UNSET,
-        ) -> list[StreamRecord] | CacheAwareResponse[list[StreamRecord]]:
+    ) -> list[StreamRecord] | CacheAwareResponse[list[StreamRecord]]:
         """Get index from a stream with the given stream ID."""
-        if use_cache is _UNSET:
-            warnings.warn(
-                "get_index: Omitting 'use_cache' is deprecated (legacy response) and will be removed in the next major version. "
-                "Pass use_cache=False or use_cache=True to receive the new response formats.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            use_cache = False
-
         data_provider = self._coalesce_str(data_provider)
         date_from = self._coalesce_int(date_from)
         date_to = self._coalesce_int(date_to)
@@ -672,13 +653,19 @@ class TNClient:
             prefix,
             use_cache,
         )
-        go_response = truf_sdk.GetIndex(self.client, input, use_cache)
+        go_response = truf_sdk.GetIndex(self.client, input)
         response = self._format_records_response(go_response)
 
-        if use_cache:
-            return response
-        else:
+        if use_cache is _UNSET:
+            warnings.warn(
+                "get_index: Omitting 'use_cache' is deprecated (legacy response) and will be removed in the next major version. "
+                "Pass use_cache=False or use_cache=True to receive the new response formats.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             return response.data
+        else:
+            return response
 
     def list_streams(
         self,
@@ -833,7 +820,9 @@ class TNClient:
 
         return tx_hash
 
-    def disable_read_wallet(self, stream_id: str, wallet: str, wait: bool = True) -> str:
+    def disable_read_wallet(
+        self, stream_id: str, wallet: str, wait: bool = True
+    ) -> str:
         """
         Disables a wallet from reading the stream
 

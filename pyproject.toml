@@ -38,3 +38,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[tool.pyright]
+type_checking_mode = "strict"
+reportUnknownArgumentType = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false

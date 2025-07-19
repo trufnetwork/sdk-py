@@ -11,11 +11,10 @@ import (
 
 	"github.com/cockroachdb/apd/v3"
 	"github.com/golang-sql/civil"
+	"github.com/pkg/errors"
 	"github.com/trufnetwork/kwil-db/core/crypto"
 	"github.com/trufnetwork/kwil-db/core/crypto/auth"
 	kwilTypes "github.com/trufnetwork/kwil-db/core/types"
-	"github.com/pkg/errors"
-	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
 	"github.com/trufnetwork/sdk-go/core/util"
@@ -30,8 +29,37 @@ const (
 	VisibilityPrivate   util.VisibilityEnum = util.PrivateVisibility
 )
 
+type OptionalInt64 struct {
+	Value int64
+	IsSet bool
+}
+
+func toOptionalInt64(value *int64) OptionalInt64 {
+	if value == nil {
+		return OptionalInt64{
+			Value: 0,
+			IsSet: false,
+		}
+	}
+	return OptionalInt64{
+		Value: *value,
+		IsSet: value != nil,
+	}
+}
+
 // ProcedureArgs represents a slice of arguments for a procedure.
 type ProcedureArgs []any
+
+type Record struct {
+	Date  int    `json:"date"`
+	Value string `json:"value"`
+}
+
+type DataResponse struct {
+	Data      []Record      `json:"data"`
+	CacheHit  bool          `json:"cache_hit"`
+	Timestamp OptionalInt64 `json:"timestamp"`
+}
 
 // ArgsFromStrings converts a slice of strings to ProcedureArgs.
 func ArgsFromStrings(values []string) ProcedureArgs {
@@ -196,11 +224,13 @@ func NewGetRecordInput(
 	frozenAt int,
 	baseDate int,
 	prefix string,
+	useCache bool,
 ) types.GetRecordInput {
 	result := types.GetRecordInput{
 		StreamId:     streamId,
 		DataProvider: dataProvider,
 		Prefix:       &prefix,
+		UseCache:     &useCache,
 	}
 
 	if dataProvider == "" {
@@ -231,19 +261,36 @@ func NewGetRecordInput(
 }
 
 // GetRecords retrieves records from the stream with the given stream ID.
-func GetRecords(client *tnclient.Client, input types.GetRecordInput) ([]map[string]string, error) {
+func GetRecords(client *tnclient.Client, input types.GetRecordInput) (DataResponse, error) {
 	ctx := context.Background()
 	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
-		return nil, err
+		return DataResponse{}, err
 	}
 
-	records, err := stream.GetRecord(ctx, input)
+	// Call WithMetadata variant for cache support
+	response, err := stream.GetRecord(ctx, input)
 	if err != nil {
-		return nil, err
+		return DataResponse{}, err
 	}
 
-	return recordsToMapSlice(records), nil
+	// Convert records to map slice
+	records := make([]Record, len(response.Results))
+	for i, record := range response.Results {
+		records[i] = Record{
+			Date:  record.EventTime,
+			Value: record.Value.String(),
+		}
+	}
+
+	// Build cache-aware response with metadata from sdk-go
+	result := DataResponse{
+		Data:      records,
+		CacheHit:  response.Metadata.CacheHit,
+		Timestamp: toOptionalInt64(response.Metadata.CachedAt),
+	}
+
+	return result, nil
 }
 
 // GetType retrieves type of a stream (primitive or composed)
@@ -279,10 +326,12 @@ func NewGetFirstRecordInput(
 	dataProvider string,
 	after int,
 	frozenAt int,
+	useCache bool,
 ) types.GetFirstRecordInput {
 	result := types.GetFirstRecordInput{
 		StreamId:     streamId,
 		DataProvider: dataProvider,
+		UseCache:     &useCache,
 	}
 
 	if dataProvider == "" {
@@ -305,44 +354,73 @@ func NewGetFirstRecordInput(
 }
 
 // GetFirstRecord retrieves the first record of a stream after a given date
-func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (map[string]string, error) {
+// we return a slice even if we expect only one record because we can't return nil in this interface
+func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (DataResponse, error) {
+	ctx := context.Background()
 	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
-		return nil, err
+		return DataResponse{}, err
 	}
 
-	record, err := stream.GetFirstRecord(context.Background(), input)
-	if record == nil {
-		return nil, nil
-	}
-	if err != nil {
-		if err == contractsapi.ErrorRecordNotFound {
-			return nil, nil
-		}
-		return nil, err
+	// Call WithMetadata variant for cache support
+	record, err := stream.GetFirstRecord(ctx, input)
+
+	// Guard against empty results
+	if len(record.Results) == 0 {
+		return DataResponse{
+			Data:      []Record{},
+			CacheHit:  record.Metadata.CacheHit,
+			Timestamp: toOptionalInt64(record.Metadata.CachedAt),
+		}, nil
 	}
 
-	result := make(map[string]string)
-	result["date"] = convertToString(record.EventTime)
-	result["value"] = convertToString(record.Value)
+	// Convert to Record struct
+	recordData := Record{
+		Date:  record.Results[0].EventTime,
+		Value: record.Results[0].Value.String(),
+	}
+
+	// Build cache-aware response with metadata
+	result := DataResponse{
+		Data:      []Record{recordData},
+		CacheHit:  record.Metadata.CacheHit,
+		Timestamp: toOptionalInt64(record.Metadata.CachedAt),
+	}
 
 	return result, nil
 }
 
 // GetIndex retrieves index values from a stream
-func GetIndex(client *tnclient.Client, input types.GetIndexInput) ([]map[string]string, error) {
+func GetIndex(client *tnclient.Client, input types.GetIndexInput) (DataResponse, error) {
 	ctx := context.Background()
-
 	stream, err := client.LoadPrimitiveActions()
 	if err != nil {
-		return nil, err
-	}
-	records, err := stream.GetIndex(ctx, input)
-	if err != nil {
-		return nil, err
+		return DataResponse{}, err
 	}
 
-	return recordsToMapSlice(records), nil
+	// Call WithMetadata variant for cache support
+	response, err := stream.GetIndex(ctx, input)
+	if err != nil {
+		return DataResponse{}, err
+	}
+
+	// Convert indices to Record slice
+	records := make([]Record, len(response.Results))
+	for i, index := range response.Results {
+		records[i] = Record{
+			Date:  index.EventTime,
+			Value: index.Value.String(),
+		}
+	}
+
+	// Build cache-aware response with metadata from sdk-go
+	result := DataResponse{
+		Data:      records,
+		CacheHit:  response.Metadata.CacheHit,
+		Timestamp: toOptionalInt64(response.Metadata.CachedAt),
+	}
+
+	return result, nil
 }
 
 // NewListStreamsInput creates a new ListStreamsInput struct

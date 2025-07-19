@@ -1,10 +1,42 @@
+"""
+TRUF NETWORK Python SDK – Client
+
+Migration notice (Cache API)
+----------------------------
+•   Version ≤ cache update: The methods get_records, get_first_record, and get_index returned
+    bare lists / StreamRecord objects.
+•   Version cache update+1 introduced cache-aware responses.  For backward compatibility we
+    keep a *bridge* behavior: if `use_cache` is **omitted**, the old format is
+    returned **with a DeprecationWarning**.
+•   The bridge will be removed in **version cache update+1.0.0** (next major).  After that,
+    ommitting `use_cache` will just return the new CacheAwareResponse structure, but without a warning, defaulting to False.
+Action (current version):
+    –   **Always pass** the `use_cache` keyword when you migrate:
+         • `use_cache=False`  → bypass cache **and** return the **new** `CacheAwareResponse` structure (no warning).
+         • `use_cache=True`   → consult cache and return `CacheAwareResponse`.
+    –   Omitting `use_cache` continues to yield the **legacy** list/record structure but emits a `DeprecationWarning`.
+
+After bridge removal (next major):
+    • Omitting `use_cache` will behave exactly the same as `use_cache=False` – it will return a `CacheAwareResponse` **without** any warning.
+    • The legacy structure will no longer be available.
+
+See tests in `tests/test_cache_support.py` for working examples.
+"""
+
 import json
+import warnings
+
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
-from typing import Dict, List, Union, Optional, Any, TypedDict, Literal, cast
+from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar
 
 from pydantic import BaseModel
+
+T = TypeVar("T")
+
+# Sentinel meaning "keyword not supplied"
+_UNSET: Literal[None] = None
 
 # Expose StreamType constants at the Python level
 STREAM_TYPE_PRIMITIVE = cast(Literal["primitive"], truf_sdk.StreamTypePrimitive)
@@ -12,46 +44,85 @@ STREAM_TYPE_COMPOSED = cast(Literal["composed"], truf_sdk.StreamTypeComposed)
 VISIBILITY_PUBLIC = truf_sdk.VisibilityPublic
 VISIBILITY_PRIVATE = truf_sdk.VisibilityPrivate
 
+
 class Record(TypedDict):
-    date: int # UNIX
+    date: int  # UNIX
     value: float
+
 
 class RecordBatch(TypedDict):
     stream_id: str
-    inputs: List[Record]
+    inputs: list[Record]
+
 
 class StreamDefinitionInput(TypedDict):
     stream_id: str
     stream_type: Literal["primitive", "composed"]
 
+
 class StreamLocatorInput(TypedDict):
     stream_id: str
-    data_provider: Optional[str]
+    data_provider: str | None
+
 
 class StreamExistsResult(TypedDict):
     stream_id: str
     data_provider: str
     exists: bool
 
+
 class RoleMembershipStatus(TypedDict):
     wallet: str
     is_member: bool
+
 
 class RoleMember(TypedDict):
     wallet: str
     granted_at: int
     granted_by: str
 
+
 class TaxonomyDetails(TypedDict):
     stream_id: str
-    child_streams: List['TaxonomyDefinition']
+    child_streams: list["TaxonomyDefinition"]
     # start_date: int
     created_at: int
     # group_sequence: int
 
+
 class TaxonomyDefinition(BaseModel):
     stream: StreamLocatorInput
-    weight: Union[int, float]
+    weight: int | float
+
+
+# Cache-related type definitions
+
+
+class StreamRecord(BaseModel):
+    """Represents a single stream record matching client.py response format"""
+
+    # best would make it a int, but now we're not breaking it
+    # TODO: make it a int on a major version bump
+    EventTime: str  # Unix timestamp (matches Go capitalization)
+    Value: float
+
+    def __getitem__(self, item):
+        return getattr(self, item)
+
+
+class CacheMetadata(BaseModel):
+    """Cache metadata information"""
+
+    hit: bool  # Whether cache was hit
+    cached_at: int | None  # Unix timestamp when data was cached
+
+
+class CacheAwareResponse(BaseModel, Generic[T]):
+    """Wrapper for cache-aware responses"""
+
+    data: T  # Original response data (List[StreamRecord], Dict, etc.)
+    cache: CacheMetadata | None  # Cache metadata (if available)
+
 
 class TNClient:
     def __init__(self, url: str, token: str):
@@ -61,6 +132,12 @@ class TNClient:
         Args:
             url (str): The RPC endpoint URL of the TRUF.NETWORK node.
             token (str): The user's private key for signing transactions.
+
+        Note:
+            This client supports cache-aware operations for query methods
+            (get_records, get_index, get_first_record) when use_cache=True
+            is provided. Cache functionality improves performance by
+            leveraging cached data when available.
         """
         self.client = truf_sdk.NewClient(url, token)
 
@@ -68,35 +145,33 @@ class TNClient:
     #               Private Helper Methods
     # --------------------------------------------------
 
-    def _coalesce_str(self, val: Optional[str], default: str = "") -> str:
+    def _coalesce_str(self, val: str | None, default: str = "") -> str:
         """
         Helper to coalesce an optional string into a non-empty string.
         If val is None, return default; otherwise return val.
         """
         return val if val is not None else default
 
-    def _coalesce_int(self, val: Optional[int], default: int = -1) -> int:
+    def _coalesce_int(self, val: int | None, default: int = -1) -> int:
         """
         Helper to coalesce an optional integer into a sentinel value.
-        
+
         Args:
             val: The optional integer value
             default: The default value to use if val is None (-1 by default)
-            
+
         Returns:
             The non-None integer value
         """
         return val if val is not None else default
 
-    def _go_slice_of_maps_to_list_of_dicts(
-        self, go_slice: Any
-    ) -> List[Dict[str, Any]]:
+    def _go_slice_of_maps_to_list_of_dicts(self, go_slice: Any) -> list[dict[str, Any]]:
         """
         Helper to convert a Go slice of maps into a Python list of dicts.
-        
+
         Args:
             go_slice: The Go slice object returned from the bindings
-            
+
         Returns:
             A list of Python dictionaries
         """
@@ -105,7 +180,7 @@ class TNClient:
             result.append(dict(record.items()))
         return result
 
-    def _records_handle_to_list_of_dicts(self, records: Any) -> List[Dict[str, Any]]:
+    def _records_handle_to_list_of_dicts(self, records: Any) -> list[dict[str, Any]]:
         """
         Specialized helper for `call_procedure` that converts the returned records
         object into a list of dicts by reflecting over its fields.
@@ -117,7 +192,11 @@ class TNClient:
         record_dict = {}
         for field in dir(records):
             # Skip private/dunder attributes
-            if not field.startswith("_") and field not in ("handle", "incref", "decref"):
+            if not field.startswith("_") and field not in (
+                "handle",
+                "incref",
+                "decref",
+            ):
                 try:
                     value = getattr(records, field)
                     record_dict[field] = value
@@ -127,6 +206,81 @@ class TNClient:
         if record_dict:
             result.append(record_dict)
         return result
+
+    def _map_cache_metadata(self, response: truf_sdk.DataResponse) -> CacheMetadata:
+        """
+        Map cache metadata from Go binding response to Python CacheMetadata structure.
+        Handles any mapping errors gracefully.
+        """
+        try:
+            if hasattr(response, "CacheHit") and response.CacheHit:
+                return CacheMetadata(
+                    hit=response.CacheHit,
+                    cached_at=response.Timestamp.Value
+                    if hasattr(response, "Timestamp") and response.Timestamp.IsSet
+                    else None,
+                )
+            else:
+                return CacheMetadata(hit=False, cached_at=None)
+        except (KeyError, TypeError, AttributeError) as e:
+            warnings.warn(f"Failed to map cache metadata from Go: {e}", UserWarning)
+            return CacheMetadata(hit=False, cached_at=None)
+
+    def _extract_records_data(
+        self, response: truf_sdk.DataResponse
+    ) -> list[StreamRecord]:
+        """Extract and format records data from DataResponse."""
+        data = []
+        for record in response.Data:
+            data.append(
+                StreamRecord(EventTime=str(record.Date), Value=float(record.Value))
+            )
+        return data
+
+    def _extract_single_record_data(
+        self, response: truf_sdk.DataResponse
+    ) -> StreamRecord | None:
+        """Extract and format single record data from SingleRecordResponse."""
+        records = list(response.Data)
+        if len(records) > 0:
+            # warn if it's returning more than one record
+            if len(records) > 1:
+                warnings.warn(
+                    "Returning more than one record, returning the first one. This is a bug, please report it.",
+                    UserWarning,
+                )
+            # return the first record
+            record = records[0]
+            return StreamRecord(EventTime=str(record.Date), Value=float(record.Value))
+        return None
+
+    def _format_records_response(
+        self, response: truf_sdk.DataResponse
+    ) -> CacheAwareResponse[list[StreamRecord]]:
+        """
+        Format DataResponse into cache-aware response for list-based methods (get_records, get_index).
+        """
+        cache_metadata = self._map_cache_metadata(response)
+        data = self._extract_records_data(response)
+
+        return CacheAwareResponse(data=data, cache=cache_metadata)
+
+    def _format_single_record_response(
+        self, response: truf_sdk.DataResponse
+    ) -> CacheAwareResponse[StreamRecord | None]:
+        """
+        Format SingleRecordResponse into cache-aware response for single record methods (get_first_record).
+        """
+        cache_metadata = self._map_cache_metadata(response)
+        data = self._extract_single_record_data(response)
+
+        return CacheAwareResponse(data=data, cache=cache_metadata)
+
+    def _format_legacy_response[T](self, response: CacheAwareResponse[T]) -> T:
+        """
+        Format legacy response to match the new cache-aware response format.
+        """
+        return response.data
 
     # --------------------------------------------------
     #               Public API Methods
@@ -147,12 +301,9 @@ class TNClient:
         if wait:
             self.wait_for_tx(deploy_tx_hash)
         return deploy_tx_hash
-    
+
     def insert_record(
-        self,
-        stream_id: str,
-        record: Dict[str, Union[float, int]],
-        wait: bool = True
+        self, stream_id: str, record: dict[str, float | int], wait: bool = True
     ) -> str:
         """
         Insert a single record into a stream with the given stream ID.
@@ -162,12 +313,14 @@ class TNClient:
         Record is expected to have:
           - "date": int (UNIX timestamp)
           - "value": float or int
-        
+
         Note:
             For inserting multiple records rapidly, use `batch_insert_records`
             instead to avoid potential nonce errors.
         """
-        go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
+        go_input = truf_sdk.NewInsertRecordInput(
+            self.client, stream_id, record["date"], record["value"]
+        )
         insert_tx_hash = truf_sdk.InsertRecord(self.client, go_input)
 
         if wait:
@@ -178,7 +331,7 @@ class TNClient:
     def insert_records(
         self,
         stream_id: str,
-        records: List[Dict[str, Union[float, int]]],
+        records: list[dict[str, float | int]],
         wait: bool = True,
     ) -> str:
         """
@@ -187,7 +340,7 @@ class TNClient:
         Returns the transaction hash.
 
         Each record is expected to have:
-          - "date": int (UNIX timestamp) 
+          - "date": int (UNIX timestamp)
           - "value": float or int
 
         Note:
@@ -198,9 +351,11 @@ class TNClient:
         input_list = []
         for _, record in enumerate(records):
             # Create InsertRecordInput struct
-            go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
+            go_input = truf_sdk.NewInsertRecordInput(
+                self.client, stream_id, record["date"], record["value"]
+            )
             input_list.append(go_input)
-        
+
         go_input_list = truf_sdk.Slice_s1_types_InsertRecordInput(input_list)
         insert_tx_hash = truf_sdk.InsertRecords(self.client, go_input_list)
 
@@ -210,9 +365,7 @@ class TNClient:
         return insert_tx_hash
 
     def batch_insert_records(
-        self,
-        batches: List[RecordBatch],
-        wait: bool = True,
+        self, batches: list[RecordBatch], wait: bool = True
     ) -> str:
         """
         Insert multiple batches of records into different streams in a single transaction.
@@ -230,22 +383,24 @@ class TNClient:
 
         Returns:
             A single transaction hash for all inserted records.
-        
+
         Raises:
             ValueError: If the total batch size is too large for the network to process.
         """
         all_inputs = []
-        
+
         # Collect all records from all batches into a single list
         for batch in batches:
             stream_id = batch["stream_id"]
             inputs = batch["inputs"]
-            
+
             for record in inputs:
                 # Create InsertRecordInput struct for each record
-                go_input = truf_sdk.NewInsertRecordInput(self.client, stream_id, record["date"], record["value"])
+                go_input = truf_sdk.NewInsertRecordInput(
+                    self.client, stream_id, record["date"], record["value"]
+                )
                 all_inputs.append(go_input)
-        
+
         # Convert to Go slice and make a single call to InsertRecords
         go_input_list = truf_sdk.Slice_s1_types_InsertRecordInput(all_inputs)
 
@@ -254,39 +409,70 @@ class TNClient:
         except Exception as e:
             error_str = str(e)
             if "failed to estimate price" in error_str:
-                raise ValueError("Request too large: The batch size exceeds the maximum allowed size") from e
+                raise ValueError(
+                    "Request too large: The batch size exceeds the maximum allowed size"
+                ) from e
             raise e
-        
+
         if wait:
             truf_sdk.WaitForTx(self.client, insert_tx_hash)
 
         return insert_tx_hash
 
+    @overload
     def get_records(
         self,
         stream_id: str,
-        data_provider: Optional[str] = None,
-        date_from: Optional[int] = None,
-        date_to: Optional[int] = None,
-        frozen_at: Optional[int] = None,
-        base_date: Optional[int] = None,
-        prefix: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        data_provider: str | None = None,
+        date_from: int | None = None,
+        date_to: int | None = None,
+        frozen_at: int | None = None,
+        base_date: int | None = None,
+        prefix: str | None = None,
+        *,
+        use_cache: bool,
+    ) -> CacheAwareResponse[list[StreamRecord]]: ...
+
+    @overload
+    def get_records(
+        self,
+        stream_id: str,
+        data_provider: str | None = None,
+        date_from: int | None = None,
+        date_to: int | None = None,
+        frozen_at: int | None = None,
+        base_date: int | None = None,
+        prefix: str | None = None,
+    ) -> list[StreamRecord]: ...
+
+    def get_records(
+        self,
+        stream_id: str,
+        data_provider: str | None = None,
+        date_from: int | None = None,
+        date_to: int | None = None,
+        frozen_at: int | None = None,
+        base_date: int | None = None,
+        prefix: str | None = None,
+        *,
+        use_cache: bool | None = _UNSET,
+    ) -> list[StreamRecord] | CacheAwareResponse[list[StreamRecord]]:
         """
-        Get records from a stream with the given stream ID.
-        Returns a list of records.
+        Get records from a stream with the given stream ID (cache-aware signature).
+        Returns a list of records or CacheAwareResponse based on use_cache flag.
 
         Parameters:
             - stream_id : str
+            - use_cache : bool
             - data_provider : (hex string)
             - date_from : Optional[int] (UNIX)
             - date_to : Optional[int] (UNIX)
             - frozen_at : Optional[int] (UNIX)
             - base_date : Optional[int] (UNIX)
             - prefix : Optional[str]
-        
+
         Returns:
-            A list of dictionaries, where each dictionary represents a record.
+            A list of dictionaries or CacheAwareResponse, depending on use_cache flag.
             Note: Keys from the Go layer are capitalized (e.g., `EventTime`, `Value`).
         """
         data_provider = self._coalesce_str(data_provider)
@@ -297,20 +483,31 @@ class TNClient:
         prefix = self._coalesce_str(prefix)
 
         input = truf_sdk.NewGetRecordInput(
-            self.client, 
+            self.client,
             stream_id,
             data_provider,
             date_from,
             date_to,
             frozen_at,
             base_date,
-            prefix
+            prefix,
+            use_cache,
         )
-        go_slice_of_maps = truf_sdk.GetRecords(self.client, input)
+        go_response = truf_sdk.GetRecords(self.client, input)
+        response = self._format_records_response(go_response)
 
-        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
+        if use_cache is _UNSET:
+            warnings.warn(
+                "get_records: Omitting 'use_cache' is deprecated (legacy response) and will be removed in the next major version. "
+                "Pass use_cache=False or use_cache=True to receive the new response formats.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return response.data
+        else:
+            return response
 
-    def get_type(self, stream_id: str, data_provider: Optional[str] = None) -> str:
+    def get_type(self, stream_id: str, data_provider: str | None = None) -> str:
         """
         Get the type of a stream with the given stream ID.
         Returns the type of the stream.
@@ -331,7 +528,7 @@ class TNClient:
     def get_current_account(self) -> str:
         """
         Get the current account address associated with this client.
-        
+
         Returns:
             str: The hex-encoded address of the current account
         """
@@ -348,67 +545,96 @@ class TNClient:
             truf_sdk.WaitForTx(self.client, destroy_tx_hash)
         return destroy_tx_hash
 
+    @overload
     def get_first_record(
         self,
         stream_id: str,
-        data_provider: Optional[str] = None,
-        after_date: Optional[int] = None,
-        frozen_at: Optional[int] = None,
-    ) -> Optional[Dict[str, Union[str, float]]]:
-        """
-        Get the first record of a stream after a given date.
-        
-        Parameters:
-            - stream_id : str
-            - data_provider : Optional[str] (hex string)
-            - after_date : Optional[int] (UNIX)
-            - frozen_at : Optional[int] (UNIX)
-            
-        Returns:
-            Optional[Dict[str, Union[str, float]]] - A dictionary containing 'date' and 'value' if found, None otherwise
-        """
+        data_provider: str | None = None,
+        after_date: int | None = None,
+        frozen_at: int | None = None,
+        *,
+        use_cache: bool,
+    ) -> CacheAwareResponse[StreamRecord | None]: ...
+
+    @overload
+    def get_first_record(
+        self,
+        stream_id: str,
+        data_provider: str | None = None,
+        after_date: int | None = None,
+        frozen_at: int | None = None,
+    ) -> StreamRecord | None: ...
+
+    def get_first_record(
+        self,
+        stream_id: str,
+        data_provider: str | None = None,
+        after_date: int | None = None,
+        frozen_at: int | None = None,
+        *,
+        use_cache: bool | None = _UNSET,
+    ) -> StreamRecord | None | CacheAwareResponse[StreamRecord | None]:
+        """Get the first record of a stream after a given date."""
         data_provider = self._coalesce_str(data_provider)
         after_date = self._coalesce_int(after_date)
         frozen_at = self._coalesce_int(frozen_at)
 
-        input = truf_sdk.NewGetFirstRecordInput(self.client, stream_id, data_provider, after_date, frozen_at)
-        result = truf_sdk.GetFirstRecord(self.client, input)
-        
-        # Convert the result to a Python dict and convert the value to float
-        record = dict(result.items())
+        input = truf_sdk.NewGetFirstRecordInput(
+            self.client, stream_id, data_provider, after_date, frozen_at, use_cache
+        )
+        go_response = truf_sdk.GetFirstRecord(self.client, input)
+        response = self._format_single_record_response(go_response)
 
-        # nil from go is an empty map, not None
-        if not record:
-            return None
+        if use_cache is _UNSET:
+            warnings.warn(
+                "get_first_record: Omitting 'use_cache' is deprecated (legacy response) and will be removed in the next major version. "
+                "Pass use_cache=False or use_cache=True to receive the new response formats.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return response.data
+        else:
+            return response
 
-        record["value"] = float(record["value"])
-        return record
-    
+    @overload
     def get_index(
         self,
         stream_id: str,
-        data_provider: Optional[str] = None,
-        date_from: Optional[int] = None,
-        date_to: Optional[int] = None,
-        frozen_at: Optional[int] = None,
-        base_date: Optional[int] = None,
-        prefix: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get index from a stream with the given stream ID.
-        Returns a list of indexes.
+        data_provider: str | None = None,
+        date_from: int | None = None,
+        date_to: int | None = None,
+        frozen_at: int | None = None,
+        base_date: int | None = None,
+        prefix: str | None = None,
+        *,
+        use_cache: bool,
+    ) -> CacheAwareResponse[list[StreamRecord]]: ...
 
-        Index: Calculated values derived from stream data, representing a value's growth compared to the stream's first record.
+    @overload
+    def get_index(
+        self,
+        stream_id: str,
+        data_provider: str | None = None,
+        date_from: int | None = None,
+        date_to: int | None = None,
+        frozen_at: int | None = None,
+        base_date: int | None = None,
+        prefix: str | None = None,
+    ) -> list[StreamRecord]: ...
 
-        Parameters:
-            - stream_id : str
-            - data_provider : (hex string)
-            - date_from : Optional[int] (UNIX)
-            - date_to : Optional[int] (UNIX)
-            - frozen_at : Optional[int] (UNIX)
-            - base_date : Optional[int] (UNIX)
-            - prefix : Optional[str]
-        """
+    def get_index(
+        self,
+        stream_id: str,
+        data_provider: str | None = None,
+        date_from: int | None = None,
+        date_to: int | None = None,
+        frozen_at: int | None = None,
+        base_date: int | None = None,
+        prefix: str | None = None,
+        *,
+        use_cache: bool | None = _UNSET,
+    ) -> list[StreamRecord] | CacheAwareResponse[list[StreamRecord]]:
+        """Get index from a stream with the given stream ID."""
         data_provider = self._coalesce_str(data_provider)
         date_from = self._coalesce_int(date_from)
         date_to = self._coalesce_int(date_to)
@@ -417,47 +643,60 @@ class TNClient:
         prefix = self._coalesce_str(prefix)
 
         input = truf_sdk.NewGetRecordInput(
-            self.client, 
+            self.client,
             stream_id,
             data_provider,
             date_from,
             date_to,
             frozen_at,
             base_date,
-            prefix
+            prefix,
+            use_cache,
         )
-        go_slice_of_maps = truf_sdk.GetIndex(self.client, input)
+        go_response = truf_sdk.GetIndex(self.client, input)
+        response = self._format_records_response(go_response)
 
-        return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
+        if use_cache is _UNSET:
+            warnings.warn(
+                "get_index: Omitting 'use_cache' is deprecated (legacy response) and will be removed in the next major version. "
+                "Pass use_cache=False or use_cache=True to receive the new response formats.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return response.data
+        else:
+            return response
 
     def list_streams(
-        self, 
-        limit: Optional[int] = None, 
-        offset: Optional[int] = None, 
-        data_provider: Optional[str] = None, 
-        order_by: Optional[str] = None,
-        block_height: Optional[int] = 0
-    ):
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        data_provider: str | None = None,
+        order_by: str | None = None,
+        block_height: int | None = 0,
+    ) -> list[dict[str, Any]]:
         """
-            List all streams associated with client account
+        List all streams associated with client account
         """
         limit = self._coalesce_int(limit)
         offset = self._coalesce_int(offset)
         data_provider = self._coalesce_str(data_provider)
         order_by = self._coalesce_str(order_by)
 
-        input = truf_sdk.NewListStreamsInput(limit, offset, data_provider, order_by, block_height)
+        input = truf_sdk.NewListStreamsInput(
+            limit, offset, data_provider, order_by, block_height
+        )
         go_slice_of_maps = truf_sdk.ListStreams(self.client, input)
 
         return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
-        
+
     def set_taxonomy(
-        self, 
+        self,
         stream_id: str,
         taxonomies: list[TaxonomyDefinition],
-        start_date: Optional[int] = None,
-        wait: bool = True
-    ):
+        start_date: int | None = None,
+        wait: bool = True,
+    ) -> str:
         """
         Set Taxonomy will define taxonomy of a composed stream.
         If wait is True, it will wait for the transaction to be confirmed.
@@ -485,11 +724,7 @@ class TNClient:
 
         taxonomy_items_go = truf_sdk.Slice_s1_types_TaxonomyItem(taxonomy_items)
         input = truf_sdk.NewTaxonomyInput(
-            self.client, 
-            stream_id, 
-            taxonomy_items_go,
-            start_date,
-            0
+            self.client, stream_id, taxonomy_items_go, start_date, 0
         )
         tx_hash = truf_sdk.SetTaxonomy(self.client, input)
 
@@ -497,8 +732,10 @@ class TNClient:
             truf_sdk.WaitForTx(self.client, tx_hash)
 
         return tx_hash
-    
-    def describe_taxonomy(self, stream_id: str, latest_version: bool = True) -> Optional[TaxonomyDetails]:
+
+    def describe_taxonomy(
+        self, stream_id: str, latest_version: bool = True
+    ) -> TaxonomyDetails | None:
         """
         Get taxonomy structure of a composed stream
 
@@ -528,17 +765,14 @@ class TNClient:
                     weight=float(item["weight"]),
                 )
             )
-        
-        return cast(TaxonomyDetails, {
-            "stream_id": taxonomy_data.get("stream_id"),
-            "child_streams": processed_taxonomies,
-            # temporarily disabled
-            # "start_date": int(taxonomy_data.get("start_date", 0)),
-            "created_at": int(taxonomy_data.get("created_at", 0)),
-            # "group_sequence": int(taxonomy_data.get("group_sequence", 0)),
-        })
 
-    def allow_compose_stream(self, stream_id: str, wait: bool = True):
+        return TaxonomyDetails(
+            stream_id=taxonomy_data.get("stream_id") or "",
+            child_streams=processed_taxonomies,
+            created_at=int(taxonomy_data.get("created_at", 0)),
+        )
+
+    def allow_compose_stream(self, stream_id: str, wait: bool = True) -> str:
         """
         Allows streams to use this stream as child, if composing is private.
 
@@ -551,8 +785,8 @@ class TNClient:
             truf_sdk.WaitForTx(self.client, tx_hash)
 
         return tx_hash
-    
-    def disable_compose_stream(self, stream_id: str, wait: bool = True):
+
+    def disable_compose_stream(self, stream_id: str, wait: bool = True) -> str:
         """
         Disable streams from using this stream as child.
 
@@ -566,7 +800,7 @@ class TNClient:
 
         return tx_hash
 
-    def allow_read_wallet(self, stream_id: str, wallet: str, wait: bool = True):
+    def allow_read_wallet(self, stream_id: str, wallet: str, wait: bool = True) -> str:
         """
         Allows a wallet to read the stream, if reading is private
 
@@ -577,7 +811,7 @@ class TNClient:
             - stream_id : str
             - wallet : str (Ethereum Address)
         """
-         
+
         input = truf_sdk.NewReadWalletInput(self.client, stream_id, wallet)
         tx_hash = truf_sdk.AllowReadWallet(self.client, input)
 
@@ -586,7 +820,9 @@ class TNClient:
 
         return tx_hash
 
-    def disable_read_wallet(self, stream_id: str, wallet: str, wait: bool = True):
+    def disable_read_wallet(
+        self, stream_id: str, wallet: str, wait: bool = True
+    ) -> str:
         """
         Disables a wallet from reading the stream
 
@@ -606,7 +842,9 @@ class TNClient:
 
         return tx_hash
 
-    def set_read_visibility(self, stream_id: str, visibilityVal: str, wait: bool = True):
+    def set_read_visibility(
+        self, stream_id: str, visibilityVal: str, wait: bool = True
+    ) -> str:
         """
         Sets the read visibility of the stream -- Private or Public
 
@@ -628,8 +866,8 @@ class TNClient:
             truf_sdk.WaitForTx(self.client, tx_hash)
 
         return tx_hash
-    
-    def get_read_visibility(self, stream_id: str):
+
+    def get_read_visibility(self, stream_id: str) -> str:
         """
         Gets the read visibility of the stream -- Private or Public
         """
@@ -637,8 +875,10 @@ class TNClient:
         visibility = truf_sdk.GetReadVisibility(self.client, stream_id)
 
         return "public" if visibility == truf_sdk.VisibilityPublic else "private"
-    
-    def set_compose_visibility(self, stream_id: str, visibilityVal: int, wait: bool = True):
+
+    def set_compose_visibility(
+        self, stream_id: str, visibilityVal: int | str, wait: bool = True
+    ) -> str:
         """
         Sets the compose visibility of the stream -- Private or Public
 
@@ -662,7 +902,7 @@ class TNClient:
 
         return tx_hash
 
-    def get_compose_visibility(self, stream_id: str):
+    def get_compose_visibility(self, stream_id: str) -> str:
         """
         Gets the compose visibility of the stream -- Private or Public
         """
@@ -670,26 +910,26 @@ class TNClient:
         visibility = truf_sdk.GetComposeVisibility(self.client, stream_id)
 
         return "public" if visibility == truf_sdk.VisibilityPublic else "private"
-    
-    def get_allowed_read_wallets(self, stream_id: str):
+
+    def get_allowed_read_wallets(self, stream_id: str) -> list[str]:
         """
         Gets the wallets allowed to read the stream, if read stream is private
         """
 
         wallets = truf_sdk.GetAllowedReadWallets(self.client, stream_id)
-        return wallets
-    
-    def get_allowed_compose_streams(self, stream_id: str):
+        return list(wallets)
+
+    def get_allowed_compose_streams(self, stream_id: str) -> list[str]:
         """
         Gets the streams allowed to compose this stream, if compose stream is private
         """
-         
+
         streams = truf_sdk.GetAllowedComposeStreams(self.client, stream_id)
-        return streams
+        return list(streams)
 
     def batch_deploy_streams(
         self,
-        definitions: List[StreamDefinitionInput],
+        definitions: list[StreamDefinitionInput],
         wait: bool = True,
     ) -> str:
         """
@@ -701,72 +941,16 @@ class TNClient:
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash of the batch operation.
         """
-        go_definitions = truf_sdk.Slice_s1_types_StreamDefinition([])
+        # Build a list of Go StreamDefinition objects
+        go_definitions = []
         for def_input in definitions:
-            # The Go binding layer (NewStreamDefinitionForBinding) will handle conversion from string to Go types.
-            # However, gomobile does not directly support passing slices of structs that are not built-in or explicitly defined
-            # for slices in the .go file (like Slice_s1_types_InsertRecordInput).
-            # We must construct each Go object and append it to a Go slice.
-            # This requires a helper in Go to create the individual StreamDefinition objects first,
-            # then append them to Slice_s1_types_StreamDefinition.
-            # For now, assuming direct slice creation might work or we adjust bindings if not.
-            # This part might need refinement based on gomobile's exact capabilities for custom struct slices.
-            # Let's assume for now direct construction and appending to a list, then converting to Go slice.
-            # If this doesn't work, we'll need NewStreamDefinitionForBinding in Go and build the slice there.
+            go_def = truf_sdk.NewStreamDefinitionForBinding(
+                def_input["stream_id"], def_input["stream_type"]
+            )
+            go_definitions.append(go_def)
 
-            # Simplified approach: directly create the Go slice of structs if supported by gomobile bindings.
-            # The Python SDK will pass a list of dicts. The Go binding code (not shown here directly)
-            # would iterate this, call NewStreamDefinitionForBinding for each, and build the Go slice.
-            # The current truf_sdk.Slice_s1_types_StreamDefinition expects a list of Go StreamDefinition objects.
-
-            # Correct approach given current structure:
-            # Python builds a list of Python dicts.
-            # The Go binding function `BatchDeployStreams` must accept this (e.g. []map[string]string)
-            # and internally convert to []types.StreamDefinition.
-            # OR, Python calls a Go helper for EACH definition to get a Go StreamDefinition handle,
-            # collects these handles, and passes a slice of these handles.
-            # Let's assume the Go `BatchDeployStreams` function now expects []types.StreamDefinition directly,
-            # and `Slice_s1_types_StreamDefinition` is smart enough or we build it item by item using a Go helper.
-
-            # Let's assume NewStreamDefinitionForBinding is available at the Go `exports` level
-            # and we are constructing the slice of these Go objects in Python.
-            # This is complex due to object handles across language boundaries.
-
-            # The most straightforward way with current gomobile patterns:
-            # 1. Python prepares list of dicts.
-            # 2. Go binding `BatchDeployStreams` takes `List[Dict[str,str]]` (represented as `[]interface{}` or specific slice of maps).
-            # 3. Go binding internally iterates, calls `NewStreamDefinitionForBinding` for each, builds `[]types.StreamDefinition`.
-            # For this edit, I will assume the Go binding `BatchDeployStreams` in `bindings.go` will be adjusted
-            # to take a slice of Go `StreamDefinition` objects, and we prepare it in Python by calling a (yet to be confirmed)
-            # Go helper for each item and then creating a Go slice from these. 
-            # Given the current binding structure, this is the most likely path for Slice_s1_types_StreamDefinition
-
-            # Revisiting the Go bindings: `BatchDeployStreams(client *tnclient.Client, definitions []types.StreamDefinition)`
-            # This means Python must construct `[]types.StreamDefinition`.
-            # `truf_sdk.NewStreamDefinitionForBinding` will be used.
-            go_def = truf_sdk.NewStreamDefinitionForBinding(def_input["stream_id"], def_input["stream_type"])
-            # This go_def is a handle. We need to append these handles to the slice.
-            # The truf_sdk.Slice_s1_types_StreamDefinition is likely expecting a list of these handles.
-            go_definitions.append(go_def) # This is pseudocode for how gomobile might handle slice appends
-                                        # Actual mechanism depends on gomobile's generated Python bindings for slices of custom types.
-                                        # If `Slice_s1_types_StreamDefinition` is a constructor that takes a list of handles, that's it.
-                                        # If not, this part needs careful implementation based on `gomobile bind` output.
-
-        # The below is a common pattern for gomobile if Slice_s1_types_StreamDefinition is a list-like object in Python
-        # that wraps the Go slice. Often, you build a Python list of the Go object handles.
-        py_list_of_go_defs = []
-        for def_input in definitions:
-            go_def_handle = truf_sdk.NewStreamDefinitionForBinding(def_input["stream_id"], def_input["stream_type"])
-            # We should check for errors from NewStreamDefinitionForBinding if it can return them.
-            # Assuming it raises an exception on error for simplicity here.
-            py_list_of_go_defs.append(go_def_handle)
-        
-        # Now, convert the Python list of Go object handles to the required Go slice type.
-        # This conversion mechanism is specific to how gomobile wraps slice types.
-        # It might be direct: `go_slice_defs = truf_sdk.Slice_s1_types_StreamDefinition(py_list_of_go_defs)`
-        # Or it might involve a specific constructor or method.
-        # For now, let's assume `Slice_s1_types_StreamDefinition` can take a list of these handles.
-        final_go_definitions = truf_sdk.Slice_s1_types_StreamDefinition(py_list_of_go_defs)
+        # Convert to Go slice type
+        final_go_definitions = truf_sdk.Slice_s1_types_StreamDefinition(go_definitions)
 
         tx_hash = truf_sdk.BatchDeployStreams(self.client, final_go_definitions)
         if wait:
@@ -775,8 +959,8 @@ class TNClient:
 
     def batch_stream_exists(
         self,
-        locators: List[StreamLocatorInput],
-    ) -> List[StreamExistsResult]:
+        locators: list[StreamLocatorInput],
+    ) -> list[StreamExistsResult]:
         """
         Check for the existence of multiple streams.
         Each locator should be a dictionary containing:
@@ -787,59 +971,76 @@ class TNClient:
         """
         py_list_of_go_locators = []
         for loc_input in locators:
-            go_loc_handle = truf_sdk.NewStreamLocatorForBinding(loc_input["stream_id"], loc_input["data_provider"])
+            go_loc_handle = truf_sdk.NewStreamLocatorForBinding(
+                loc_input["stream_id"], loc_input["data_provider"]
+            )
             py_list_of_go_locators.append(go_loc_handle)
-        
-        final_go_locators = truf_sdk.Slice_s1_types_StreamLocator(py_list_of_go_locators)
+
+        final_go_locators = truf_sdk.Slice_s1_types_StreamLocator(
+            py_list_of_go_locators
+        )
 
         go_results = truf_sdk.BatchStreamExists(self.client, final_go_locators)
-        
+
         results = []
         for go_map in go_results:
-            item = dict(go_map.items()) # Convert Go map to Python dict
-            results.append({
-                "stream_id": item["stream_id"],
-                "data_provider": item["data_provider"],
-                "exists": item["exists"].lower() == "true", # Convert string "true"/"false" to bool
-            })
+            item = dict(go_map.items())  # Convert Go map to Python dict
+            results.append(
+                {
+                    "stream_id": item["stream_id"],
+                    "data_provider": item["data_provider"],
+                    "exists": item["exists"].lower()
+                    == "true",  # Convert string "true"/"false" to bool
+                }
+            )
         return results
 
     def batch_filter_streams_by_existence(
         self,
-        locators: List[StreamLocatorInput],
+        locators: list[StreamLocatorInput],
         return_existing: bool,
-    ) -> List[StreamLocatorInput]: # Returns List[StreamLocatorInput] as they are just locators
+    ) -> list[
+        StreamLocatorInput
+    ]:  # Returns List[StreamLocatorInput] as they are just locators
         """
         Filters a list of streams based on their existence in the database.
         Each locator should be a dictionary containing:
             - stream_id: str
             - data_provider: str (hex string)
-        
+
         Parameters:
             - locators: List of stream locators to filter.
             - return_existing: bool - If True, returns streams that exist. If False, returns streams that do not exist.
-            
+
         Returns a list of stream locators that match the filter criteria.
         """
         py_list_of_go_locators = []
         for loc_input in locators:
-            go_loc_handle = truf_sdk.NewStreamLocatorForBinding(loc_input["stream_id"], loc_input["data_provider"])
+            go_loc_handle = truf_sdk.NewStreamLocatorForBinding(
+                loc_input["stream_id"], loc_input["data_provider"]
+            )
             py_list_of_go_locators.append(go_loc_handle)
 
-        final_go_locators = truf_sdk.Slice_s1_types_StreamLocator(py_list_of_go_locators)
+        final_go_locators = truf_sdk.Slice_s1_types_StreamLocator(
+            py_list_of_go_locators
+        )
 
-        go_results = truf_sdk.BatchFilterStreamsByExistence(self.client, final_go_locators, return_existing)
-        
+        go_results = truf_sdk.BatchFilterStreamsByExistence(
+            self.client, final_go_locators, return_existing
+        )
+
         results = []
         for go_map in go_results:
-            item = dict(go_map.items()) # Convert Go map to Python dict
-            results.append({
-                "stream_id": item["stream_id"],
-                "data_provider": item["data_provider"],
-            })
+            item = dict(go_map.items())  # Convert Go map to Python dict
+            results.append(
+                {
+                    "stream_id": item["stream_id"],
+                    "data_provider": item["data_provider"],
+                }
+            )
         return results
 
-    def call_procedure(self, procedure: str, args: List[Any]) -> Dict[str, Any]:
+    def call_procedure(self, procedure: str, args: list[str | None]) -> dict[str, Any]:
         """Call a **read-only** stored procedure on the gateway.
 
         Parameters
@@ -871,7 +1072,7 @@ class TNClient:
         self,
         owner: str,
         role_name: str,
-        wallets: List[str],
+        wallets: list[str],
         wait: bool = True,
     ) -> str:
         """
@@ -901,7 +1102,7 @@ class TNClient:
         self,
         owner: str,
         role_name: str,
-        wallets: List[str],
+        wallets: list[str],
         wait: bool = True,
     ) -> str:
         """
@@ -931,8 +1132,8 @@ class TNClient:
         self,
         owner: str,
         role_name: str,
-        wallets: List[str],
-    ) -> List[RoleMembershipStatus]:
+        wallets: list[str],
+    ) -> list[RoleMembershipStatus]:
         """
         Checks if a list of wallets are members of a specific role.
 
@@ -949,27 +1150,29 @@ class TNClient:
         go_wallets = go.Slice_string(wallets)
         go_results = truf_sdk.AreMembersOf(self.client, owner, role_name, go_wallets)
 
-        results: List[RoleMembershipStatus] = []
+        results: list[RoleMembershipStatus] = []
         for go_map in go_results:
             item = dict(go_map.items())
             # The keys from Go are capitalized struct fields: `Wallet`, `IsMember`.
             # We map them to snake_case Python dict keys and correct types.
             wallet_address = item.get("Wallet", "")
             is_member_str = str(item.get("IsMember", "false")).lower()
-            
-            results.append({
-                "wallet": wallet_address,
-                "is_member": is_member_str == "true",
-            })
+
+            results.append(
+                {
+                    "wallet": wallet_address,
+                    "is_member": is_member_str == "true",
+                }
+            )
         return results
 
     def list_role_members(
         self,
         owner: str,
         role_name: str,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
-    ) -> List[RoleMember]:
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> list[RoleMember]:
         """
         Lists the members of a role with optional pagination.
 
@@ -994,7 +1197,7 @@ class TNClient:
             offset_val,
         )
 
-        members: List[RoleMember] = []
+        members: list[RoleMember] = []
         for go_map in go_results:
             item = dict(go_map.items())
             wallet = item.get("Wallet", "")
@@ -1006,17 +1209,26 @@ class TNClient:
             except ValueError:
                 granted_at = 0
 
-            members.append({
-                "wallet": wallet,
-                "granted_at": granted_at,
-                "granted_by": granted_by,
-            })
+            members.append(
+                {
+                    "wallet": wallet,
+                    "granted_at": granted_at,
+                    "granted_by": granted_by,
+                }
+            )
 
         return members
 
-def all_is_list_of_strings(arg_list: list[Any]) -> bool:
-    return all(isinstance(arg, list) and all(isinstance(item, str) for item in arg) for arg in arg_list)
 
-def all_is_list_of_floats(arg_list: list[Any]) -> bool:
-    return all(isinstance(arg, list) and all(isinstance(item, (float, int)) for item in arg) for arg in arg_list)
+def all_is_list_of_strings[T](arg_list: list[T]) -> bool:
+    return all(
+        isinstance(arg, list) and all(isinstance(item, str) for item in arg)
+        for arg in arg_list
+    )
 
+
+def all_is_list_of_floats[T](arg_list: list[T]) -> bool:
+    return all(
+        isinstance(arg, list) and all(isinstance(item, (float, int)) for item in arg)
+        for arg in arg_list
+    )

@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened, ready_for_review ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }} # only run on non-draft PRs
+
+    steps:
+      - name: Checkout sdk-py
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          check-latest: true
+
+      - name: Install Taskfile
+        uses: arduino/setup-task@v2
+
+      - name: Checkout trufnetwork/node
+        uses: actions/checkout@v4
+        with:
+          repository: trufnetwork/node
+          ref: main
+          path: tmp-node
+
+      - name: Get node commit hash
+        id: node-commit
+        working-directory: tmp-node
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build tn-db Docker image & kwil-cli binary
+        run: |
+          cd tmp-node
+          task docker:build:local
+
+      - name: Cache kwil-cli build
+        id: cache-kwil-build
+        uses: actions/cache@v4
+        with:
+          path: tmp-node/.build
+          key: ${{ runner.os }}-kwil-build-${{ steps.node-commit.outputs.sha }}
+
+      - name: Build kwil-cli binary
+        if: steps.cache-kwil-build.outputs.cache-hit != 'true'
+        run: |
+          cd tmp-node
+          task build
+      
+      - name: Move kwil-cli binary to path
+        run: |
+          mv tmp-node/.build/kwil-cli /usr/local/bin/kwil-cli
+          # smoke test
+          kwil-cli version
+
+      - name: Pull postgres image
+        run: docker pull kwildb/postgres:16.8-1
+
+      - name: Install dependencies
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          uv sync
+
+      - name: Run unit tests
+        run: |
+          source .venv/bin/activate
+          pytest tests/test_*.py -m "not integration"
+
+      - name: Run integration tests
+        run: |
+          source .venv/bin/activate
+          pytest tests/test_*.py -m integration
+        env:
+          NODE_REPO_DIR: tmp-node
+
+      - name: Cleanup
+        # not act 
+        if: always() && ${{ !env.ACT }}
+        run: |
+          docker system prune -af 

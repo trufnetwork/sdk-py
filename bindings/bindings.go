@@ -59,6 +59,8 @@ type DataResponse struct {
 	Data      []Record      `json:"data"`
 	CacheHit  bool          `json:"cache_hit"`
 	Timestamp OptionalInt64 `json:"timestamp"`
+	// TODO: Uncomment when sdk-go supports Height
+	// Height:    toOptionalInt64(response.Metadata.Height),
 }
 
 // ArgsFromStrings converts a slice of strings to ProcedureArgs.
@@ -288,6 +290,8 @@ func GetRecords(client *tnclient.Client, input types.GetRecordInput) (DataRespon
 		Data:      records,
 		CacheHit:  response.Metadata.CacheHit,
 		Timestamp: toOptionalInt64(response.Metadata.CachedAt),
+		// TODO: Uncomment when sdk-go supports Height
+		// Height:    toOptionalInt64(response.Metadata.Height),
 	}
 
 	return result, nil
@@ -371,6 +375,8 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (D
 			Data:      []Record{},
 			CacheHit:  record.Metadata.CacheHit,
 			Timestamp: toOptionalInt64(record.Metadata.CachedAt),
+			// TODO: Uncomment when sdk-go supports Height
+			// Height:    toOptionalInt64(record.Metadata.Height),
 		}, nil
 	}
 
@@ -385,6 +391,8 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (D
 		Data:      []Record{recordData},
 		CacheHit:  record.Metadata.CacheHit,
 		Timestamp: toOptionalInt64(record.Metadata.CachedAt),
+		// TODO: Uncomment when sdk-go supports Height
+		// Height:    toOptionalInt64(record.Metadata.Height),
 	}
 
 	return result, nil
@@ -418,6 +426,8 @@ func GetIndex(client *tnclient.Client, input types.GetIndexInput) (DataResponse,
 		Data:      records,
 		CacheHit:  response.Metadata.CacheHit,
 		Timestamp: toOptionalInt64(response.Metadata.CachedAt),
+		// TODO: Uncomment when sdk-go supports Height
+		// Height:    toOptionalInt64(response.Metadata.Height),
 	}
 
 	return result, nil

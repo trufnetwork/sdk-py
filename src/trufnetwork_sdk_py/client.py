@@ -115,6 +115,7 @@ class CacheMetadata(BaseModel):
 
     hit: bool  # Whether cache was hit
     cached_at: int | None  # Unix timestamp when data was cached
+    cached_height: int | None
 
 
 class CacheAwareResponse(BaseModel, Generic[T]):
@@ -219,12 +220,15 @@ class TNClient:
                     cached_at=response.Timestamp.Value
                     if hasattr(response, "Timestamp") and response.Timestamp.IsSet
                     else None,
+                    cached_height=response.Height.Value \
+                        if hasattr(response, 'Height') and response.Height.IsSet \
+                        else None,
                 )
             else:
-                return CacheMetadata(hit=False, cached_at=None)
+                return CacheMetadata(hit=False, cached_at=None, cached_height=None)
         except (KeyError, TypeError, AttributeError) as e:
             warnings.warn(f"Failed to map cache metadata from Go: {e}", UserWarning)
-            return CacheMetadata(hit=False, cached_at=None)
+            return CacheMetadata(hit=False, cached_at=None, cached_height=None)
 
     def _extract_records_data(
         self, response: truf_sdk.DataResponse

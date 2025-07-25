@@ -61,9 +61,9 @@ jobs:
           cd tmp-node
           task build
       
-      - name: Move kwil-cli binary to path
+      - name: Copy kwil-cli binary to path
         run: |
-          mv tmp-node/.build/kwil-cli /usr/local/bin/kwil-cli
+          sudo cp tmp-node/.build/kwil-cli /usr/local/bin/kwil-cli
           # smoke test
           kwil-cli version
 

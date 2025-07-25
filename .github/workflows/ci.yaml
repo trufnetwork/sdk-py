@@ -83,20 +83,15 @@ jobs:
           source .venv/bin/activate
           uv pip install -e .[dev]
 
-      - name: Run unit tests
+      - name: Run tests
         run: |
           source .venv/bin/activate
-          pytest tests/test_*.py -m "not integration"
-
-      - name: Run integration tests
-        run: |
-          source .venv/bin/activate
-          pytest tests/test_*.py -m integration
+          pytest tests/test_*.py
         env:
           NODE_REPO_DIR: ${{ github.workspace }}/tmp-node
 
       - name: Cleanup
         # not act 
-        if: always() && ${{ !env.ACT }}
+        if: always() && !env.ACT
         run: |
           docker system prune -af 

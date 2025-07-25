@@ -119,8 +119,7 @@ def test_cache_aware_signature_true(client: TNClient):
     # Check cache metadata structure (should be cache miss)
     assert isinstance(result.cache, CacheMetadata)
     assert result.cache.hit == False
-    assert result.cache.cached_at == None
-    assert result.cache.cached_height == None
+    assert result.cache.cache_height == None
     
     # Clean up
     client.destroy_stream(stream_id)
@@ -164,7 +163,7 @@ def test_get_first_record_cache_support(client):
     assert isinstance(result, CacheAwareResponse)
     assert result.data is not None
     assert result.cache is not None
-    assert result.cache.cached_height == None
+    assert result.cache.cache_height == None
     
     # Clean up
     client.destroy_stream(stream_id)
@@ -210,28 +209,24 @@ def test_get_index_cache_support(client):
     assert isinstance(result, CacheAwareResponse)
     assert result.data is not None
     assert result.cache is not None
-    assert result.cache.cached_height == None
+    assert result.cache.cache_height == None
     
     # Clean up
     client.destroy_stream(stream_id)
 
 def test_map_cache_metadata_with_height():
     """Test mapping cache metadata with height"""
-    # Replace class MockResponse with dict
+    # Test cache hit with height
     mock_response = {
         'CacheHit': True,
-        'Timestamp': {'IsSet': True, 'Value': 1609459200},
         'Height': {'IsSet': True, 'Value': 123456}
     }
     metadata = TNClient('dummy', 'dummy')._map_cache_metadata(mock_response)  # type: ignore
     assert metadata.hit == True
-    assert metadata.cached_at == 1609459200
-    assert metadata.cached_height == 123456
+    assert metadata.cache_height == 123456
 
     # Test miss case
-    # Similarly for miss
     mock_miss = {'CacheHit': False}
     metadata = TNClient('dummy', 'dummy')._map_cache_metadata(mock_miss)  # type: ignore
     assert metadata.hit == False
-    assert metadata.cached_at == None
-    assert metadata.cached_height == None
+    assert metadata.cache_height == None

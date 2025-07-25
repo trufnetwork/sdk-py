@@ -86,7 +86,7 @@ jobs:
           source .venv/bin/activate
           pytest tests/test_*.py -m integration
         env:
-          NODE_REPO_DIR: tmp-node
+          NODE_REPO_DIR: ${{ github.workspace }}/tmp-node
 
       - name: Cleanup
         # not act 

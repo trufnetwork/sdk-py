@@ -56,9 +56,9 @@ type Record struct {
 }
 
 type DataResponse struct {
-	Data      []Record      `json:"data"`
-	CacheHit  bool          `json:"cache_hit"`
-	Timestamp OptionalInt64 `json:"timestamp"`
+	Data     []Record      `json:"data"`
+	CacheHit bool          `json:"cache_hit"`
+	Height   OptionalInt64 `json:"height"`
 }
 
 // ArgsFromStrings converts a slice of strings to ProcedureArgs.
@@ -285,9 +285,9 @@ func GetRecords(client *tnclient.Client, input types.GetRecordInput) (DataRespon
 
 	// Build cache-aware response with metadata from sdk-go
 	result := DataResponse{
-		Data:      records,
-		CacheHit:  response.Metadata.CacheHit,
-		Timestamp: toOptionalInt64(response.Metadata.CachedAt),
+		Data:     records,
+		CacheHit: response.Metadata.CacheHit,
+		Height:   toOptionalInt64(response.Metadata.CacheHeight),
 	}
 
 	return result, nil
@@ -368,9 +368,9 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (D
 	// Guard against empty results
 	if len(record.Results) == 0 {
 		return DataResponse{
-			Data:      []Record{},
-			CacheHit:  record.Metadata.CacheHit,
-			Timestamp: toOptionalInt64(record.Metadata.CachedAt),
+			Data:     []Record{},
+			CacheHit: record.Metadata.CacheHit,
+			Height:   toOptionalInt64(record.Metadata.CacheHeight),
 		}, nil
 	}
 
@@ -382,9 +382,9 @@ func GetFirstRecord(client *tnclient.Client, input types.GetFirstRecordInput) (D
 
 	// Build cache-aware response with metadata
 	result := DataResponse{
-		Data:      []Record{recordData},
-		CacheHit:  record.Metadata.CacheHit,
-		Timestamp: toOptionalInt64(record.Metadata.CachedAt),
+		Data:     []Record{recordData},
+		CacheHit: record.Metadata.CacheHit,
+		Height:   toOptionalInt64(record.Metadata.CacheHeight),
 	}
 
 	return result, nil
@@ -415,9 +415,9 @@ func GetIndex(client *tnclient.Client, input types.GetIndexInput) (DataResponse,
 
 	// Build cache-aware response with metadata from sdk-go
 	result := DataResponse{
-		Data:      records,
-		CacheHit:  response.Metadata.CacheHit,
-		Timestamp: toOptionalInt64(response.Metadata.CachedAt),
+		Data:     records,
+		CacheHit: response.Metadata.CacheHit,
+		Height:   toOptionalInt64(response.Metadata.CacheHeight),
 	}
 
 	return result, nil

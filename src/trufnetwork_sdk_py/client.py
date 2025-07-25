@@ -114,7 +114,7 @@ class CacheMetadata(BaseModel):
     """Cache metadata information"""
 
     hit: bool  # Whether cache was hit
-    cached_at: int | None  # Unix timestamp when data was cached
+    cache_height: int | None  # Block height when data was cached
 
 
 class CacheAwareResponse(BaseModel, Generic[T]):
@@ -207,24 +207,35 @@ class TNClient:
             result.append(record_dict)
         return result
 
-    def _map_cache_metadata(self, response: truf_sdk.DataResponse) -> CacheMetadata:
+    def _map_cache_metadata(self, response) -> CacheMetadata:
         """
         Map cache metadata from Go binding response to Python CacheMetadata structure.
         Handles any mapping errors gracefully.
         """
         try:
-            if hasattr(response, "CacheHit") and response.CacheHit:
+            # Handle both object attribute access and dict-like access patterns
+            if hasattr(response, "CacheHit"):
+                cache_hit = response.CacheHit
+            else:
+                cache_hit = response.get("CacheHit", False)
+            
+            if cache_hit:
+                # Try to get height from Height field
+                height = None
+                if hasattr(response, "Height") and hasattr(response.Height, "IsSet") and response.Height.IsSet:
+                    height = response.Height.Value
+                elif "Height" in response and response["Height"].get("IsSet", False):
+                    height = response["Height"]["Value"]
+                
                 return CacheMetadata(
-                    hit=response.CacheHit,
-                    cached_at=response.Timestamp.Value
-                    if hasattr(response, "Timestamp") and response.Timestamp.IsSet
-                    else None,
+                    hit=cache_hit,
+                    cache_height=height,
                 )
             else:
-                return CacheMetadata(hit=False, cached_at=None)
+                return CacheMetadata(hit=False, cache_height=None)
         except (KeyError, TypeError, AttributeError) as e:
             warnings.warn(f"Failed to map cache metadata from Go: {e}", UserWarning)
-            return CacheMetadata(hit=False, cached_at=None)
+            return CacheMetadata(hit=False, cache_height=None)
 
     def _extract_records_data(
         self, response: truf_sdk.DataResponse

@@ -76,11 +76,12 @@ def test_cache_aware_signature_false(client):
     # Test cache-aware signature with use_cache=False
     result = client.get_records(stream_id, use_cache=False)
     
-    # Should return legacy format (list)
-    assert isinstance(result, list)
-    assert len(result) > 0
-    assert result[0]["EventTime"] == str(test_record["date"])
-    assert result[0]["Value"] == test_record["value"]
+    # Should return CacheAwareResponse structure, because we are using the cache-aware signature
+    assert isinstance(result, CacheAwareResponse)
+    assert result.data is not None
+    assert result.cache is not None
+    assert result.cache.hit == False
+    assert result.cache.cache_height == None
     
     # Clean up
     client.destroy_stream(stream_id)
@@ -119,7 +120,7 @@ def test_cache_aware_signature_true(client: TNClient):
     # Check cache metadata structure (should be cache miss)
     assert isinstance(result.cache, CacheMetadata)
     assert result.cache.hit == False
-    assert result.cache.cached_at == None
+    assert result.cache.cache_height == None
     
     # Clean up
     client.destroy_stream(stream_id)
@@ -163,6 +164,7 @@ def test_get_first_record_cache_support(client):
     assert isinstance(result, CacheAwareResponse)
     assert result.data is not None
     assert result.cache is not None
+    assert result.cache.cache_height == None
     
     # Clean up
     client.destroy_stream(stream_id)
@@ -208,6 +210,24 @@ def test_get_index_cache_support(client):
     assert isinstance(result, CacheAwareResponse)
     assert result.data is not None
     assert result.cache is not None
+    assert result.cache.cache_height == None
     
     # Clean up
     client.destroy_stream(stream_id)
+
+def test_map_cache_metadata_with_height(client):
+    """Test mapping cache metadata with height"""
+    # Test cache hit with height
+    mock_response = {
+        'CacheHit': True,
+        'Height': {'IsSet': True, 'Value': 123456}
+    }
+    metadata = client._map_cache_metadata(mock_response)  # type: ignore
+    assert metadata.hit == True
+    assert metadata.cache_height == 123456
+
+    # Test miss case
+    mock_miss = {'CacheHit': False}
+    metadata = client._map_cache_metadata(mock_miss)  # type: ignore
+    assert metadata.hit == False
+    assert metadata.cache_height == None

@@ -122,6 +122,38 @@ tx_hash = client.insert_records(stream_id, [
 ])
 ```
 
+### `client.batch_insert_records(batches: List[RecordBatch], wait: bool = True) -> str`
+Insert multiple batches of records into different streams in a single transaction. This is the most efficient way to insert large amounts of data.
+
+#### Parameters
+- `batches: List[RecordBatch]` - List of batch objects, each containing:
+  - `stream_id: str` - Target stream identifier
+  - `inputs: List[Record]` - List of records with `date` and `value`
+- `wait: bool` - Whether to wait for transaction confirmation (default: True)
+
+#### Returns
+- `str` - Transaction hash for all inserted records
+
+#### Example
+```python
+batches = [
+    {
+        "stream_id": "stream1",
+        "inputs": [
+            {"date": timestamp1, "value": 100.0},
+            {"date": timestamp2, "value": 200.0}
+        ]
+    },
+    {
+        "stream_id": "stream2", 
+        "inputs": [
+            {"date": timestamp1, "value": 50.0}
+        ]
+    }
+]
+tx_hash = client.batch_insert_records(batches)
+```
+
 ## Stream Querying
 
 ### `client.get_records(stream_id: str, **kwargs) -> List[Dict]`
@@ -151,6 +183,45 @@ records = client.get_records(
 > • **Primitive streams** – the raw numeric values recorded at each `date`.  When you request an interval (`date_from`/`date_to`) the function also injects the **last value _before_ the range** so that charts can be plotted without breaks.  
 > • **Composed streams** – a synthetic value calculated on-the-fly by recursively aggregating the weighted values of *all* child primitives for every point in time.  The same gap-filling logic is applied so you always get a continuous series.  
 > All permission checks (`read`, `compose`) are enforced server-side – if you don't have access the call fails with an explicit error.
+
+### `client.get_first_record(stream_id: str, **kwargs) -> StreamRecord | None`
+Get the first record of a stream after a given date. Supports cache-aware responses.
+
+#### Parameters
+- `stream_id: str` - Target stream
+- `data_provider: Optional[str]` - Specific data provider
+- `after_date: Optional[int]` - Find first record after this timestamp
+- `frozen_at: Optional[int]` - Timestamp for frozen state
+- `use_cache: Optional[bool]` - Enable cache-aware response format
+
+#### Returns
+- `StreamRecord | None` or `CacheAwareResponse[StreamRecord | None]` - First record found, or cache-aware response if `use_cache` is specified
+
+#### Example
+```python
+# Legacy format (deprecated)
+first_record = client.get_first_record(stream_id, after_date=timestamp)
+
+# Cache-aware format
+response = client.get_first_record(stream_id, after_date=timestamp, use_cache=True)
+print(f"Record: {response.data}, Cache hit: {response.cache.hit}")
+```
+
+### `client.get_type(stream_id: str, data_provider: Optional[str] = None) -> str`
+Get the type of a stream (primitive or composed).
+
+#### Parameters
+- `stream_id: str` - Stream identifier
+- `data_provider: Optional[str]` - Specific data provider
+
+#### Returns
+- `str` - Stream type ("primitive" or "composed")
+
+#### Example
+```python
+stream_type = client.get_type(stream_id)
+print(f"Stream type: {stream_type}")
+```
 
 ### `client.get_index(stream_id: str, **kwargs) -> List[Dict]`
 Returns a **rebased index** of the stream where the value at `base_date` (defaults to the metadata key `default_base_time`) is normalised to **100**.
@@ -206,6 +277,105 @@ yoy = client.get_index_change(
 )
 ```
 
+## Stream Management
+
+### `client.list_streams(limit: Optional[int] = None, offset: Optional[int] = None, data_provider: Optional[str] = None, order_by: Optional[str] = None, block_height: Optional[int] = 0) -> List[Dict[str, Any]]`
+List all streams associated with the client account.
+
+#### Parameters
+- `limit: Optional[int]` - Maximum number of results to return
+- `offset: Optional[int]` - Number of records to skip for pagination
+- `data_provider: Optional[str]` - Filter by specific data provider
+- `order_by: Optional[str]` - Sort order for results
+- `block_height: Optional[int]` - Query at specific block height (default: 0)
+
+#### Returns
+- `List[Dict[str, Any]]` - List of stream information dictionaries
+
+#### Example
+```python
+streams = client.list_streams(limit=10, offset=0)
+for stream in streams:
+    print(f"Stream ID: {stream['stream_id']}, Type: {stream['stream_type']}")
+```
+
+### `client.get_current_account() -> str`
+Get the current account address associated with this client.
+
+#### Returns
+- `str` - The hex-encoded address of the current account
+
+#### Example
+```python
+account_address = client.get_current_account()
+print(f"Current account: {account_address}")
+```
+
+### `client.batch_deploy_streams(definitions: List[StreamDefinitionInput], wait: bool = True) -> str`
+Deploy multiple streams (primitive and composed) in a single transaction.
+
+#### Parameters
+- `definitions: List[StreamDefinitionInput]` - List of stream definitions, each containing:
+  - `stream_id: str` - Unique stream identifier
+  - `stream_type: str` - Stream type ("primitive" or "composed")
+- `wait: bool` - Whether to wait for transaction confirmation (default: True)
+
+#### Returns
+- `str` - Transaction hash of the batch deployment
+
+#### Example
+```python
+definitions = [
+    {"stream_id": "stream1", "stream_type": "primitive"},
+    {"stream_id": "stream2", "stream_type": "composed"}
+]
+tx_hash = client.batch_deploy_streams(definitions)
+```
+
+### `client.batch_stream_exists(locators: List[StreamLocatorInput]) -> List[StreamExistsResult]`
+Check for the existence of multiple streams.
+
+#### Parameters
+- `locators: List[StreamLocatorInput]` - List of stream locators, each containing:
+  - `stream_id: str` - Stream identifier
+  - `data_provider: str` - Data provider address
+
+#### Returns
+- `List[StreamExistsResult]` - List of existence results, each containing:
+  - `stream_id: str` - Stream identifier
+  - `data_provider: str` - Data provider address
+  - `exists: bool` - Whether the stream exists
+
+#### Example
+```python
+locators = [
+    {"stream_id": "stream1", "data_provider": "0x123..."},
+    {"stream_id": "stream2", "data_provider": "0x456..."}
+]
+results = client.batch_stream_exists(locators)
+for result in results:
+    print(f"Stream {result['stream_id']} exists: {result['exists']}")
+```
+
+### `client.batch_filter_streams_by_existence(locators: List[StreamLocatorInput], return_existing: bool) -> List[StreamLocatorInput]`
+Filters a list of streams based on their existence.
+
+#### Parameters
+- `locators: List[StreamLocatorInput]` - List of stream locators to filter
+- `return_existing: bool` - If True, returns existing streams; if False, returns non-existing streams
+
+#### Returns
+- `List[StreamLocatorInput]` - Filtered list of stream locators
+
+#### Example
+```python
+locators = [
+    {"stream_id": "stream1", "data_provider": "0x123..."},
+    {"stream_id": "stream2", "data_provider": "0x456..."}
+]
+existing_streams = client.batch_filter_streams_by_existence(locators, return_existing=True)
+```
+
 ## Composition Management
 
 ### `client.set_taxonomy(stream_id: str, child_streams: Dict[str, float], start_date: Optional[int] = None) -> str`
@@ -229,6 +399,58 @@ tx_hash = client.set_taxonomy(
     },
     start_date=int(datetime.now().timestamp())
 )
+```
+
+### `client.describe_taxonomy(stream_id: str, latest_version: bool = True) -> TaxonomyDetails | None`
+Get taxonomy structure of a composed stream.
+
+#### Parameters
+- `stream_id: str` - Composed stream identifier
+- `latest_version: bool` - If True, returns only the latest version of the taxonomy (default: True)
+
+#### Returns
+- `TaxonomyDetails | None` - Taxonomy details containing:
+  - `stream_id: str` - The composed stream identifier
+  - `child_streams: List[TaxonomyDefinition]` - List of child stream definitions with weights
+  - `created_at: int` - Creation timestamp
+
+#### Example
+```python
+taxonomy = client.describe_taxonomy(composed_stream_id)
+if taxonomy:
+    print(f"Stream: {taxonomy['stream_id']}")
+    for child in taxonomy['child_streams']:
+        print(f"  Child: {child.stream['stream_id']}, Weight: {child.weight}")
+```
+
+### `client.allow_compose_stream(stream_id: str, wait: bool = True) -> str`
+Allows streams to use this stream as child, if composing is private.
+
+#### Parameters
+- `stream_id: str` - Stream identifier
+- `wait: bool` - Whether to wait for transaction confirmation (default: True)
+
+#### Returns
+- `str` - Transaction hash
+
+#### Example
+```python
+tx_hash = client.allow_compose_stream(stream_id)
+```
+
+### `client.disable_compose_stream(stream_id: str, wait: bool = True) -> str`
+Disable streams from using this stream as child.
+
+#### Parameters
+- `stream_id: str` - Stream identifier
+- `wait: bool` - Whether to wait for transaction confirmation (default: True)
+
+#### Returns
+- `str` - Transaction hash
+
+#### Example
+```python
+tx_hash = client.disable_compose_stream(stream_id)
 ```
 
 ## Role Management
@@ -304,6 +526,28 @@ membership_status = client.are_members_of(
 # ]
 ```
 
+### `client.list_role_members(owner: str, role_name: str, limit: Optional[int] = None, offset: Optional[int] = None) -> List[RoleMember]`
+Lists the members of a role with optional pagination.
+
+#### Parameters
+- `owner: str` - The owner namespace of the role (e.g., 'system')
+- `role_name: str` - The role to list members for  
+- `limit: Optional[int]` - Maximum number of results to return
+- `offset: Optional[int]` - Number of records to skip for pagination
+
+#### Returns
+- `List[RoleMember]` - List of role member dictionaries containing:
+  - `wallet: str` - The wallet address
+  - `granted_at: int` - Unix timestamp when role was granted
+  - `granted_by: str` - Address that granted the role
+
+#### Example
+```python
+members = client.list_role_members("system", "network_writer", limit=10)
+for member in members:
+    print(f"Wallet: {member['wallet']}, Granted: {member['granted_at']}")
+```
+
 ## Visibility and Permissions
 
 ### System vs. User Roles
@@ -327,16 +571,112 @@ Controls stream read access.
 client.set_read_visibility(stream_id, "private")
 ```
 
-### `client.allow_read_wallet(stream_id: str, wallet_address: str) -> str`
+### `client.allow_read_wallet(stream_id: str, wallet_address: str, wait: bool = True) -> str`
 Grants read permissions to specific wallets.
 
 #### Parameters
 - `stream_id: str` - Stream identifier
 - `wallet_address: str` - Ethereum wallet address
+- `wait: bool` - Whether to wait for transaction confirmation (default: True)
+
+#### Returns
+- `str` - Transaction hash
 
 #### Example
 ```python
-client.allow_read_wallet(stream_id, "0x1234...")
+tx_hash = client.allow_read_wallet(stream_id, "0x1234...")
+```
+
+### `client.disable_read_wallet(stream_id: str, wallet_address: str, wait: bool = True) -> str`
+Disables a wallet from reading the stream.
+
+#### Parameters
+- `stream_id: str` - Stream identifier
+- `wallet_address: str` - Ethereum wallet address
+- `wait: bool` - Whether to wait for transaction confirmation (default: True)
+
+#### Returns
+- `str` - Transaction hash
+
+#### Example
+```python
+tx_hash = client.disable_read_wallet(stream_id, "0x1234...")
+```
+
+### `client.get_read_visibility(stream_id: str) -> str`
+Gets the read visibility of the stream.
+
+#### Parameters
+- `stream_id: str` - Stream identifier
+
+#### Returns
+- `str` - Visibility setting ("public" or "private")
+
+#### Example
+```python
+visibility = client.get_read_visibility(stream_id)
+print(f"Read visibility: {visibility}")
+```
+
+### `client.set_compose_visibility(stream_id: str, visibility: str, wait: bool = True) -> str`
+Sets the compose visibility of the stream.
+
+#### Parameters
+- `stream_id: str` - Stream identifier
+- `visibility: str` - Visibility setting ("public" or "private")
+- `wait: bool` - Whether to wait for transaction confirmation (default: True)
+
+#### Returns
+- `str` - Transaction hash
+
+#### Example
+```python
+tx_hash = client.set_compose_visibility(stream_id, "private")
+```
+
+### `client.get_compose_visibility(stream_id: str) -> str`
+Gets the compose visibility of the stream.
+
+#### Parameters
+- `stream_id: str` - Stream identifier
+
+#### Returns
+- `str` - Visibility setting ("public" or "private")
+
+#### Example
+```python
+visibility = client.get_compose_visibility(stream_id)
+print(f"Compose visibility: {visibility}")
+```
+
+### `client.get_allowed_read_wallets(stream_id: str) -> List[str]`
+Gets the wallets allowed to read the stream, if read stream is private.
+
+#### Parameters
+- `stream_id: str` - Stream identifier
+
+#### Returns
+- `List[str]` - List of allowed wallet addresses
+
+#### Example
+```python
+allowed_wallets = client.get_allowed_read_wallets(stream_id)
+print(f"Allowed read wallets: {allowed_wallets}")
+```
+
+### `client.get_allowed_compose_streams(stream_id: str) -> List[str]`
+Gets the streams allowed to compose this stream, if compose stream is private.
+
+#### Parameters
+- `stream_id: str` - Stream identifier
+
+#### Returns
+- `List[str]` - List of allowed stream identifiers
+
+#### Example
+```python
+allowed_streams = client.get_allowed_compose_streams(stream_id)
+print(f"Allowed compose streams: {allowed_streams}")
 ```
 
 ## Transaction Handling

@@ -401,8 +401,8 @@ tx_hash = client.set_taxonomy(
 )
 ```
 
-### `client.describe_taxonomy(stream_id: str, latest_version: bool = True) -> TaxonomyDetails | None`
-Get taxonomy structure of a composed stream.
+### `client.describe_taxonomy(stream_id: str, latest_version: bool = True) -> TaxonomyDetails | None` 🔍
+Get taxonomy structure of a composed stream. This is the primary method for discovering how composed streams aggregate their child streams and understanding composition relationships.
 
 #### Parameters
 - `stream_id: str` - Composed stream identifier
@@ -416,11 +416,24 @@ Get taxonomy structure of a composed stream.
 
 #### Example
 ```python
+# Get taxonomy information for a composed stream
 taxonomy = client.describe_taxonomy(composed_stream_id)
 if taxonomy:
     print(f"Stream: {taxonomy['stream_id']}")
+    total_weight = 0
     for child in taxonomy['child_streams']:
         print(f"  Child: {child.stream['stream_id']}, Weight: {child.weight}")
+        total_weight += child.weight
+    print(f"Total weight: {total_weight}")
+else:
+    print("No taxonomy found for this stream")
+
+# Example: Validate taxonomy weights sum to 1.0
+if taxonomy:
+    weights = [child.weight for child in taxonomy['child_streams']]
+    total_weight = sum(weights)
+    if abs(total_weight - 1.0) > 0.001:  # Allow small floating point differences
+        print(f"Warning: Weights don't sum to 1.0 (actual: {total_weight})")
 ```
 
 ### `client.allow_compose_stream(stream_id: str, wait: bool = True) -> str`

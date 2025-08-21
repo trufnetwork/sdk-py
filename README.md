@@ -218,6 +218,13 @@ client.set_taxonomy(
     },
     start_date=current_timestamp
 )
+
+# Get taxonomy information for the composed stream
+taxonomy = client.describe_taxonomy(tech_innovation_index)
+if taxonomy:
+    print(f"Stream: {taxonomy['stream_id']}")
+    for child in taxonomy['child_streams']:
+        print(f"  Child: {child.stream['stream_id']}, Weight: {child.weight}")
 ```
 
 ### Stream Visibility and Access Control
@@ -250,6 +257,26 @@ client.destroy_stream(stream_id)
 - Use composed streams to create complex, derived economic indicators
 
 For a comprehensive example demonstrating the full stream lifecycle, refer to our [Complex Example](./examples/complex_example/README.md).
+
+## Quick Reference
+
+### Common Operations
+
+| Operation | Method |
+|-----------|--------|
+| Deploy primitive stream | `client.deploy_stream(stream_id, STREAM_TYPE_PRIMITIVE)` |
+| Deploy composed stream | `client.deploy_stream(stream_id, STREAM_TYPE_COMPOSED)` |
+| Insert records | `client.insert_record(stream_id, {"date": timestamp, "value": value})` |
+| Get stream data | `client.get_records(stream_id, date_from=from_ts, date_to=to_ts)` |
+| Set stream taxonomy | `client.set_taxonomy(stream_id, {child_id: weight}, start_date)` |
+| Get stream taxonomy | `client.describe_taxonomy(stream_id, latest_version=True)` |
+| Destroy stream | `client.destroy_stream(stream_id)` |
+
+### Key Constants
+
+- `STREAM_TYPE_PRIMITIVE` - Raw data streams
+- `STREAM_TYPE_COMPOSED` - Aggregated streams with taxonomy
+- `TaxonomyDetails` - Taxonomy information with child streams and weights
 
 ## Local Node Testing and Development
 

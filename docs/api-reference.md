@@ -82,6 +82,72 @@ Permanently removes a stream from the network.
 tx_hash = client.destroy_stream(market_index_stream_id)
 ```
 
+## Transaction Management
+
+### `client.wait_for_tx(tx_hash: str) -> None`
+Waits for a transaction to be confirmed on-chain given its hash.
+
+#### Parameters
+- `tx_hash: str` - Transaction hash to wait for
+
+#### Returns
+- `None` - Method returns when transaction is confirmed
+
+#### Raises
+- `Exception` - If transaction fails to execute on-chain (permission errors, invalid input, logic errors)
+
+#### Example
+```python
+# Deploy stream and wait for confirmation
+tx_hash = client.deploy_stream(stream_id, STREAM_TYPE_PRIMITIVE)
+client.wait_for_tx(tx_hash)  # Wait for on-chain confirmation
+
+# Now safe to proceed with dependent operations
+client.insert_record(stream_id, {"date": timestamp, "value": 123.45})
+```
+
+### Understanding Transaction Lifecycle
+
+**IMPORTANT:** By default, stream operations return when transactions are submitted to the mempool, NOT when they're executed on-chain. This can cause race conditions in sequential workflows.
+
+#### Best Practices
+
+1. **Use `wait_for_tx()` for lifecycle operations**: Always wait for deployment and destruction confirmation.
+
+```python
+# Safe deployment pattern
+tx_hash = client.deploy_stream(stream_id, STREAM_TYPE_PRIMITIVE)
+client.wait_for_tx(tx_hash)  # Wait for confirmation
+
+# Safe destruction pattern  
+tx_hash = client.destroy_stream(stream_id)
+client.wait_for_tx(tx_hash)  # Wait for confirmation
+```
+
+2. **Proper error handling**: Always wrap transaction calls in try/catch blocks.
+
+```python
+try:
+    tx_hash = client.deploy_stream(stream_id, STREAM_TYPE_PRIMITIVE)
+    client.wait_for_tx(tx_hash)
+    print("✅ Stream deployed successfully")
+except Exception as e:
+    print(f"❌ Deployment failed: {e}")
+```
+
+3. **Sequential workflow patterns**: For operations that must happen in order.
+
+```python
+# Safe deployment → insertion → destruction workflow
+tx_hash = client.deploy_stream(stream_id, STREAM_TYPE_PRIMITIVE)
+client.wait_for_tx(tx_hash)
+client.insert_record(stream_id, {"date": timestamp, "value": 123.45})
+tx_hash = client.destroy_stream(stream_id)
+client.wait_for_tx(tx_hash)
+```
+
+For a comprehensive example demonstrating these patterns, see the [Transaction Lifecycle Example](../examples/transaction_lifecycle_example/).
+
 ## Record Insertion
 
 ### `client.insert_record(stream_id: str, record: Dict[str, Union[int, float]]) -> str`

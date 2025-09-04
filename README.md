@@ -113,6 +113,66 @@ for record in records:
     print(f"Date: {date.strftime('%Y-%m-%d')}, Value: {record['Value']}")
 ```
 
+## Understanding Transaction Lifecycle
+
+**IMPORTANT:** All transaction operations return success when transactions enter the mempool, NOT when they are executed on-chain. This async behavior can cause race conditions if not handled properly.
+
+### The Problem: Race Conditions in Sequential Operations
+
+```python
+# ⚠️ DANGEROUS: This can fail due to race conditions
+from trufnetwork_sdk_py.client import TNClient, STREAM_TYPE_PRIMITIVE
+from trufnetwork_sdk_py.utils import generate_stream_id
+
+client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
+stream_id = generate_stream_id("my_stream")
+
+# Deploy stream - returns immediately when submitted to mempool
+client.deploy_stream(stream_id, STREAM_TYPE_PRIMITIVE)
+
+# Insert record - might fail if deployment isn't complete on-chain yet
+client.insert_record(stream_id, {"date": 1725456000, "value": 123.45})  # Race condition!
+```
+
+### The Solution: Use `wait_for_tx` for Confirmation
+
+```python
+from trufnetwork_sdk_py.client import TNClient, STREAM_TYPE_PRIMITIVE
+from trufnetwork_sdk_py.utils import generate_stream_id
+
+client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
+stream_id = generate_stream_id("my_stream")
+
+# ✅ SAFE: Deploy and wait for confirmation
+tx_hash = client.deploy_stream(stream_id, STREAM_TYPE_PRIMITIVE)
+client.wait_for_tx(tx_hash)  # Wait for on-chain confirmation
+
+# ✅ SAFE: Now insertion will succeed
+client.insert_record(stream_id, {"date": 1725456000, "value": 123.45})
+
+# ✅ SAFE: Destroy and wait for confirmation before cleanup
+tx_hash = client.destroy_stream(stream_id)
+client.wait_for_tx(tx_hash)  # Wait for on-chain confirmation
+```
+
+### Best Practices
+
+1. **Use `wait_for_tx()` for lifecycle operations** (deploy/destroy)
+2. **Check for errors** and handle them appropriately
+3. **Test sequential workflows** to catch race conditions
+4. **Understand mempool vs on-chain** completion
+
+```python
+try:
+    tx_hash = client.deploy_stream(stream_id, STREAM_TYPE_PRIMITIVE)
+    client.wait_for_tx(tx_hash)
+    print("✅ Stream deployed successfully")
+except Exception as e:
+    print(f"❌ Deployment failed: {e}")
+```
+
+For a comprehensive example demonstrating safe transaction patterns, see the [Transaction Lifecycle Example](./examples/transaction_lifecycle_example/).
+
 For more comprehensive examples, please see the following guides:
 
 - **[Basic Example: Reading a Stream](./examples/README.md)**: Learn how to connect and read records from an existing stream.

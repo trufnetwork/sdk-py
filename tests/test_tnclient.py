@@ -264,7 +264,7 @@ def test_taxonomy(client: TNClient):
         TaxonomyDefinition(
             stream={
                 "stream_id": child_stream_id_1,
-                "data_provider": "0x1234567890123456789012345678901234567890",
+                "data_provider": None,
             },
             weight=0.5,
         ),
@@ -292,10 +292,7 @@ def test_taxonomy(client: TNClient):
     assert child_stream_id_1 in taxonomy_map
     taxonomy1 = taxonomy_map[child_stream_id_1]
     assert taxonomy1.weight == 0.5
-    assert (
-        taxonomy1.stream["data_provider"]
-        == "0x1234567890123456789012345678901234567890"
-    )
+    assert taxonomy1.stream["data_provider"] == client.get_current_account()
 
     # Check second taxonomy
     assert child_stream_id_2 in taxonomy_map

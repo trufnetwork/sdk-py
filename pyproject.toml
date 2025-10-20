@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trufnetwork_sdk_py"
-version = "0.3.3"
+dynamic = ["version"]
 authors = [{ name = "Truf Network", email = "developer@truf.network" }]
 description = "A Python SDK for Truf Network"
 readme = "README.md"
@@ -38,6 +38,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[tool.setuptools_scm]
+version_scheme = "post-release"
+local_scheme = "no-local-version"
 
 [tool.pyright]
 type_checking_mode = "strict"

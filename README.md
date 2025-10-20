@@ -15,23 +15,25 @@ If you need help, don't hesitate to [open an issue](https://github.com/trufnetwo
 
 ### Installation
 
-Install the pre-built wheel for your platform by substituting the desired version and platform in the URL:
+**To install the latest version:**
 
-```
-pip install https://github.com/trufnetwork/sdk-py/releases/download/v<version>/trufnetwork_sdk_py-<platform>.whl
-```
+1. Visit the [**releases page**](https://github.com/trufnetwork/sdk-py/releases/latest)
+2. Download the wheel file (`.whl`) for your platform:
+   - **Linux**: `*manylinux*.whl`
+   - **macOS**: `*macosx*.whl`
+3. Install using pip:
+   ```bash
+   pip install /path/to/downloaded/wheel.whl
+   ```
 
-Examples:
-- Linux:
-```
-pip install https://github.com/trufnetwork/sdk-py/releases/download/v0.3.2/trufnetwork_sdk_py-0.3.2-py3-none-manylinux_2_28_x86_64.whl
-```
-- macOS:
-```
-pip install https://github.com/trufnetwork/sdk-py/releases/download/v0.3.2/trufnetwork_sdk_py-0.3.2-py3-none-macosx_11_0_universal2.whl
-```
+   Or install directly from the URL (right-click the wheel file → copy link):
+   ```bash
+   pip install https://github.com/trufnetwork/sdk-py/releases/download/vX.X.X/trufnetwork_sdk_py-X.X.X-....whl
+   ```
 
-Alternatively, if you are using a `pyproject.toml` file for dependency management, add the following:
+**Alternative: Install from source** (always gets the latest from the `main` branch):
+
+If you are using a `pyproject.toml` file for dependency management, add the following:
 
 ```toml
 [project]
@@ -47,6 +49,8 @@ Then install the dependencies:
 ```bash
 pip install .
 ```
+
+> **Note:** This approach requires Go to be installed for compiling C bindings during installation.
 
 ## Development
 

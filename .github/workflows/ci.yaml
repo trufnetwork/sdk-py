@@ -19,6 +19,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y patchelf
+
       - name: Install uv
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
@@ -50,11 +55,6 @@ jobs:
         working-directory: tmp-node
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Build tn-db Docker image & kwil-cli binary
-        run: |
-          cd tmp-node
-          task docker:build:local
-
       - name: Cache kwil-cli build
         id: cache-kwil-build
         uses: actions/cache@v4
@@ -67,15 +67,17 @@ jobs:
         run: |
           cd tmp-node
           task build
-      
+
       - name: Copy kwil-cli binary to path
         run: |
           sudo cp tmp-node/.build/kwil-cli /usr/local/bin/kwil-cli
           # smoke test
           kwil-cli version
 
-      - name: Pull postgres image
-        run: docker pull kwildb/postgres:16.8-1
+      - name: Pull Docker images
+        run: |
+          docker pull ghcr.io/trufnetwork/node:latest
+          docker pull kwildb/postgres:latest
 
       - name: Install dependencies
         run: |

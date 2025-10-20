@@ -56,7 +56,7 @@ class ContainerSpec:
 # Container specifications
 POSTGRES_CONTAINER = ContainerSpec(
     name="test-kwil-postgres",
-    image="kwildb/postgres:latest",
+    image=os.environ.get("POSTGRES_IMAGE", "kwildb/postgres:latest"),
     tmpfs_path="/var/lib/postgresql/data",
     env_vars=["POSTGRES_HOST_AUTH_METHOD=trust"],
     ports={"5432": "5432"}
@@ -64,7 +64,7 @@ POSTGRES_CONTAINER = ContainerSpec(
 
 TN_DB_CONTAINER = ContainerSpec(
     name="test-tn-db",
-    image="tn-db:local",
+    image=os.environ.get("TN_DB_IMAGE", "ghcr.io/trufnetwork/node:latest"),
     tmpfs_path="/root/.kwild",
     entrypoint="/app/kwild",
     args=[

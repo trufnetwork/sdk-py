@@ -7,6 +7,7 @@ import (
 	"log"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/apd/v3"
@@ -95,6 +96,17 @@ func ArgsFromFloatsSlice(values ...[]float64) ProcedureArgs {
 		anySlice = append(anySlice, v)
 	}
 	return anySlice
+}
+
+// ArgsFromJSON converts a JSON string to ProcedureArgs.
+// This allows passing mixed-type arguments from Python.
+func ArgsFromJSON(jsonStr string) (ProcedureArgs, error) {
+	var anySlice []any
+	err := json.Unmarshal([]byte(jsonStr), &anySlice)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal JSON args")
+	}
+	return anySlice, nil
 }
 
 // NewClient creates a new TN client with the given provider and private key.
@@ -930,6 +942,14 @@ func convertToString(val any) string {
 	}
 }
 
+// convertBytesToHex converts byte slice to hex string for Python compatibility
+func convertBytesToHex(data []byte) string {
+	if data == nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", data) // Use hex encoding for simplicity and readability
+}
+
 // NewStreamDefinitionForBinding creates a new types.StreamDefinition for binding purposes.
 // It takes string representations of streamId and streamType and converts them.
 func NewStreamDefinitionForBinding(streamIdStr string, streamTypeStr string) (*types.StreamDefinition, error) {
@@ -1215,4 +1235,151 @@ func CallProcedureStrings(client *tnclient.Client, procedure string, args []stri
 	}
 
 	return string(jsonBytes), nil
+}
+
+// ==========================================
+//           ATTESTATION FUNCTIONS
+// ==========================================
+
+// RequestAttestation submits an attestation request and returns the transaction ID
+// argsJSON should be a JSON-encoded array of arguments
+func RequestAttestation(
+	client *tnclient.Client,
+	dataProvider string,
+	streamID string,
+	actionName string,
+	argsJSON string,
+	encryptSig bool,
+	maxFee int64,
+) (string, error) {
+	ctx := context.Background()
+
+	// Load attestation actions
+	attestationActions, err := client.LoadAttestationActions()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load attestation actions")
+	}
+
+	// Decode JSON args with number preservation
+	var args []any
+	if argsJSON != "" && argsJSON != "[]" {
+		decoder := json.NewDecoder(strings.NewReader(argsJSON))
+		decoder.UseNumber() // Preserve numbers as json.Number
+		err = decoder.Decode(&args)
+		if err != nil {
+			return "", errors.Wrap(err, "failed to unmarshal args JSON")
+		}
+
+		// Convert json.Number to int64 where possible, otherwise float64
+		for i, arg := range args {
+			if num, ok := arg.(json.Number); ok {
+				// Try int64 first
+				if intVal, err := num.Int64(); err == nil {
+					args[i] = intVal
+				} else if floatVal, err := num.Float64(); err == nil {
+					args[i] = floatVal
+				}
+			}
+		}
+	}
+
+	// Build input
+	input := types.RequestAttestationInput{
+		DataProvider: dataProvider,
+		StreamID:     streamID,
+		ActionName:   actionName,
+		Args:         args,
+		EncryptSig:   encryptSig,
+		MaxFee:       maxFee,
+	}
+
+	// Call sdk-go
+	result, err := attestationActions.RequestAttestation(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to request attestation")
+	}
+
+	return result.RequestTxID, nil
+}
+
+// GetSignedAttestation retrieves a signed attestation payload
+func GetSignedAttestation(client *tnclient.Client, requestTxID string) ([]byte, error) {
+	ctx := context.Background()
+
+	attestationActions, err := client.LoadAttestationActions()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to load attestation actions")
+	}
+
+	input := types.GetSignedAttestationInput{
+		RequestTxID: requestTxID,
+	}
+
+	result, err := attestationActions.GetSignedAttestation(ctx, input)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get signed attestation")
+	}
+
+	return result.Payload, nil
+}
+
+// ListAttestations lists attestation metadata with optional filtering
+func ListAttestations(
+	client *tnclient.Client,
+	requester []byte,
+	limit int,
+	offset int,
+	orderBy string,
+) ([]map[string]string, error) {
+	ctx := context.Background()
+
+	attestationActions, err := client.LoadAttestationActions()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to load attestation actions")
+	}
+
+	// Build input
+	input := types.ListAttestationsInput{}
+
+	if len(requester) > 0 {
+		input.Requester = requester
+	}
+
+	if limit != -1 {
+		input.Limit = &limit
+	}
+
+	if offset != -1 {
+		input.Offset = &offset
+	}
+
+	if orderBy != "" {
+		input.OrderBy = &orderBy
+	}
+
+	results, err := attestationActions.ListAttestations(ctx, input)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to list attestations")
+	}
+
+	// Convert to map slice for Python
+	output := make([]map[string]string, len(results))
+	for i, metadata := range results {
+		// Convert signed_height (nullable int64) to string
+		signedHeightStr := ""
+		if metadata.SignedHeight != nil {
+			signedHeightStr = strconv.FormatInt(*metadata.SignedHeight, 10)
+		}
+
+		output[i] = map[string]string{
+			"RequestTxID":     metadata.RequestTxID,
+			"AttestationHash": convertBytesToHex(metadata.AttestationHash),
+			"Requester":       convertBytesToHex(metadata.Requester),
+			"CreatedHeight":   strconv.FormatInt(metadata.CreatedHeight, 10),
+			"SignedHeight":    signedHeightStr,
+			"EncryptSig":      strconv.FormatBool(metadata.EncryptSig),
+		}
+	}
+
+	return output, nil
 }

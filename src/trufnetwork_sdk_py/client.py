@@ -82,6 +82,15 @@ class RoleMember(TypedDict):
     granted_by: str
 
 
+class AttestationMetadata(TypedDict):
+    request_tx_id: str
+    attestation_hash: bytes
+    requester: bytes
+    created_height: int
+    signed_height: int | None
+    encrypt_sig: bool
+
+
 class TaxonomyDetails(TypedDict):
     stream_id: str
     child_streams: list["TaxonomyDefinition"]
@@ -1229,6 +1238,233 @@ class TNClient:
             )
 
         return members
+
+    # ==========================================
+    #          ATTESTATION METHODS
+    # ==========================================
+
+    def request_attestation(
+        self,
+        data_provider: str,
+        stream_id: str,
+        action_name: str,
+        args: list[Any],
+        encrypt_sig: bool = False,
+        max_fee: int = 1000000,
+        wait: bool = True,
+    ) -> str:
+        """
+        Request a signed attestation for query results.
+
+        Args:
+            data_provider: 0x-prefixed hex address (42 characters)
+            stream_id: Stream ID (32 characters)
+            action_name: Action to attest (e.g., "get_record")
+            args: Action arguments
+            encrypt_sig: Whether to encrypt signature (must be False in MVP)
+            max_fee: Maximum fee willing to pay
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction ID (request_tx_id)
+
+        Example:
+            >>> tx_id = client.request_attestation(
+            ...     data_provider="0x4710a8d8f0d845da110086812a32de6d90d7ff5c",
+            ...     stream_id="stai0000000000000000000000000000",
+            ...     action_name="get_record",
+            ...     args=[data_provider, stream_id, from_time, to_time, None, False],
+            ...     max_fee=1000000,
+            ... )
+        """
+        # Validate inputs
+        if len(data_provider) != 42:
+            raise ValueError(
+                f"data_provider must be 42 characters (0x + 40 hex), got {len(data_provider)}"
+            )
+
+        if not data_provider.startswith("0x"):
+            raise ValueError("data_provider must start with '0x'")
+
+        if len(stream_id) != 32:
+            raise ValueError(f"stream_id must be 32 characters, got {len(stream_id)}")
+
+        if not action_name:
+            raise ValueError("action_name cannot be empty")
+
+        if encrypt_sig:
+            raise ValueError(
+                "Signature encryption is not supported in MVP (encrypt_sig must be False)"
+            )
+
+        if max_fee < 0:
+            raise ValueError(f"max_fee must be non-negative, got {max_fee}")
+
+        # Convert args to JSON string for passing to Go layer
+        args_json = json.dumps(args)
+
+        # Request attestation
+        request_tx_id = truf_sdk.RequestAttestation(
+            self.client,
+            data_provider,
+            stream_id,
+            action_name,
+            args_json,
+            encrypt_sig,
+            max_fee,
+        )
+
+        if wait:
+            truf_sdk.WaitForTx(self.client, request_tx_id)
+
+        return request_tx_id
+
+    def get_signed_attestation(self, request_tx_id: str) -> bytes:
+        """
+        Retrieve the signed attestation payload.
+
+        Args:
+            request_tx_id: Transaction ID from request_attestation
+
+        Returns:
+            Signed attestation payload (bytes)
+
+        Note:
+            This may return an empty or incomplete payload if the attestation
+            has not been signed by the validator yet. Poll this endpoint
+            until you receive a non-empty payload.
+
+        Example:
+            >>> payload = client.get_signed_attestation(request_tx_id)
+            >>> print(f"Payload size: {len(payload)} bytes")
+        """
+        if not request_tx_id:
+            raise ValueError("request_tx_id cannot be empty")
+
+        go_payload = truf_sdk.GetSignedAttestation(self.client, request_tx_id)
+
+        # Convert Go bytes to Python bytes
+        if hasattr(go_payload, "__iter__"):
+            return bytes(go_payload)
+
+        return go_payload
+
+    def list_attestations(
+        self,
+        requester: bytes | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        order_by: str | None = None,
+    ) -> list[AttestationMetadata]:
+        """
+        List attestation metadata with optional filtering.
+
+        Args:
+            requester: Optional filter by requester address (20 bytes)
+            limit: Maximum results to return (default/max: 5000)
+            offset: Pagination offset (default: 0)
+            order_by: Sort order, one of:
+                - "created_height asc" (default)
+                - "created_height desc"
+                - "signed_height asc"
+                - "signed_height desc"
+
+        Returns:
+            List of attestation metadata
+
+        Example:
+            >>> # Get my recent attestations
+            >>> my_address = bytes.fromhex(client.get_current_account()[2:])
+            >>> attestations = client.list_attestations(
+            ...     requester=my_address,
+            ...     limit=10,
+            ...     order_by="created_height desc",
+            ... )
+            >>> for att in attestations:
+            ...     print(f"TX: {att['request_tx_id']}, Height: {att['created_height']}")
+        """
+        # Validate inputs
+        if requester is not None and len(requester) > 20:
+            raise ValueError(f"requester must be at most 20 bytes, got {len(requester)}")
+
+        if limit is not None and (limit <= 0 or limit > 5000):
+            raise ValueError(f"limit must be between 1 and 5000, got {limit}")
+
+        if offset is not None and offset < 0:
+            raise ValueError(f"offset must be non-negative, got {offset}")
+
+        # Validate order_by
+        valid_order_by = [
+            "created_height asc",
+            "created_height desc",
+            "signed_height asc",
+            "signed_height desc",
+        ]
+        if order_by is not None and order_by.lower() not in valid_order_by:
+            raise ValueError(f"order_by must be one of: {', '.join(valid_order_by)}")
+
+        # Convert None to sentinel values
+        requester_bytes = go.Slice_byte(list(requester)) if requester else go.Slice_byte([])
+        limit_val = self._coalesce_int(limit, -1)
+        offset_val = self._coalesce_int(offset, -1)
+        order_by_val = self._coalesce_str(order_by)
+
+        # Call Go function
+        go_results = truf_sdk.ListAttestations(
+            self.client,
+            requester_bytes,
+            limit_val,
+            offset_val,
+            order_by_val,
+        )
+
+        # Convert to Python dicts
+        results: list[AttestationMetadata] = []
+        for go_map in go_results:
+            item = dict(go_map.items())
+
+            # Parse signed_height (handle null)
+            signed_height_str = item.get("SignedHeight", "")
+            signed_height: int | None = None
+            if signed_height_str and signed_height_str != "null" and signed_height_str != "":
+                try:
+                    signed_height = int(signed_height_str)
+                except ValueError:
+                    pass
+
+            # Parse with error handling for malformed data
+            try:
+                attestation_hash = (
+                    bytes.fromhex(item.get("AttestationHash", ""))
+                    if item.get("AttestationHash")
+                    else b""
+                )
+                requester = (
+                    bytes.fromhex(item.get("Requester", ""))
+                    if item.get("Requester")
+                    else b""
+                )
+                created_height = int(item.get("CreatedHeight") or "0")
+            except (ValueError, TypeError) as e:
+                raise ValueError(
+                    f"Failed to parse attestation metadata: {e}. "
+                    f"AttestationHash: {item.get('AttestationHash')}, "
+                    f"Requester: {item.get('Requester')}, "
+                    f"CreatedHeight: {item.get('CreatedHeight')}"
+                ) from e
+
+            results.append(
+                {
+                    "request_tx_id": item.get("RequestTxID", ""),
+                    "attestation_hash": attestation_hash,
+                    "requester": requester,
+                    "created_height": created_height,
+                    "signed_height": signed_height,
+                    "encrypt_sig": item.get("EncryptSig", "false").lower() == "true",
+                }
+            )
+
+        return results
 
 
 def all_is_list_of_strings[T](arg_list: list[T]) -> bool:

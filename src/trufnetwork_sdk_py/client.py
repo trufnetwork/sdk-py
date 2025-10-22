@@ -1403,6 +1403,10 @@ class TNClient:
         if order_by is not None and order_by.lower() not in valid_order_by:
             raise ValueError(f"order_by must be one of: {', '.join(valid_order_by)}")
 
+        # Normalize order_by to lowercase for consistent Go API calls
+        if order_by is not None:
+            order_by = order_by.lower()
+
         # Convert None to sentinel values
         requester_bytes = go.Slice_byte(list(requester)) if requester else go.Slice_byte([])
         limit_val = self._coalesce_int(limit, -1)

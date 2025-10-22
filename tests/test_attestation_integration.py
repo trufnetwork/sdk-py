@@ -347,8 +347,8 @@ class TestAttestationErrorHandling:
 
     def test_get_signed_attestation_nonexistent_tx_id(self, client):
         """Test retrieving attestation for non-existent transaction"""
-        # Should fail gracefully
-        fake_tx_id = "0x" + "0" * 64
+        # Use well-formed but non-existent tx ID (64 hex chars without 0x prefix)
+        fake_tx_id = "0" * 64
 
         try:
             payload = client.get_signed_attestation(fake_tx_id)

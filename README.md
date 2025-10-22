@@ -322,6 +322,56 @@ client.destroy_stream(stream_id)
 
 For a comprehensive example demonstrating the full stream lifecycle, refer to our [Complex Example](./examples/complex_example/README.md).
 
+## Data Attestations
+
+Request validator-signed proofs of query results for use in smart contracts and external applications.
+
+### Quick Example
+
+```python
+from trufnetwork_sdk_py.client import TNClient
+import time
+
+client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
+
+# Request attestation
+request_tx_id = client.request_attestation(
+    data_provider="0x4710a8d8f0d845da110086812a32de6d90d7ff5c",
+    stream_id="stai0000000000000000000000000000",
+    action_name="get_record",
+    args=[data_provider, stream_id, from_time, to_time, None, False],
+    max_fee=1000000,
+)
+
+# Wait for validator signature (poll every 2 seconds)
+for _ in range(15):
+    payload = client.get_signed_attestation(request_tx_id)
+    if len(payload) > 65:
+        break
+    time.sleep(2)
+
+# Use signed payload in smart contract
+print(f"Signed attestation: {payload.hex()}")
+```
+
+### Complete Workflow
+
+See the [Attestation Example](./examples/attestation/) for a comprehensive guide including:
+- Requesting attestations
+- Polling for validator signatures
+- Retrieving signed payloads
+- Listing attestation metadata
+
+### API Methods
+
+| Method | Description |
+|--------|-------------|
+| `request_attestation()` | Submit attestation request and return transaction ID |
+| `get_signed_attestation()` | Retrieve signed payload by transaction ID |
+| `list_attestations()` | List attestation metadata with filtering and pagination |
+
+For detailed API documentation and examples, see [examples/attestation/README.md](./examples/attestation/README.md).
+
 ## Quick Reference
 
 ### Common Operations
@@ -335,6 +385,9 @@ For a comprehensive example demonstrating the full stream lifecycle, refer to ou
 | Set stream taxonomy | `client.set_taxonomy(stream_id, {child_id: weight}, start_date)` |
 | Get stream taxonomy | `client.describe_taxonomy(stream_id, latest_version=True)` |
 | Destroy stream | `client.destroy_stream(stream_id)` |
+| Request attestation | `client.request_attestation(data_provider, stream_id, action_name, args)` |
+| Get signed attestation | `client.get_signed_attestation(request_tx_id)` |
+| List attestations | `client.list_attestations(requester=bytes, limit=10)` |
 
 ### Key Constants
 

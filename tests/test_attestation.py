@@ -89,14 +89,14 @@ class TestAttestationInputValidation:
             )
 
     def test_request_attestation_negative_max_fee(self, client):
-        """Test that max_fee must be non-negative"""
-        with pytest.raises(ValueError, match="max_fee must be non-negative"):
+        """Test that max_fee must be a valid numeric string"""
+        with pytest.raises(ValueError, match="max_fee must be a numeric string"):
             client.request_attestation(
                 data_provider="0x" + "1" * 40,
                 stream_id="st" + "0" * 30,
                 action_name="get_record",
                 args=[],
-                max_fee=-100,  # Negative
+                max_fee="-100",  # Invalid: contains non-digit characters
                 wait=False,
             )
 
@@ -222,7 +222,7 @@ class TestAttestationEdgeCases:
                 stream_id="st" + "0" * 30,
                 action_name="a",  # Single character
                 args=[],
-                max_fee=0,  # Zero fee
+                max_fee="0",  # Zero fee
                 wait=False,
             )
         except ValueError as e:

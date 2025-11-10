@@ -1243,6 +1243,7 @@ func CallProcedureStrings(client *tnclient.Client, procedure string, args []stri
 
 // RequestAttestation submits an attestation request and returns the transaction ID
 // argsJSON should be a JSON-encoded array of arguments
+// maxFee should be a string representation of NUMERIC(78,0) (e.g., "100000000000000000000")
 func RequestAttestation(
 	client *tnclient.Client,
 	dataProvider string,
@@ -1250,7 +1251,7 @@ func RequestAttestation(
 	actionName string,
 	argsJSON string,
 	encryptSig bool,
-	maxFee int64,
+	maxFee string,
 ) (string, error) {
 	ctx := context.Background()
 

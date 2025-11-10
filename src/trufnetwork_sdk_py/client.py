@@ -1250,7 +1250,7 @@ class TNClient:
         action_name: str,
         args: list[Any],
         encrypt_sig: bool = False,
-        max_fee: int = 1000000,
+        max_fee: str = "100000000000000000000",
         wait: bool = True,
     ) -> str:
         """
@@ -1262,7 +1262,7 @@ class TNClient:
             action_name: Action to attest (e.g., "get_record")
             args: Action arguments
             encrypt_sig: Whether to encrypt signature (must be False in MVP)
-            max_fee: Maximum fee willing to pay
+            max_fee: Maximum fee willing to pay as string (NUMERIC(78,0), e.g., "100000000000000000000" for 100 TRUF)
             wait: If True, wait for transaction confirmation
 
         Returns:
@@ -1274,7 +1274,7 @@ class TNClient:
             ...     stream_id="stai0000000000000000000000000000",
             ...     action_name="get_record",
             ...     args=[data_provider, stream_id, from_time, to_time, None, False],
-            ...     max_fee=1000000,
+            ...     max_fee="100000000000000000000",
             ... )
         """
         # Validate inputs
@@ -1297,8 +1297,12 @@ class TNClient:
                 "Signature encryption is not supported in MVP (encrypt_sig must be False)"
             )
 
-        if max_fee < 0:
-            raise ValueError(f"max_fee must be non-negative, got {max_fee}")
+        # Validate max_fee is a valid non-negative numeric string
+        if max_fee:
+            if not max_fee.isdigit():
+                raise ValueError(f"max_fee must be a numeric string, got: {max_fee}")
+            if int(max_fee) < 0:
+                raise ValueError(f"max_fee must be non-negative, got {max_fee}")
 
         # Convert args to JSON string for passing to Go layer
         args_json = json.dumps(args)

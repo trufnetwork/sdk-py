@@ -65,7 +65,7 @@ def main():
             action_name="get_record",
             args=args,
             encrypt_sig=False,
-            max_fee=1000000,
+            max_fee="100000000000000000000",  # 100 TRUF (100 * 10^18)
             wait=True,
         )
 

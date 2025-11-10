@@ -90,7 +90,7 @@ class TestAttestationFullWorkflow:
             action_name="get_record",
             args=args,
             encrypt_sig=False,
-            max_fee=1000000,
+            max_fee="100000000000000000000",
             wait=True,
         )
 
@@ -112,7 +112,7 @@ class TestAttestationFullWorkflow:
             stream_id=stream_id,
             action_name="get_record",
             args=[data_provider, stream_id, week_ago, now, None, False],
-            max_fee=1000000,
+            max_fee="100000000000000000000",
             wait=True,
         )
 
@@ -152,7 +152,7 @@ class TestAttestationFullWorkflow:
             stream_id=stream_id,
             action_name="get_record",
             args=[data_provider, stream_id, now - 86400, now, None, False],
-            max_fee=1000000,
+            max_fee="100000000000000000000",
             wait=True,
         )
 
@@ -175,7 +175,7 @@ class TestAttestationFullWorkflow:
             stream_id=stream_id,
             action_name="get_record",
             args=[data_provider, stream_id, now - 86400, now, None, False],
-            max_fee=1000000,
+            max_fee="100000000000000000000",
             wait=True,
         )
 
@@ -220,7 +220,7 @@ class TestAttestationFullWorkflow:
                 stream_id=stream_id,
                 action_name="get_record",
                 args=[data_provider, stream_id, now - 86400, now, None, False],
-                max_fee=1000000,
+                max_fee="100000000000000000000",
                 wait=True,
             )
             time.sleep(0.5)  # Small delay between requests
@@ -255,7 +255,7 @@ class TestAttestationFullWorkflow:
                 stream_id=stream_id,
                 action_name="get_record",
                 args=[data_provider, stream_id, now - 86400, now, None, False],
-                max_fee=1000000,
+                max_fee="100000000000000000000",
                 wait=True,
             )
             time.sleep(0.5)
@@ -296,7 +296,7 @@ class TestAttestationFullWorkflow:
             stream_id=stream_id,
             action_name="get_record",
             args=[data_provider, stream_id, now - 86400, now, None, False],
-            max_fee=1000000,
+            max_fee="100000000000000000000",
             wait=True,
         )
 
@@ -377,7 +377,7 @@ class TestAttestationErrorHandling:
             stream_id=fake_stream_id,
             action_name="get_record",
             args=[data_provider, fake_stream_id, now - 86400, now, None, 0],
-            max_fee=1000000,
+            max_fee="100000000000000000000",
             wait=True,
         )
 
@@ -400,7 +400,7 @@ class TestAttestationWithDifferentActions:
             stream_id=stream_id,
             action_name="get_first_record",
             args=[data_provider, stream_id, now - 86400 * 7, None, 0],  # 0 instead of False
-            max_fee=1000000,
+            max_fee="100000000000000000000",
             wait=True,
         )
 
@@ -423,7 +423,7 @@ class TestAttestationWithDifferentActions:
             stream_id=stream_id,
             action_name="get_index",
             args=[data_provider, stream_id, now - 86400 * 7, now, None, base_time, False],
-            max_fee=1000000,
+            max_fee="100000000000000000000",
             wait=True,
         )
 

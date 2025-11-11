@@ -91,6 +91,35 @@ class AttestationMetadata(TypedDict):
     encrypt_sig: bool
 
 
+class FeeDistribution(TypedDict):
+    recipient: str
+    amount: str
+
+
+class TransactionEvent(TypedDict):
+    tx_id: str
+    block_height: int
+    method: str
+    caller: str
+    fee_amount: str
+    fee_recipient: str | None
+    metadata: str | None
+    fee_distributions: list[FeeDistribution]
+
+
+class TransactionFeeEntry(TypedDict):
+    tx_id: str
+    block_height: int
+    method: str
+    caller: str
+    total_fee: str
+    fee_recipient: str | None
+    metadata: str | None
+    distribution_sequence: int
+    distribution_recipient: str | None
+    distribution_amount: str | None
+
+
 class TaxonomyDetails(TypedDict):
     stream_id: str
     child_streams: list["TaxonomyDefinition"]
@@ -1471,6 +1500,205 @@ class TNClient:
                     "encrypt_sig": item.get("EncryptSig", "false").lower() == "true",
                 }
             )
+
+        return results
+
+    # ==========================================
+    #     TRANSACTION LEDGER METHODS
+    # ==========================================
+
+    def get_transaction_event(self, tx_id: str) -> TransactionEvent:
+        """
+        Retrieve detailed transaction information by transaction hash.
+
+        Args:
+            tx_id: Transaction hash (with or without 0x prefix)
+
+        Returns:
+            TransactionEvent with transaction details and fee distributions
+
+        Raises:
+            ValueError: If tx_id is empty
+            Exception: If transaction not found or query fails
+
+        Example:
+            >>> tx_event = client.get_transaction_event("0xabcdef...")
+            >>> print(f"Method: {tx_event['method']}")
+            >>> print(f"Fee: {tx_event['fee_amount']} wei")
+            >>> for dist in tx_event['fee_distributions']:
+            ...     print(f"  → {dist['recipient']}: {dist['amount']}")
+        """
+        # Validate input
+        if not tx_id or tx_id.strip() == "":
+            raise ValueError("tx_id is required and cannot be empty")
+
+        # Call Go binding
+        go_result = truf_sdk.GetTransactionEvent(self.client, tx_id)
+
+        # Convert to Python dict
+        result_dict = dict(go_result.items())
+
+        # Parse block height
+        try:
+            block_height = int(result_dict.get("BlockHeight", "0"))
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Failed to parse transaction event: Invalid BlockHeight. "
+                f"BlockHeight: {result_dict.get('BlockHeight')}"
+            ) from e
+
+        # Parse fee distributions from JSON
+        fee_distributions_json = result_dict.get("FeeDistributions", "[]")
+        fee_distributions: list[FeeDistribution] = []
+
+        if fee_distributions_json and fee_distributions_json != "[]":
+            try:
+                fee_distributions_data = json.loads(fee_distributions_json)
+                for dist in fee_distributions_data:
+                    fee_distributions.append({
+                        "recipient": dist.get("recipient", ""),
+                        "amount": dist.get("amount", "")
+                    })
+            except (json.JSONDecodeError, TypeError, KeyError) as e:
+                raise ValueError(
+                    f"Failed to parse fee distributions: {e}. "
+                    f"FeeDistributions: {fee_distributions_json}"
+                ) from e
+
+        # Convert nullable fields (empty string → None)
+        fee_recipient = result_dict.get("FeeRecipient")
+        if fee_recipient == "":
+            fee_recipient = None
+
+        metadata = result_dict.get("Metadata")
+        if metadata == "":
+            metadata = None
+
+        # Build result
+        return {
+            "tx_id": result_dict.get("TxID", ""),
+            "block_height": block_height,
+            "method": result_dict.get("Method", ""),
+            "caller": result_dict.get("Caller", ""),
+            "fee_amount": result_dict.get("FeeAmount", "0"),
+            "fee_recipient": fee_recipient,
+            "metadata": metadata,
+            "fee_distributions": fee_distributions,
+        }
+
+    def list_transaction_fees(
+        self,
+        wallet: str,
+        mode: str = "paid",
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> list[TransactionFeeEntry]:
+        """
+        List transactions filtered by wallet address and mode.
+
+        Args:
+            wallet: Ethereum address to query (required)
+            mode: Filter mode - one of: "paid", "received", "both" (default: "paid")
+            limit: Maximum results to return (default: 20, max: 1000)
+            offset: Pagination offset (default: 0)
+
+        Returns:
+            List of TransactionFeeEntry dictionaries.
+            Note: Returns one row per fee distribution, so a transaction with
+            multiple distributions will appear multiple times.
+
+        Raises:
+            ValueError: If wallet is empty or mode is invalid
+
+        Example:
+            >>> # List fees paid by wallet
+            >>> entries = client.list_transaction_fees(
+            ...     wallet="0x1234...",
+            ...     mode="paid",
+            ...     limit=10
+            ... )
+            >>> for entry in entries:
+            ...     print(f"{entry['method']}: {entry['total_fee']} wei")
+        """
+        # Validate inputs
+        if not wallet or wallet.strip() == "":
+            raise ValueError("wallet is required and cannot be empty")
+
+        valid_modes = ["paid", "received", "both"]
+        if mode not in valid_modes:
+            raise ValueError(f"mode must be one of: {', '.join(valid_modes)}")
+
+        if limit is not None and (limit <= 0 or limit > 1000):
+            raise ValueError("limit must be between 1 and 1000")
+
+        if offset is not None and offset < 0:
+            raise ValueError("offset cannot be negative")
+
+        # Set defaults
+        limit_val = limit if limit is not None else 20
+        offset_val = offset if offset is not None else 0
+
+        # Call Go binding
+        go_results = truf_sdk.ListTransactionFees(
+            self.client,
+            wallet,
+            mode,
+            limit_val,
+            offset_val,
+        )
+
+        # Convert to Python list of dicts
+        results: list[TransactionFeeEntry] = []
+        for go_map in go_results:
+            item = dict(go_map.items())
+
+            # Parse block height
+            try:
+                block_height = int(item.get("BlockHeight", "0"))
+            except (ValueError, TypeError) as e:
+                raise ValueError(
+                    f"Failed to parse transaction fee entry: Invalid BlockHeight. "
+                    f"BlockHeight: {item.get('BlockHeight')}, item: {item}"
+                ) from e
+
+            # Parse distribution sequence
+            try:
+                distribution_sequence = int(item.get("DistributionSequence", "0"))
+            except (ValueError, TypeError) as e:
+                raise ValueError(
+                    f"Failed to parse transaction fee entry: Invalid DistributionSequence. "
+                    f"DistributionSequence: {item.get('DistributionSequence')}, item: {item}"
+                ) from e
+
+            # Convert nullable fields (empty string → None)
+            fee_recipient = item.get("FeeRecipient")
+            if fee_recipient == "":
+                fee_recipient = None
+
+            metadata = item.get("Metadata")
+            if metadata == "":
+                metadata = None
+
+            distribution_recipient = item.get("DistributionRecipient")
+            if distribution_recipient == "":
+                distribution_recipient = None
+
+            distribution_amount = item.get("DistributionAmount")
+            if distribution_amount == "":
+                distribution_amount = None
+
+            results.append({
+                "tx_id": item.get("TxID", ""),
+                "block_height": block_height,
+                "method": item.get("Method", ""),
+                "caller": item.get("Caller", ""),
+                "total_fee": item.get("TotalFee", "0"),
+                "fee_recipient": fee_recipient,
+                "metadata": metadata,
+                "distribution_sequence": distribution_sequence,
+                "distribution_recipient": distribution_recipient,
+                "distribution_amount": distribution_amount,
+            })
 
         return results
 

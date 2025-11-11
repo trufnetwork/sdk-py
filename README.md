@@ -322,6 +322,26 @@ client.destroy_stream(stream_id)
 
 For a comprehensive example demonstrating the full stream lifecycle, refer to our [Complex Example](./examples/complex_example/README.md).
 
+## Transaction Ledger Queries
+
+Query transaction history, fees, and distributions for auditing and analytics.
+
+```python
+# Get transaction details
+tx_event = client.get_transaction_event("0xabcdef...")
+print(f"Method: {tx_event['method']}, Fee: {tx_event['fee_amount']} wei")
+
+# List fees paid by wallet
+wallet = client.get_current_account()
+entries = client.list_transaction_fees(
+    wallet=wallet,
+    mode="paid",  # "paid", "received", or "both"
+    limit=10
+)
+```
+
+**📖 For complete documentation including parameters, return types, pagination, filtering modes, and real-world examples, see the [Transaction Ledger section](./docs/api-reference.md#transaction-ledger) in the API Reference.**
+
 ## Data Attestations
 
 Request validator-signed proofs of query results for use in smart contracts and external applications.
@@ -388,6 +408,8 @@ For detailed API documentation and examples, see [examples/attestation/README.md
 | Request attestation | `client.request_attestation(data_provider, stream_id, action_name, args)` |
 | Get signed attestation | `client.get_signed_attestation(request_tx_id)` |
 | List attestations | `client.list_attestations(requester=bytes, limit=10)` |
+| Get transaction event | `client.get_transaction_event(tx_id)` |
+| List transaction fees | `client.list_transaction_fees(wallet, mode="paid", limit=20)` |
 
 ### Key Constants
 

@@ -1384,3 +1384,148 @@ func ListAttestations(
 
 	return output, nil
 }
+
+// ==========================================
+//     TRANSACTION LEDGER FUNCTIONS
+// ==========================================
+
+// GetTransactionEvent retrieves detailed transaction information by tx hash
+func GetTransactionEvent(client *tnclient.Client, txID string) (map[string]string, error) {
+	ctx := context.Background()
+
+	// Load transaction actions
+	txActions, err := client.LoadTransactionActions()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to load transaction actions")
+	}
+
+	// Build input
+	input := types.GetTransactionEventInput{
+		TxID: txID,
+	}
+
+	// Call SDK-Go
+	result, err := txActions.GetTransactionEvent(ctx, input)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get transaction event")
+	}
+
+	// Convert to map[string]string for gopy compatibility
+	// gopy has trouble with complex structs, so we flatten everything
+	response := make(map[string]string)
+	response["TxID"] = result.TxID
+	response["BlockHeight"] = strconv.FormatInt(result.BlockHeight, 10)
+	response["Method"] = result.Method
+	response["Caller"] = result.Caller
+	response["FeeAmount"] = result.FeeAmount
+
+	// Handle nullable fields
+	if result.FeeRecipient != nil {
+		response["FeeRecipient"] = *result.FeeRecipient
+	} else {
+		response["FeeRecipient"] = ""
+	}
+
+	if result.Metadata != nil {
+		response["Metadata"] = *result.Metadata
+	} else {
+		response["Metadata"] = ""
+	}
+
+	// Encode fee distributions as JSON for easy parsing in Python
+	if len(result.FeeDistributions) > 0 {
+		distributionsJSON, err := json.Marshal(result.FeeDistributions)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to marshal fee distributions")
+		}
+		response["FeeDistributions"] = string(distributionsJSON)
+	} else {
+		response["FeeDistributions"] = "[]"
+	}
+
+	return response, nil
+}
+
+// ListTransactionFees returns transactions filtered by wallet and mode
+func ListTransactionFees(
+	client *tnclient.Client,
+	wallet string,
+	mode string,
+	limit int,
+	offset int,
+) ([]map[string]string, error) {
+	ctx := context.Background()
+
+	// Load transaction actions
+	txActions, err := client.LoadTransactionActions()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to load transaction actions")
+	}
+
+	// Convert limit/offset sentinel values to pointers
+	var limitPtr *int
+	var offsetPtr *int
+
+	if limit > 0 {
+		limitPtr = &limit
+	}
+	if offset >= 0 {
+		offsetPtr = &offset
+	}
+
+	// Build input
+	input := types.ListTransactionFeesInput{
+		Wallet: wallet,
+		Mode:   types.TransactionFeeMode(mode),
+		Limit:  limitPtr,
+		Offset: offsetPtr,
+	}
+
+	// Call SDK-Go
+	results, err := txActions.ListTransactionFees(ctx, input)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to list transaction fees")
+	}
+
+	// Convert to slice of maps for gopy compatibility
+	response := make([]map[string]string, 0, len(results))
+	for _, entry := range results {
+		entryMap := make(map[string]string)
+		entryMap["TxID"] = entry.TxID
+		entryMap["BlockHeight"] = strconv.FormatInt(entry.BlockHeight, 10)
+		entryMap["Method"] = entry.Method
+		entryMap["Caller"] = entry.Caller
+		entryMap["TotalFee"] = entry.TotalFee
+
+		// Handle nullable fields
+		if entry.FeeRecipient != nil {
+			entryMap["FeeRecipient"] = *entry.FeeRecipient
+		} else {
+			entryMap["FeeRecipient"] = ""
+		}
+
+		if entry.Metadata != nil {
+			entryMap["Metadata"] = *entry.Metadata
+		} else {
+			entryMap["Metadata"] = ""
+		}
+
+		entryMap["DistributionSequence"] = strconv.Itoa(entry.DistributionSequence)
+
+		if entry.DistributionRecipient != nil {
+			entryMap["DistributionRecipient"] = *entry.DistributionRecipient
+		} else {
+			entryMap["DistributionRecipient"] = ""
+		}
+
+		if entry.DistributionAmount != nil {
+			entryMap["DistributionAmount"] = *entry.DistributionAmount
+		} else {
+			entryMap["DistributionAmount"] = ""
+		}
+
+		response = append(response, entryMap)
+	}
+
+	return response, nil
+}

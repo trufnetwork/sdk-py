@@ -1556,8 +1556,8 @@ class TNClient:
                 fee_distributions_data = json.loads(fee_distributions_json)
                 for dist in fee_distributions_data:
                     fee_distributions.append({
-                        "recipient": dist.get("Recipient", ""),
-                        "amount": dist.get("Amount", "")
+                        "recipient": dist.get("recipient", ""),
+                        "amount": dist.get("amount", "")
                     })
             except (json.JSONDecodeError, TypeError, KeyError) as e:
                 raise ValueError(

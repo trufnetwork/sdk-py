@@ -326,47 +326,21 @@ For a comprehensive example demonstrating the full stream lifecycle, refer to ou
 
 Query transaction history, fees, and distributions for auditing and analytics.
 
-### Quick Example
-
 ```python
-from trufnetwork_sdk_py.client import TNClient
+# Get transaction details
+tx_event = client.get_transaction_event("0xabcdef...")
+print(f"Method: {tx_event['method']}, Fee: {tx_event['fee_amount']} wei")
 
-client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
-
-# Get details of a specific transaction
-tx_event = client.get_transaction_event("0xabcdef123456...")
-print(f"Method: {tx_event['method']}")
-print(f"Fee: {tx_event['fee_amount']} wei")
-print(f"Block: {tx_event['block_height']}")
-
-# List fees paid by your wallet
+# List fees paid by wallet
 wallet = client.get_current_account()
 entries = client.list_transaction_fees(
     wallet=wallet,
     mode="paid",  # "paid", "received", or "both"
     limit=10
 )
-
-for entry in entries:
-    print(f"{entry['method']}: {entry['total_fee']} wei")
 ```
 
-### Features
-
-- **Transaction Details**: Get complete information about any transaction by hash
-- **Fee History**: List all fees paid or received by a wallet
-- **Fee Distributions**: Track where fees are distributed (validators, proposers)
-- **Pagination**: Efficiently query large transaction histories
-- **Flexible Filtering**: Filter by wallet, mode, and time range
-
-### API Methods
-
-| Method | Description |
-|--------|-------------|
-| `get_transaction_event()` | Get detailed transaction information by hash |
-| `list_transaction_fees()` | List transactions with fee details (paid/received/both) |
-
-For complete API documentation, see the [Transaction Ledger section](./docs/api-reference.md#transaction-ledger) in the API Reference.
+**📖 For complete documentation including parameters, return types, pagination, filtering modes, and real-world examples, see the [Transaction Ledger section](./docs/api-reference.md#transaction-ledger) in the API Reference.**
 
 ## Data Attestations
 

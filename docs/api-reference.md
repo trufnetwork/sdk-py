@@ -771,6 +771,174 @@ Waits for transaction confirmation.
 client.wait_for_tx(tx_hash)
 ```
 
+## Transaction Ledger
+
+The transaction ledger provides comprehensive querying capabilities for transaction history, fees, and distributions. This is useful for auditing, analytics, and tracking transaction costs.
+
+### `client.get_transaction_event(tx_id: str) -> TransactionEvent`
+Retrieves detailed information about a specific transaction by its hash.
+
+#### Parameters
+- `tx_id: str` - Transaction hash (with or without 0x prefix)
+
+#### Returns
+- `TransactionEvent` - Dictionary containing:
+  - `tx_id: str` - Transaction hash (normalized with 0x prefix)
+  - `block_height: int` - Block height when transaction was included
+  - `method: str` - Method name (e.g., "deployStream", "insertRecords")
+  - `caller: str` - Ethereum address of the caller
+  - `fee_amount: str` - Fee amount in wei as a string (for precision)
+  - `fee_recipient: str | None` - Primary fee recipient address (if any)
+  - `metadata: str | None` - Optional metadata JSON
+  - `fee_distributions: List[FeeDistribution]` - List of fee distribution details
+    - Each distribution has: `recipient: str`, `amount: str`
+
+#### Raises
+- `ValueError` - If tx_id is empty
+- `Exception` - If transaction not found or query fails
+
+#### Example
+```python
+from trufnetwork_sdk_py.client import TNClient
+
+client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
+
+# Get transaction details
+tx_event = client.get_transaction_event("0xabcdef123456...")
+
+print(f"Method: {tx_event['method']}")
+print(f"Caller: {tx_event['caller']}")
+print(f"Fee: {tx_event['fee_amount']} wei")
+print(f"Block: {tx_event['block_height']}")
+
+# Check fee distributions
+for dist in tx_event['fee_distributions']:
+    print(f"  → {dist['recipient']}: {dist['amount']} wei")
+```
+
+### `client.list_transaction_fees(wallet: str, mode: str = "paid", limit: int | None = None, offset: int | None = None) -> List[TransactionFeeEntry]`
+Lists transactions filtered by wallet address and mode, with pagination support.
+
+#### Parameters
+- `wallet: str` - Ethereum address to query (required)
+- `mode: str` - Filter mode (default: "paid")
+  - `"paid"` - Fees paid by this wallet (as transaction caller)
+  - `"received"` - Fees received by this wallet (as fee recipient)
+  - `"both"` - All transactions involving this wallet
+- `limit: int | None` - Maximum results to return (default: 20, max: 1000)
+- `offset: int | None` - Pagination offset (default: 0)
+
+#### Returns
+- `List[TransactionFeeEntry]` - List of transaction entries, each containing:
+  - `tx_id: str` - Transaction hash
+  - `block_height: int` - Block height
+  - `method: str` - Method name
+  - `caller: str` - Transaction caller address
+  - `total_fee: str` - Total fee amount in wei
+  - `fee_recipient: str | None` - Primary fee recipient (if any)
+  - `metadata: str | None` - Optional metadata
+  - `distribution_sequence: int` - Sequence number of this distribution
+  - `distribution_recipient: str | None` - Specific distribution recipient
+  - `distribution_amount: str | None` - Specific distribution amount
+
+> **Note**: Returns one row per fee distribution. A transaction with multiple distributions will appear multiple times with different `distribution_sequence` values.
+
+#### Raises
+- `ValueError` - If wallet is empty, mode is invalid, or pagination parameters are invalid
+
+#### Example: Basic Usage
+```python
+from trufnetwork_sdk_py.client import TNClient
+
+client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
+wallet = client.get_current_account()
+
+# List fees paid by this wallet
+entries = client.list_transaction_fees(
+    wallet=wallet,
+    mode="paid",
+    limit=10
+)
+
+for entry in entries:
+    print(f"{entry['method']}: {entry['total_fee']} wei at block {entry['block_height']}")
+```
+
+#### Example: Pagination
+```python
+# Get first page (records 1-20)
+page1 = client.list_transaction_fees(wallet=wallet, limit=20, offset=0)
+
+# Get second page (records 21-40)
+page2 = client.list_transaction_fees(wallet=wallet, limit=20, offset=20)
+
+# Get all transactions (up to max 1000)
+all_entries = client.list_transaction_fees(wallet=wallet, limit=1000)
+```
+
+#### Example: Fees Received
+```python
+# Check if this wallet has received any fee distributions
+received = client.list_transaction_fees(
+    wallet=wallet,
+    mode="received",
+    limit=50
+)
+
+if received:
+    print(f"This wallet has received fees from {len(received)} distributions")
+    total = sum(int(e['distribution_amount'] or '0') for e in received)
+    print(f"Total received: {total} wei")
+```
+
+#### Example: All Transactions
+```python
+# Get both paid and received transactions
+all_txs = client.list_transaction_fees(
+    wallet=wallet,
+    mode="both",
+    limit=100
+)
+
+paid_count = sum(1 for e in all_txs if e['caller'].lower() == wallet.lower())
+received_count = sum(1 for e in all_txs if e['distribution_recipient'] and
+                     e['distribution_recipient'].lower() == wallet.lower())
+
+print(f"Paid {paid_count} transaction fees")
+print(f"Received {received_count} fee distributions")
+```
+
+### Transaction Ledger Use Cases
+
+**Auditing**: Track all fees paid and received by your wallets
+```python
+# Audit monthly spending
+wallet = "0x1234..."
+monthly_fees = client.list_transaction_fees(wallet, mode="paid", limit=1000)
+total_spent = sum(int(e['total_fee']) for e in monthly_fees)
+print(f"Total fees paid: {total_spent / 1e18:.4f} TRUF")
+```
+
+**Analytics**: Analyze transaction patterns
+```python
+# Count transactions by method
+from collections import Counter
+entries = client.list_transaction_fees(wallet, mode="paid", limit=500)
+methods = Counter(e['method'] for e in entries)
+print(f"Most common operations: {methods.most_common(5)}")
+```
+
+**Fee Distribution Tracking**: Monitor where fees go
+```python
+# Track fee recipients
+tx_event = client.get_transaction_event(tx_hash)
+if tx_event['fee_distributions']:
+    print("Fee distribution breakdown:")
+    for dist in tx_event['fee_distributions']:
+        percentage = (int(dist['amount']) / int(tx_event['fee_amount'])) * 100
+        print(f"  {dist['recipient']}: {percentage:.1f}%")
+```
+
 ## Performance Recommendations
 - Use `batch_insert_records` for multiple records to one or more streams to reduce network overhead and transaction costs.
 - Handle errors with specific exception handling to build robust applications.

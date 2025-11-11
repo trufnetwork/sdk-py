@@ -322,6 +322,52 @@ client.destroy_stream(stream_id)
 
 For a comprehensive example demonstrating the full stream lifecycle, refer to our [Complex Example](./examples/complex_example/README.md).
 
+## Transaction Ledger Queries
+
+Query transaction history, fees, and distributions for auditing and analytics.
+
+### Quick Example
+
+```python
+from trufnetwork_sdk_py.client import TNClient
+
+client = TNClient("https://gateway.mainnet.truf.network", "YOUR_PRIVATE_KEY")
+
+# Get details of a specific transaction
+tx_event = client.get_transaction_event("0xabcdef123456...")
+print(f"Method: {tx_event['method']}")
+print(f"Fee: {tx_event['fee_amount']} wei")
+print(f"Block: {tx_event['block_height']}")
+
+# List fees paid by your wallet
+wallet = client.get_current_account()
+entries = client.list_transaction_fees(
+    wallet=wallet,
+    mode="paid",  # "paid", "received", or "both"
+    limit=10
+)
+
+for entry in entries:
+    print(f"{entry['method']}: {entry['total_fee']} wei")
+```
+
+### Features
+
+- **Transaction Details**: Get complete information about any transaction by hash
+- **Fee History**: List all fees paid or received by a wallet
+- **Fee Distributions**: Track where fees are distributed (validators, proposers)
+- **Pagination**: Efficiently query large transaction histories
+- **Flexible Filtering**: Filter by wallet, mode, and time range
+
+### API Methods
+
+| Method | Description |
+|--------|-------------|
+| `get_transaction_event()` | Get detailed transaction information by hash |
+| `list_transaction_fees()` | List transactions with fee details (paid/received/both) |
+
+For complete API documentation, see the [Transaction Ledger section](./docs/api-reference.md#transaction-ledger) in the API Reference.
+
 ## Data Attestations
 
 Request validator-signed proofs of query results for use in smart contracts and external applications.
@@ -388,6 +434,8 @@ For detailed API documentation and examples, see [examples/attestation/README.md
 | Request attestation | `client.request_attestation(data_provider, stream_id, action_name, args)` |
 | Get signed attestation | `client.get_signed_attestation(request_tx_id)` |
 | List attestations | `client.list_attestations(requester=bytes, limit=10)` |
+| Get transaction event | `client.get_transaction_event(tx_id)` |
+| List transaction fees | `client.list_transaction_fees(wallet, mode="paid", limit=20)` |
 
 ### Key Constants
 

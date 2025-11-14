@@ -8,6 +8,9 @@ parse_attestation_payload() and verify_attestation_signature() methods.
 import pytest
 from trufnetwork_sdk_py.client import TNClient, ParsedAttestationPayload
 
+# Test private key used for client initialization
+TEST_PRIVATE_KEY = "0121234567890123456789012345678901234567890123456789012345178901"
+
 
 class TestAttestationPayloadParsing:
     """Unit tests for attestation payload parsing"""
@@ -108,7 +111,5 @@ class TestAttestationPayloadTypes:
 @pytest.fixture(scope="module")
 def client(tn_node):
     """Create a TNClient instance for testing"""
-    from tests.helpers import TEST_PRIVATE_KEY
-
     client = TNClient(tn_node, TEST_PRIVATE_KEY)
     return client

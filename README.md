@@ -19,8 +19,8 @@ If you need help, don't hesitate to [open an issue](https://github.com/trufnetwo
 
 1. Visit the [**releases page**](https://github.com/trufnetwork/sdk-py/releases/latest)
 2. Download the wheel file (`.whl`) for your platform:
-   - **Linux**: `*manylinux*.whl`
-   - **macOS**: `*macosx*.whl`
+    - **Linux**: `*manylinux*.whl`
+    - **macOS**: `*macosx*.whl`
 3. Install using pip:
    ```bash
    pip install /path/to/downloaded/wheel.whl
@@ -219,14 +219,14 @@ TRUF.NETWORK supports two primary stream types:
 
 1. **Primitive Streams**:
 
-   - Basic time-series data streams
-   - Represent single, linear data points
-   - Ideal for individual metrics or indicators
+    - Basic time-series data streams
+    - Represent single, linear data points
+    - Ideal for individual metrics or indicators
 
 2. **Composed Streams**:
-   - Aggregate data from multiple primitive streams
-   - Allow weighted combination of different data sources
-   - Create complex, derived economic indicators
+    - Aggregate data from multiple primitive streams
+    - Allow weighted combination of different data sources
+    - Create complex, derived economic indicators
 
 ### Creating Streams
 
@@ -370,6 +370,16 @@ for _ in range(15):
         break
     time.sleep(2)
 
+# Verify signature and get validator address
+verification = client.verify_attestation_signature(payload)
+print(f"Validator Address: {verification['validator_address']}")
+
+# Parse the attestation payload
+parsed = client.parse_attestation_payload(verification['canonical_payload'])
+print(f"Data Provider: {parsed.data_provider}")
+print(f"Block Height: {parsed.block_height}")
+print(f"Query returned {len(parsed.result)} rows")
+
 # Use signed payload in smart contract
 print(f"Signed attestation: {payload.hex()}")
 ```
@@ -380,6 +390,9 @@ See the [Attestation Example](./examples/attestation/) for a comprehensive guide
 - Requesting attestations
 - Polling for validator signatures
 - Retrieving signed payloads
+- Verifying signatures and extracting validator addresses
+- Parsing attestation payloads
+- Displaying attested query results
 - Listing attestation metadata
 
 ### API Methods
@@ -388,6 +401,8 @@ See the [Attestation Example](./examples/attestation/) for a comprehensive guide
 |--------|-------------|
 | `request_attestation()` | Submit attestation request and return transaction ID |
 | `get_signed_attestation()` | Retrieve signed payload by transaction ID |
+| `verify_attestation_signature()` | Verify signature and extract validator address |
+| `parse_attestation_payload()` | Parse attestation payload into structured data |
 | `list_attestations()` | List attestation metadata with filtering and pagination |
 
 For detailed API documentation and examples, see [examples/attestation/README.md](./examples/attestation/README.md).

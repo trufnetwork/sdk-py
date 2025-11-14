@@ -2,6 +2,7 @@ package exports
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"github.com/trufnetwork/kwil-db/core/crypto"
 	"github.com/trufnetwork/kwil-db/core/crypto/auth"
 	kwilTypes "github.com/trufnetwork/kwil-db/core/types"
+	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
 	"github.com/trufnetwork/sdk-go/core/util"
@@ -1383,6 +1385,57 @@ func ListAttestations(
 	}
 
 	return output, nil
+}
+
+// ParseAttestationPayload parses a canonical attestation payload (without signature)
+// Returns a JSON string containing the parsed payload structure
+func ParseAttestationPayload(payload []byte) (string, error) {
+	parsed, err := contractsapi.ParseAttestationPayload(payload)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to parse attestation payload")
+	}
+
+	// Convert to JSON for Python consumption
+	jsonBytes, err := json.Marshal(parsed)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal parsed payload to JSON")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// VerifyAttestationSignature extracts and verifies the signature from an attestation payload
+// Returns the validator's Ethereum address as a hex string (0x...)
+func VerifyAttestationSignature(fullPayload []byte) (string, error) {
+	// Validate minimum length
+	if len(fullPayload) < 66 {
+		return "", fmt.Errorf("payload too short (%d bytes), expected at least 66", len(fullPayload))
+	}
+
+	// Extract canonical payload and signature
+	signatureOffset := len(fullPayload) - 65
+	canonicalPayload := fullPayload[:signatureOffset]
+	signature := fullPayload[signatureOffset:]
+
+	// Hash the canonical payload
+	hash := sha256.Sum256(canonicalPayload)
+
+	// Adjust signature format (Ethereum V=27/28 -> raw V=0/1)
+	adjustedSig := make([]byte, 65)
+	copy(adjustedSig, signature)
+	if signature[64] >= 27 {
+		adjustedSig[64] = signature[64] - 27
+	}
+
+	// Recover public key
+	pubKey, err := crypto.RecoverSecp256k1KeyFromSigHash(hash[:], adjustedSig)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to recover public key from signature")
+	}
+
+	// Derive Ethereum address
+	validatorAddr := crypto.EthereumAddressFromPubKey(pubKey)
+	return fmt.Sprintf("0x%x", validatorAddr), nil
 }
 
 // ==========================================

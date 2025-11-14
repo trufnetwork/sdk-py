@@ -43,7 +43,7 @@ class TestAttestationPayloadParsing:
     def test_verify_signature_provides_clear_error_message(self, client):
         """Error message should specify minimum length requirement"""
         with pytest.raises(
-            ValueError, match="expected at least 66.*minimum 1 byte data.*65 bytes signature"
+            ValueError, match=r"expected at least 66 \(minimum 1 byte data \+ 65 bytes signature\)"
         ):
             client.verify_attestation_signature(b"\x00" * 50)
 

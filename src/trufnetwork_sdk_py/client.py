@@ -91,6 +91,38 @@ class AttestationMetadata(TypedDict):
     encrypt_sig: bool
 
 
+class AttestationSignatureVerification(TypedDict):
+    """Result of attestation signature verification"""
+
+    validator_address: str  # Ethereum address of validator who signed (0x...)
+    canonical_payload: bytes  # The payload that was signed (excludes signature)
+    signature: bytes  # The 65-byte signature (R || S || V)
+
+
+class ParsedAttestationPayload(BaseModel):
+    """Parsed attestation payload structure
+
+    Attributes:
+        version: Payload format version (currently 1)
+        algorithm: Signature algorithm (0 = secp256k1)
+        block_height: Block height when attestation was created
+        data_provider: Data provider address (0x...)
+        stream_id: Stream identifier
+        action_id: Numeric action identifier
+        arguments: List of decoded arguments passed to the action
+        result: List of decoded rows from the query result
+    """
+
+    version: int
+    algorithm: int
+    block_height: int
+    data_provider: str
+    stream_id: str
+    action_id: int
+    arguments: list[Any] = []
+    result: list[dict[str, Any]] = []
+
+
 class FeeDistribution(TypedDict):
     recipient: str
     amount: str
@@ -231,9 +263,9 @@ class TNClient:
         for field in dir(records):
             # Skip private/dunder attributes
             if not field.startswith("_") and field not in (
-                "handle",
-                "incref",
-                "decref",
+                    "handle",
+                    "incref",
+                    "decref",
             ):
                 try:
                     value = getattr(records, field)
@@ -256,7 +288,7 @@ class TNClient:
                 cache_hit = response.CacheHit
             else:
                 cache_hit = response.get("CacheHit", False)
-            
+
             if cache_hit:
                 # Try to get height from Height field
                 height = None
@@ -264,7 +296,7 @@ class TNClient:
                     height = response.Height.Value
                 elif "Height" in response and response["Height"].get("IsSet", False):
                     height = response["Height"]["Value"]
-                
+
                 return CacheMetadata(
                     hit=cache_hit,
                     cache_height=height,
@@ -276,7 +308,7 @@ class TNClient:
             return CacheMetadata(hit=False, cache_height=None)
 
     def _extract_records_data(
-        self, response: truf_sdk.DataResponse
+            self, response: truf_sdk.DataResponse
     ) -> list[StreamRecord]:
         """Extract and format records data from DataResponse."""
         data = []
@@ -287,7 +319,7 @@ class TNClient:
         return data
 
     def _extract_single_record_data(
-        self, response: truf_sdk.DataResponse
+            self, response: truf_sdk.DataResponse
     ) -> StreamRecord | None:
         """Extract and format single record data from SingleRecordResponse."""
         records = list(response.Data)
@@ -304,7 +336,7 @@ class TNClient:
         return None
 
     def _format_records_response(
-        self, response: truf_sdk.DataResponse
+            self, response: truf_sdk.DataResponse
     ) -> CacheAwareResponse[list[StreamRecord]]:
         """
         Format DataResponse into cache-aware response for list-based methods (get_records, get_index).
@@ -315,7 +347,7 @@ class TNClient:
         return CacheAwareResponse(data=data, cache=cache_metadata)
 
     def _format_single_record_response(
-        self, response: truf_sdk.DataResponse
+            self, response: truf_sdk.DataResponse
     ) -> CacheAwareResponse[StreamRecord | None]:
         """
         Format SingleRecordResponse into cache-aware response for single record methods (get_first_record).
@@ -336,10 +368,10 @@ class TNClient:
     # --------------------------------------------------
 
     def deploy_stream(
-        self,
-        stream_id: str,
-        stream_type: str = truf_sdk.StreamTypePrimitive,
-        wait: bool = True,
+            self,
+            stream_id: str,
+            stream_type: str = truf_sdk.StreamTypePrimitive,
+            wait: bool = True,
     ) -> str:
         """
         Deploy a stream with the given stream ID and stream type.
@@ -352,7 +384,7 @@ class TNClient:
         return deploy_tx_hash
 
     def insert_record(
-        self, stream_id: str, record: dict[str, float | int], wait: bool = True
+            self, stream_id: str, record: dict[str, float | int], wait: bool = True
     ) -> str:
         """
         Insert a single record into a stream with the given stream ID.
@@ -378,10 +410,10 @@ class TNClient:
         return insert_tx_hash
 
     def insert_records(
-        self,
-        stream_id: str,
-        records: list[dict[str, float | int]],
-        wait: bool = True,
+            self,
+            stream_id: str,
+            records: list[dict[str, float | int]],
+            wait: bool = True,
     ) -> str:
         """
         Insert records into a stream with the given stream ID.
@@ -414,7 +446,7 @@ class TNClient:
         return insert_tx_hash
 
     def batch_insert_records(
-        self, batches: list[RecordBatch], wait: bool = True
+            self, batches: list[RecordBatch], wait: bool = True
     ) -> str:
         """
         Insert multiple batches of records into different streams in a single transaction.
@@ -470,41 +502,41 @@ class TNClient:
 
     @overload
     def get_records(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        date_from: int | None = None,
-        date_to: int | None = None,
-        frozen_at: int | None = None,
-        base_date: int | None = None,
-        prefix: str | None = None,
-        *,
-        use_cache: bool,
+            self,
+            stream_id: str,
+            data_provider: str | None = None,
+            date_from: int | None = None,
+            date_to: int | None = None,
+            frozen_at: int | None = None,
+            base_date: int | None = None,
+            prefix: str | None = None,
+            *,
+            use_cache: bool,
     ) -> CacheAwareResponse[list[StreamRecord]]: ...
 
     @overload
     def get_records(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        date_from: int | None = None,
-        date_to: int | None = None,
-        frozen_at: int | None = None,
-        base_date: int | None = None,
-        prefix: str | None = None,
+            self,
+            stream_id: str,
+            data_provider: str | None = None,
+            date_from: int | None = None,
+            date_to: int | None = None,
+            frozen_at: int | None = None,
+            base_date: int | None = None,
+            prefix: str | None = None,
     ) -> list[StreamRecord]: ...
 
     def get_records(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        date_from: int | None = None,
-        date_to: int | None = None,
-        frozen_at: int | None = None,
-        base_date: int | None = None,
-        prefix: str | None = None,
-        *,
-        use_cache: bool | None = _UNSET,
+            self,
+            stream_id: str,
+            data_provider: str | None = None,
+            date_from: int | None = None,
+            date_to: int | None = None,
+            frozen_at: int | None = None,
+            base_date: int | None = None,
+            prefix: str | None = None,
+            *,
+            use_cache: bool | None = _UNSET,
     ) -> list[StreamRecord] | CacheAwareResponse[list[StreamRecord]]:
         """
         Get records from a stream with the given stream ID (cache-aware signature).
@@ -596,32 +628,32 @@ class TNClient:
 
     @overload
     def get_first_record(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        after_date: int | None = None,
-        frozen_at: int | None = None,
-        *,
-        use_cache: bool,
+            self,
+            stream_id: str,
+            data_provider: str | None = None,
+            after_date: int | None = None,
+            frozen_at: int | None = None,
+            *,
+            use_cache: bool,
     ) -> CacheAwareResponse[StreamRecord | None]: ...
 
     @overload
     def get_first_record(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        after_date: int | None = None,
-        frozen_at: int | None = None,
+            self,
+            stream_id: str,
+            data_provider: str | None = None,
+            after_date: int | None = None,
+            frozen_at: int | None = None,
     ) -> StreamRecord | None: ...
 
     def get_first_record(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        after_date: int | None = None,
-        frozen_at: int | None = None,
-        *,
-        use_cache: bool | None = _UNSET,
+            self,
+            stream_id: str,
+            data_provider: str | None = None,
+            after_date: int | None = None,
+            frozen_at: int | None = None,
+            *,
+            use_cache: bool | None = _UNSET,
     ) -> StreamRecord | None | CacheAwareResponse[StreamRecord | None]:
         """Get the first record of a stream after a given date."""
         data_provider = self._coalesce_str(data_provider)
@@ -647,41 +679,41 @@ class TNClient:
 
     @overload
     def get_index(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        date_from: int | None = None,
-        date_to: int | None = None,
-        frozen_at: int | None = None,
-        base_date: int | None = None,
-        prefix: str | None = None,
-        *,
-        use_cache: bool,
+            self,
+            stream_id: str,
+            data_provider: str | None = None,
+            date_from: int | None = None,
+            date_to: int | None = None,
+            frozen_at: int | None = None,
+            base_date: int | None = None,
+            prefix: str | None = None,
+            *,
+            use_cache: bool,
     ) -> CacheAwareResponse[list[StreamRecord]]: ...
 
     @overload
     def get_index(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        date_from: int | None = None,
-        date_to: int | None = None,
-        frozen_at: int | None = None,
-        base_date: int | None = None,
-        prefix: str | None = None,
+            self,
+            stream_id: str,
+            data_provider: str | None = None,
+            date_from: int | None = None,
+            date_to: int | None = None,
+            frozen_at: int | None = None,
+            base_date: int | None = None,
+            prefix: str | None = None,
     ) -> list[StreamRecord]: ...
 
     def get_index(
-        self,
-        stream_id: str,
-        data_provider: str | None = None,
-        date_from: int | None = None,
-        date_to: int | None = None,
-        frozen_at: int | None = None,
-        base_date: int | None = None,
-        prefix: str | None = None,
-        *,
-        use_cache: bool | None = _UNSET,
+            self,
+            stream_id: str,
+            data_provider: str | None = None,
+            date_from: int | None = None,
+            date_to: int | None = None,
+            frozen_at: int | None = None,
+            base_date: int | None = None,
+            prefix: str | None = None,
+            *,
+            use_cache: bool | None = _UNSET,
     ) -> list[StreamRecord] | CacheAwareResponse[list[StreamRecord]]:
         """Get index from a stream with the given stream ID."""
         data_provider = self._coalesce_str(data_provider)
@@ -717,12 +749,12 @@ class TNClient:
             return response
 
     def list_streams(
-        self,
-        limit: int | None = None,
-        offset: int | None = None,
-        data_provider: str | None = None,
-        order_by: str | None = None,
-        block_height: int | None = 0,
+            self,
+            limit: int | None = None,
+            offset: int | None = None,
+            data_provider: str | None = None,
+            order_by: str | None = None,
+            block_height: int | None = 0,
     ) -> list[dict[str, Any]]:
         """
         List all streams associated with client account
@@ -740,11 +772,11 @@ class TNClient:
         return self._go_slice_of_maps_to_list_of_dicts(go_slice_of_maps)
 
     def set_taxonomy(
-        self,
-        stream_id: str,
-        taxonomies: list[TaxonomyDefinition],
-        start_date: int | None = None,
-        wait: bool = True,
+            self,
+            stream_id: str,
+            taxonomies: list[TaxonomyDefinition],
+            start_date: int | None = None,
+            wait: bool = True,
     ) -> str:
         """
         Set Taxonomy will define taxonomy of a composed stream.
@@ -783,7 +815,7 @@ class TNClient:
         return tx_hash
 
     def describe_taxonomy(
-        self, stream_id: str, latest_version: bool = True
+            self, stream_id: str, latest_version: bool = True
     ) -> TaxonomyDetails | None:
         """
         Get taxonomy structure of a composed stream
@@ -870,7 +902,7 @@ class TNClient:
         return tx_hash
 
     def disable_read_wallet(
-        self, stream_id: str, wallet: str, wait: bool = True
+            self, stream_id: str, wallet: str, wait: bool = True
     ) -> str:
         """
         Disables a wallet from reading the stream
@@ -892,7 +924,7 @@ class TNClient:
         return tx_hash
 
     def set_read_visibility(
-        self, stream_id: str, visibilityVal: str, wait: bool = True
+            self, stream_id: str, visibilityVal: str, wait: bool = True
     ) -> str:
         """
         Sets the read visibility of the stream -- Private or Public
@@ -926,7 +958,7 @@ class TNClient:
         return "public" if visibility == truf_sdk.VisibilityPublic else "private"
 
     def set_compose_visibility(
-        self, stream_id: str, visibilityVal: int | str, wait: bool = True
+            self, stream_id: str, visibilityVal: int | str, wait: bool = True
     ) -> str:
         """
         Sets the compose visibility of the stream -- Private or Public
@@ -977,9 +1009,9 @@ class TNClient:
         return list(streams)
 
     def batch_deploy_streams(
-        self,
-        definitions: list[StreamDefinitionInput],
-        wait: bool = True,
+            self,
+            definitions: list[StreamDefinitionInput],
+            wait: bool = True,
     ) -> str:
         """
         Deploy multiple streams (primitive and composed).
@@ -1007,8 +1039,8 @@ class TNClient:
         return tx_hash
 
     def batch_stream_exists(
-        self,
-        locators: list[StreamLocatorInput],
+            self,
+            locators: list[StreamLocatorInput],
     ) -> list[StreamExistsResult]:
         """
         Check for the existence of multiple streams.
@@ -1039,15 +1071,15 @@ class TNClient:
                     "stream_id": item["stream_id"],
                     "data_provider": item["data_provider"],
                     "exists": item["exists"].lower()
-                    == "true",  # Convert string "true"/"false" to bool
+                              == "true",  # Convert string "true"/"false" to bool
                 }
             )
         return results
 
     def batch_filter_streams_by_existence(
-        self,
-        locators: list[StreamLocatorInput],
-        return_existing: bool,
+            self,
+            locators: list[StreamLocatorInput],
+            return_existing: bool,
     ) -> list[
         StreamLocatorInput
     ]:  # Returns List[StreamLocatorInput] as they are just locators
@@ -1118,11 +1150,11 @@ class TNClient:
     # --------------------------------------------------
 
     def grant_role(
-        self,
-        owner: str,
-        role_name: str,
-        wallets: list[str],
-        wait: bool = True,
+            self,
+            owner: str,
+            role_name: str,
+            wallets: list[str],
+            wait: bool = True,
     ) -> str:
         """
         Grants a role to a list of wallets.
@@ -1148,11 +1180,11 @@ class TNClient:
         return tx_hash
 
     def revoke_role(
-        self,
-        owner: str,
-        role_name: str,
-        wallets: list[str],
-        wait: bool = True,
+            self,
+            owner: str,
+            role_name: str,
+            wallets: list[str],
+            wait: bool = True,
     ) -> str:
         """
         Revokes a role from a list of wallets.
@@ -1178,10 +1210,10 @@ class TNClient:
         return tx_hash
 
     def are_members_of(
-        self,
-        owner: str,
-        role_name: str,
-        wallets: list[str],
+            self,
+            owner: str,
+            role_name: str,
+            wallets: list[str],
     ) -> list[RoleMembershipStatus]:
         """
         Checks if a list of wallets are members of a specific role.
@@ -1216,11 +1248,11 @@ class TNClient:
         return results
 
     def list_role_members(
-        self,
-        owner: str,
-        role_name: str,
-        limit: int | None = None,
-        offset: int | None = None,
+            self,
+            owner: str,
+            role_name: str,
+            limit: int | None = None,
+            offset: int | None = None,
     ) -> list[RoleMember]:
         """
         Lists the members of a role with optional pagination.
@@ -1273,14 +1305,14 @@ class TNClient:
     # ==========================================
 
     def request_attestation(
-        self,
-        data_provider: str,
-        stream_id: str,
-        action_name: str,
-        args: list[Any],
-        encrypt_sig: bool = False,
-        max_fee: str = "100000000000000000000",
-        wait: bool = True,
+            self,
+            data_provider: str,
+            stream_id: str,
+            action_name: str,
+            args: list[Any],
+            encrypt_sig: bool = False,
+            max_fee: str = "100000000000000000000",
+            wait: bool = True,
     ) -> str:
         """
         Request a signed attestation for query results.
@@ -1383,11 +1415,11 @@ class TNClient:
         return go_payload
 
     def list_attestations(
-        self,
-        requester: bytes | None = None,
-        limit: int | None = None,
-        offset: int | None = None,
-        order_by: str | None = None,
+            self,
+            requester: bytes | None = None,
+            limit: int | None = None,
+            offset: int | None = None,
+            order_by: str | None = None,
     ) -> list[AttestationMetadata]:
         """
         List attestation metadata with optional filtering.
@@ -1503,6 +1535,142 @@ class TNClient:
 
         return results
 
+    def parse_attestation_payload(self, payload: bytes) -> ParsedAttestationPayload:
+        """
+        Parse a canonical attestation payload (without signature).
+
+        Args:
+            payload: The canonical attestation payload bytes (signature already removed)
+
+        Returns:
+            ParsedAttestationPayload: Parsed payload with all fields decoded
+
+        Raises:
+            ValueError: If payload is malformed or cannot be parsed
+            Exception: If Go binding call fails
+
+        Example:
+            ```python
+            # Get signed attestation
+            signed = client.get_signed_attestation(tx_id)
+
+            # Option 1 (Recommended): Verify signature first
+            verification = client.verify_attestation_signature(signed)
+            parsed = client.parse_attestation_payload(verification['canonical_payload'])
+
+            # Option 2: If signature already verified elsewhere, extract manually
+            # canonical_payload = signed[:-65]
+            # parsed = client.parse_attestation_payload(canonical_payload)
+
+            print(f"Data Provider: {parsed.data_provider}")
+            print(f"Stream ID: {parsed.stream_id}")
+            print(f"Block Height: {parsed.block_height}")
+            print(f"Results: {len(parsed.result)} rows")
+
+            for i, row in enumerate(parsed.result):
+                print(f"  Row {i+1}: {row['values']}")
+            ```
+        """
+        if not isinstance(payload, bytes):
+            raise ValueError(f"Payload must be bytes, got {type(payload).__name__}")
+
+        if len(payload) == 0:
+            raise ValueError("Payload cannot be empty")
+
+        # Convert Python bytes to Go byte slice
+        payload_go = go.Slice_byte(list(payload))
+
+        # Call Go binding
+        try:
+            json_str = truf_sdk.ParseAttestationPayload(payload_go)
+        except Exception as e:
+            raise Exception(f"Failed to parse attestation payload: {e}") from e
+
+        # Parse JSON response
+        parsed_dict = json.loads(json_str)
+
+        # Convert field names from Go (camelCase) to Python (snake_case)
+        python_dict = {
+            "version": parsed_dict.get("version", 0),
+            "algorithm": parsed_dict.get("algorithm", 0),
+            "block_height": parsed_dict.get("blockHeight", 0),
+            "data_provider": parsed_dict.get("dataProvider", ""),
+            "stream_id": parsed_dict.get("streamId", ""),
+            "action_id": parsed_dict.get("actionId", 0),
+            "arguments": parsed_dict.get("arguments", []),
+            "result": parsed_dict.get("result", []),
+        }
+
+        # Convert to Pydantic model
+        return ParsedAttestationPayload(**python_dict)
+
+    def verify_attestation_signature(
+            self, full_payload: bytes
+    ) -> AttestationSignatureVerification:
+        """
+        Verify an attestation signature and extract validator address.
+
+        This method:
+        1. Validates the payload has minimum length (66 bytes)
+        2. Extracts the canonical payload and signature (last 65 bytes)
+        3. Recovers the validator's public key from the signature
+        4. Derives the Ethereum address from the public key
+
+        Args:
+            full_payload: The complete attestation payload including signature
+
+        Returns:
+            AttestationSignatureVerification: Contains validator address, canonical payload, and signature
+
+        Raises:
+            ValueError: If payload is too short or malformed
+            Exception: If signature verification fails
+
+        Example:
+            ```python
+            # Get signed attestation
+            signed = client.get_signed_attestation(tx_id)
+
+            # Verify signature and get validator address
+            verification = client.verify_attestation_signature(signed)
+
+            print(f"Validator Address: {verification['validator_address']}")
+            print("This address should be used in your smart contract's verify() function")
+
+            # Now parse the canonical payload
+            parsed = client.parse_attestation_payload(verification['canonical_payload'])
+            ```
+        """
+        if not isinstance(full_payload, bytes):
+            raise ValueError(
+                f"Payload must be bytes, got {type(full_payload).__name__}"
+            )
+
+        if len(full_payload) < 66:
+            raise ValueError(
+                f"Payload too short: {len(full_payload)} bytes, expected at least 66 "
+                "(minimum 1 byte data + 65 bytes signature)"
+            )
+
+        # Convert Python bytes to Go byte slice
+        payload_go = go.Slice_byte(list(full_payload))
+
+        # Call Go binding to verify and extract validator address
+        try:
+            validator_address = truf_sdk.VerifyAttestationSignature(payload_go)
+        except Exception as e:
+            raise Exception(f"Failed to verify attestation signature: {e}") from e
+
+        # Extract canonical payload and signature for return
+        canonical_payload = full_payload[:-65]
+        signature = full_payload[-65:]
+
+        return {
+            "validator_address": validator_address,
+            "canonical_payload": canonical_payload,
+            "signature": signature,
+        }
+
     # ==========================================
     #     TRANSACTION LEDGER METHODS
     # ==========================================
@@ -1587,11 +1755,11 @@ class TNClient:
         }
 
     def list_transaction_fees(
-        self,
-        wallet: str,
-        mode: str = "paid",
-        limit: int | None = None,
-        offset: int | None = None,
+            self,
+            wallet: str,
+            mode: str = "paid",
+            limit: int | None = None,
+            offset: int | None = None,
     ) -> list[TransactionFeeEntry]:
         """
         List transactions filtered by wallet address and mode.

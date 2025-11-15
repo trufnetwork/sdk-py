@@ -6,10 +6,17 @@ This example demonstrates the complete attestation workflow:
 2. Request a signed attestation for query results
 3. Wait for validator signature
 4. Retrieve signed attestation payload
-5. List recent attestations
+5. Verify signature and extract validator address
+6. Parse the attestation payload
+7. Display attested query results
+8. List recent attestations
+
+⚠️  IMPORTANT: This example connects to the PRODUCTION TRUF network by default.
+Attestation requests incur real costs (40 TRUF flat fee ≈ $0.47 USD).
+To use a different network, set the PROVIDER_URL environment variable.
 
 Prerequisites:
-- Local TN node running on http://localhost:8484
+- Access to TN network (defaults to https://gateway.mainnet.truf.network)
 - Private key with network_writer role
 - Test stream with data
 """
@@ -20,7 +27,9 @@ from trufnetwork_sdk_py.client import TNClient
 
 def main():
     # Get configuration from environment
-    provider_url = os.getenv("PROVIDER_URL", "http://localhost:8484")
+    # WARNING: Defaults to mainnet - attestations will incur real costs!
+    # Set PROVIDER_URL env var to use a different network (e.g., local node)
+    provider_url = os.getenv("PROVIDER_URL", "https://gateway.mainnet.truf.network")
     private_key = os.getenv("PRIVATE_KEY")
 
     if not private_key:
@@ -99,11 +108,53 @@ def main():
         print(f"Payload size: {len(payload)} bytes")
         print(f"Payload (hex): {payload[:64].hex()}...\n")
 
-        # In a real application, you would:
-        # 1. Parse the canonical payload
-        # 2. Verify the signature
-        # 3. Extract and use the attested data
-        # 4. Potentially pass this to an EVM contract
+        # Verify signature and extract validator address
+        print("=== Verifying Signature ===")
+        try:
+            verification = client.verify_attestation_signature(payload)
+            print(f"✓ Validator Address: {verification['validator_address']}")
+            print("  This address should be used in your smart contract's verify() function\n")
+        except Exception as e:
+            print(f"✗ Failed to verify signature: {e}\n")
+            verification = None
+
+        # Parse the attestation payload
+        if verification:
+            print("=== Parsing Attestation Payload ===")
+            try:
+                parsed = client.parse_attestation_payload(verification['canonical_payload'])
+
+                print(f"\n📋 Attestation Details:")
+                print(f"   Version: {parsed.version}")
+                print(f"   Algorithm: {parsed.algorithm} (0 = secp256k1)")
+                print(f"   Block Height: {parsed.block_height}")
+                print(f"   Data Provider: {parsed.data_provider}")
+                print(f"   Stream ID: {parsed.stream_id}")
+                print(f"   Action ID: {parsed.action_id}")
+
+                print(f"\n📊 Attested Query Result (from get_record):")
+                if len(parsed.result) == 0:
+                    print("   No records found")
+                else:
+                    print(f"   Found {len(parsed.result)} row(s):\n")
+                    for i, row in enumerate(parsed.result[:5], 1):  # Show first 5
+                        if 'values' in row and len(row['values']) >= 2:
+                            timestamp, value = row['values'][0], row['values'][1]
+                            print(f"   Row {i}: Timestamp={timestamp}, Value={value}")
+                        else:
+                            print(f"   Row {i}: {row.get('values', [])}")
+
+                    if len(parsed.result) > 5:
+                        print(f"   ... and {len(parsed.result) - 5} more")
+
+                print("\n   💡 How to use this payload:")
+                print("   1. Send this payload to your EVM smart contract")
+                print("   2. The contract can verify the signature using ecrecover")
+                print("   3. Parse the payload to extract the attested query results")
+                print("   4. Use the verified data in your on-chain logic\n")
+
+            except Exception as e:
+                print(f"✗ Failed to parse payload: {e}\n")
     else:
         print("\n⚠ Warning: Timed out waiting for signature")
         print("The attestation may still be processing. Try checking again later.\n")

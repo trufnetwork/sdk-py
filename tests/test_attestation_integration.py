@@ -441,3 +441,141 @@ class TestAttestationWithDifferentActions:
 
         assert request_tx_id is not None
         assert len(request_tx_id) == 64
+
+
+class TestAttestationPayloadParsing:
+    """Test attestation payload parsing and signature verification"""
+
+    def test_full_attestation_workflow_with_parsing(self, client, test_stream_with_data):
+        """Test complete attestation workflow including payload parsing and signature verification"""
+        stream_id, data_provider, _ = test_stream_with_data
+
+        # 1. Request attestation
+        now = int(time.time())
+        week_ago = now - (7 * 24 * 60 * 60)
+
+        request_tx_id = client.request_attestation(
+            data_provider=data_provider,
+            stream_id=stream_id,
+            action_name="get_record",
+            args=[data_provider, stream_id, week_ago, now, None, False],
+            max_fee="100000000000000000000",
+            wait=True,
+        )
+
+        assert request_tx_id is not None
+        assert isinstance(request_tx_id, str)
+
+        # 2. Poll for signed attestation (max 30 seconds)
+        max_attempts = 15
+        signed_payload = None
+
+        for attempt in range(max_attempts):
+            try:
+                signed_payload = client.get_signed_attestation(request_tx_id)
+                # Check if signature is present (payload should be >= 66 bytes when signed)
+                if signed_payload and len(signed_payload) >= 66:
+                    break
+            except Exception:
+                pass
+
+            if attempt < max_attempts - 1:
+                time.sleep(2)
+
+        # Verify we got a signed payload
+        assert signed_payload is not None, "Failed to get signed attestation"
+        assert len(signed_payload) >= 66, f"Payload too short: {len(signed_payload)} bytes"
+
+        # 3. Verify signature and extract validator address
+        verification = client.verify_attestation_signature(signed_payload)
+
+        assert "validator_address" in verification
+        assert verification["validator_address"].startswith("0x")
+        assert len(verification["validator_address"]) == 42  # 0x + 40 hex chars
+        assert len(verification["canonical_payload"]) == len(signed_payload) - 65
+        assert len(verification["signature"]) == 65
+
+        print(f"✓ Validator Address: {verification['validator_address']}")
+
+        # 4. Parse canonical payload
+        parsed = client.parse_attestation_payload(verification["canonical_payload"])
+
+        # Verify parsed payload structure
+        assert parsed.version == 1
+        assert parsed.algorithm == 0
+        assert parsed.block_height > 0
+        assert parsed.data_provider == data_provider
+        assert parsed.stream_id == stream_id
+        assert isinstance(parsed.result, list)
+
+        print(f"✓ Parsed attestation for stream {stream_id} at block height {parsed.block_height}")
+
+        # 5. Verify result structure
+        if len(parsed.result) > 0:
+            first_row = parsed.result[0]
+            assert "values" in first_row
+            # get_record returns [timestamp, value] pairs
+            assert len(first_row["values"]) >= 2
+            print(f"✓ Found {len(parsed.result)} attested data points")
+
+            # Verify data types
+            for row in parsed.result:
+                assert isinstance(row["values"], list)
+                # Timestamps and values should be strings (from ABI decoding)
+                assert all(isinstance(v, str) for v in row["values"])
+        else:
+            print("✓ No data in time range (valid empty result)")
+
+        # 6. Verify arguments were captured correctly
+        assert isinstance(parsed.arguments, list)
+        print(f"✓ Attestation includes {len(parsed.arguments)} arguments")
+
+    def test_verify_signature_validates_payload_length(self, client):
+        """Test that verify_attestation_signature validates input properly"""
+        # Should reject payload shorter than minimum
+        with pytest.raises(ValueError, match="Payload too short"):
+            # Try to verify signature on a short payload
+            client.verify_attestation_signature(b"\x00" * 50)
+
+    def test_verify_signature_extracts_components_correctly(self, client, test_stream_with_data):
+        """Test that verify_attestation_signature extracts payload and signature correctly"""
+        stream_id, data_provider, _ = test_stream_with_data
+
+        # Request and get signed attestation
+        now = int(time.time())
+        request_tx_id = client.request_attestation(
+            data_provider=data_provider,
+            stream_id=stream_id,
+            action_name="get_record",
+            args=[data_provider, stream_id, now - 86400, now, None, False],
+            max_fee="100000000000000000000",
+            wait=True,
+        )
+
+        # Poll for signed attestation
+        signed_payload = None
+        for _ in range(15):
+            try:
+                signed_payload = client.get_signed_attestation(request_tx_id)
+                if signed_payload and len(signed_payload) >= 66:
+                    break
+            except Exception:
+                pass
+            time.sleep(2)
+
+        # Ensure we got a valid signed payload
+        assert signed_payload is not None, "Failed to get signed attestation within timeout"
+        assert len(signed_payload) >= 66, f"Payload too short: {len(signed_payload)} bytes"
+
+        verification = client.verify_attestation_signature(signed_payload)
+
+        # Verify the signature is exactly 65 bytes
+        assert len(verification["signature"]) == 65
+
+        # Verify canonical_payload + signature equals original
+        reconstructed = verification["canonical_payload"] + verification["signature"]
+        assert reconstructed == signed_payload
+
+        # Verify validator address format
+        assert verification["validator_address"].startswith("0x")
+        assert len(verification["validator_address"]) == 42

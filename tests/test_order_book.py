@@ -260,6 +260,16 @@ class TestOrderOperationsValidation:
                 amount=0,  # Zero
             )
 
+    def test_place_sell_order_invalid_amount_negative(self, client):
+        """Test that amount must be positive"""
+        with pytest.raises(ValueError, match="amount must be positive"):
+            client.place_sell_order(
+                query_id=1,
+                outcome=True,
+                price=56,
+                amount=-100,  # Negative
+            )
+
     # ==========================================
     #     place_split_limit_order() validation
     # ==========================================
@@ -366,24 +376,24 @@ class TestOrderOperationsValidation:
     # ==========================================
 
     def test_change_ask_old_price_not_positive(self, client):
-        """Test that old_price must be positive (sell orders)"""
-        with pytest.raises(ValueError, match="ask prices must be positive"):
+        """Test that old_price must be non-negative (sell orders)"""
+        with pytest.raises(ValueError, match=r"ask prices must be non-negative"):
             client.change_ask(
                 query_id=1,
                 outcome=True,
-                old_price=-50,  # Negative (should be positive)
+                old_price=-50,  # Negative (should be non-negative)
                 new_price=55,
                 new_amount=100,
             )
 
     def test_change_ask_new_price_not_positive(self, client):
-        """Test that new_price must be positive (sell orders)"""
-        with pytest.raises(ValueError, match="ask prices must be positive"):
+        """Test that new_price must be non-negative (sell orders)"""
+        with pytest.raises(ValueError, match=r"ask prices must be non-negative"):
             client.change_ask(
                 query_id=1,
                 outcome=True,
                 old_price=50,
-                new_price=-55,  # Negative (should be positive)
+                new_price=-55,  # Negative (should be non-negative)
                 new_amount=100,
             )
 

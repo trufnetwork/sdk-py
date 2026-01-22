@@ -1981,6 +1981,7 @@ class TNClient:
         settle_time: int,
         max_spread: int,
         min_order_size: int,
+        wait: bool = True,
     ) -> str:
         """
         Create a new prediction market.
@@ -1990,6 +1991,7 @@ class TNClient:
             settle_time: Unix timestamp when market can be settled
             max_spread: Maximum spread for LP rewards (1-50 cents)
             min_order_size: Minimum order size for LP rewards
+            wait: If True, wait for transaction confirmation
 
         Returns:
             Transaction hash
@@ -2021,6 +2023,9 @@ class TNClient:
         if not tx_hash:
             raise RuntimeError("Failed to create market")
 
+        if wait:
+            self.wait_for_tx(tx_hash)
+
         return tx_hash
 
     def get_market_info(self, query_id: int) -> MarketInfo:
@@ -2031,8 +2036,18 @@ class TNClient:
             raise RuntimeError(f"Market {query_id} not found")
 
         data = json.loads(json_str)
-        data["hash"] = bytes.fromhex(data["hash"].replace("0x", ""))
-        data["creator"] = bytes.fromhex(data["creator"].replace("0x", ""))
+
+        # Validate required fields
+        data_hash = data.get("hash")
+        data_creator = data.get("creator")
+
+        if not data_hash or not isinstance(data_hash, str):
+            raise ValueError("MarketInfo response missing or invalid 'hash' field")
+        if not data_creator or not isinstance(data_creator, str):
+            raise ValueError("MarketInfo response missing or invalid 'creator' field")
+
+        data["hash"] = bytes.fromhex(data_hash.replace("0x", ""))
+        data["creator"] = bytes.fromhex(data_creator.replace("0x", ""))
 
         return cast(MarketInfo, data)
 
@@ -2047,8 +2062,18 @@ class TNClient:
             raise RuntimeError("Market not found for given hash")
 
         data = json.loads(json_str)
-        data["hash"] = bytes.fromhex(data["hash"].replace("0x", ""))
-        data["creator"] = bytes.fromhex(data["creator"].replace("0x", ""))
+
+        # Validate required fields
+        data_hash = data.get("hash")
+        data_creator = data.get("creator")
+
+        if not data_hash or not isinstance(data_hash, str):
+            raise ValueError("MarketInfo response missing or invalid 'hash' field")
+        if not data_creator or not isinstance(data_creator, str):
+            raise ValueError("MarketInfo response missing or invalid 'creator' field")
+
+        data["hash"] = bytes.fromhex(data_hash.replace("0x", ""))
+        data["creator"] = bytes.fromhex(data_creator.replace("0x", ""))
 
         return cast(MarketInfo, data)
 
@@ -2099,6 +2124,7 @@ class TNClient:
         outcome: bool,
         price: int,
         amount: int,
+        wait: bool = True,
     ) -> str:
         """
         Place a buy order for YES or NO shares.
@@ -2108,6 +2134,7 @@ class TNClient:
             outcome: True for YES shares, False for NO shares
             price: Price per share in cents (1-99)
             amount: Number of shares to buy
+            wait: If True, wait for transaction confirmation
 
         Returns:
             Transaction hash
@@ -2130,6 +2157,9 @@ class TNClient:
         if not tx_hash:
             raise RuntimeError("Failed to place buy order")
 
+        if wait:
+            self.wait_for_tx(tx_hash)
+
         return tx_hash
 
     def place_sell_order(
@@ -2138,8 +2168,21 @@ class TNClient:
         outcome: bool,
         price: int,
         amount: int,
+        wait: bool = True,
     ) -> str:
-        """Place a sell order for shares you own."""
+        """
+        Place a sell order for shares you own.
+
+        Args:
+            query_id: Market ID
+            outcome: True for YES shares, False for NO shares
+            price: Price per share in cents (1-99)
+            amount: Number of shares to sell
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
         if price < 1 or price > 99:
             raise ValueError("price must be between 1 and 99 cents")
         if amount <= 0:
@@ -2150,6 +2193,9 @@ class TNClient:
         if not tx_hash:
             raise RuntimeError("Failed to place sell order")
 
+        if wait:
+            self.wait_for_tx(tx_hash)
+
         return tx_hash
 
     def place_split_limit_order(
@@ -2157,6 +2203,7 @@ class TNClient:
         query_id: int,
         true_price: int,
         amount: int,
+        wait: bool = True,
     ) -> str:
         """
         Mint binary share pairs and list unwanted side for sale.
@@ -2165,6 +2212,7 @@ class TNClient:
             query_id: Market ID
             true_price: YES price in cents (1-99)
             amount: Number of share PAIRS to mint
+            wait: If True, wait for transaction confirmation
 
         Example:
             >>> tx_hash = client.place_split_limit_order(
@@ -2183,6 +2231,9 @@ class TNClient:
         if not tx_hash:
             raise RuntimeError("Failed to place split limit order")
 
+        if wait:
+            self.wait_for_tx(tx_hash)
+
         return tx_hash
 
     def cancel_order(
@@ -2190,8 +2241,20 @@ class TNClient:
         query_id: int,
         outcome: bool,
         price: int,
+        wait: bool = True,
     ) -> str:
-        """Cancel an open buy or sell order."""
+        """
+        Cancel an open buy or sell order.
+
+        Args:
+            query_id: Market ID
+            outcome: True for YES shares, False for NO shares
+            price: Price of order to cancel (negative for buy, positive for sell)
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
         if price == 0:
             raise ValueError("Cannot cancel holdings (price=0), use place_sell_order instead")
         if price < -99 or price > 99:
@@ -2202,6 +2265,9 @@ class TNClient:
         if not tx_hash:
             raise RuntimeError("Failed to cancel order")
 
+        if wait:
+            self.wait_for_tx(tx_hash)
+
         return tx_hash
 
     def change_bid(
@@ -2211,8 +2277,22 @@ class TNClient:
         old_price: int,
         new_price: int,
         new_amount: int,
+        wait: bool = True,
     ) -> str:
-        """Atomically modify buy order price and amount."""
+        """
+        Atomically modify buy order price and amount.
+
+        Args:
+            query_id: Market ID
+            outcome: True for YES shares, False for NO shares
+            old_price: Current order price (negative for buy orders)
+            new_price: New order price (negative for buy orders)
+            new_amount: New order amount
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
         if old_price >= 0 or new_price >= 0:
             raise ValueError("bid prices must be negative (buy orders)")
         if new_amount <= 0:
@@ -2225,6 +2305,9 @@ class TNClient:
         if not tx_hash:
             raise RuntimeError("Failed to change bid")
 
+        if wait:
+            self.wait_for_tx(tx_hash)
+
         return tx_hash
 
     def change_ask(
@@ -2234,10 +2317,24 @@ class TNClient:
         old_price: int,
         new_price: int,
         new_amount: int,
+        wait: bool = True,
     ) -> str:
-        """Atomically modify sell order price and amount."""
-        if old_price <= 0 or new_price <= 0:
-            raise ValueError("ask prices must be positive (sell orders)")
+        """
+        Atomically modify sell order price and amount.
+
+        Args:
+            query_id: Market ID
+            outcome: True for YES shares, False for NO shares
+            old_price: Current order price (non-negative for sell orders)
+            new_price: New order price (non-negative for sell orders)
+            new_amount: New order amount
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
+        if old_price < 0 or new_price < 0:
+            raise ValueError("ask prices must be non-negative (sell orders)")
         if new_amount <= 0:
             raise ValueError("new_amount must be positive")
 
@@ -2247,6 +2344,9 @@ class TNClient:
 
         if not tx_hash:
             raise RuntimeError("Failed to change ask")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
 
         return tx_hash
 
@@ -2291,7 +2391,7 @@ class TNClient:
         json_str = truf_sdk.GetBestPrices(self.client, query_id, outcome)
 
         if not json_str:
-            raise RuntimeError("Failed to get best prices")
+            return {"best_bid": None, "best_ask": None, "spread": None}
 
         return cast(BestPrices, json.loads(json_str))
 
@@ -2312,21 +2412,46 @@ class TNClient:
     # ORDER BOOK - SETTLEMENT & REWARDS
     # ═══════════════════════════════════════════════════════════════
 
-    def settle_market(self, query_id: int) -> str:
-        """Settle a market using attestation results."""
+    def settle_market(self, query_id: int, wait: bool = True) -> str:
+        """
+        Settle a market using attestation results.
+
+        Args:
+            query_id: Market ID
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
         tx_hash = truf_sdk.SettleMarket(self.client, query_id)
 
         if not tx_hash:
             raise RuntimeError(f"Failed to settle market {query_id}")
 
+        if wait:
+            self.wait_for_tx(tx_hash)
+
         return tx_hash
 
-    def sample_lp_rewards(self, query_id: int, block: int) -> str:
-        """Sample liquidity provider rewards for a block."""
+    def sample_lp_rewards(self, query_id: int, block: int, wait: bool = True) -> str:
+        """
+        Sample liquidity provider rewards for a block.
+
+        Args:
+            query_id: Market ID
+            block: Block number to sample rewards for
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
         tx_hash = truf_sdk.SampleLPRewards(self.client, query_id, block)
 
         if not tx_hash:
             raise RuntimeError(f"Failed to sample LP rewards for market {query_id}")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
 
         return tx_hash
 

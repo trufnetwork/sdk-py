@@ -298,7 +298,7 @@ class TestOrderOperationsValidation:
     def test_cancel_order_cannot_cancel_holdings(self, client):
         """Test that holdings (price=0) cannot be cancelled"""
         with pytest.raises(
-            ValueError, match="Cannot cancel holdings.*use place_sell_order instead"
+            ValueError, match=r"Cannot cancel holdings.*use place_sell_order instead"
         ):
             client.cancel_order(
                 query_id=1,

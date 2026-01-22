@@ -2011,7 +2011,7 @@ class TNClient:
             raise ValueError("min_order_size must be positive")
 
         tx_hash = truf_sdk.CreateMarket(
-            self._client,
+            self.client,
             query_hash,
             settle_time,
             max_spread,
@@ -2025,7 +2025,7 @@ class TNClient:
 
     def get_market_info(self, query_id: int) -> MarketInfo:
         """Get market details by ID."""
-        json_str = truf_sdk.GetMarketInfo(self._client, query_id)
+        json_str = truf_sdk.GetMarketInfo(self.client, query_id)
 
         if not json_str:
             raise RuntimeError(f"Market {query_id} not found")
@@ -2041,7 +2041,7 @@ class TNClient:
         if len(query_hash) != 32:
             raise ValueError("query_hash must be exactly 32 bytes")
 
-        json_str = truf_sdk.GetMarketByHash(self._client, query_hash)
+        json_str = truf_sdk.GetMarketByHash(self.client, query_hash)
 
         if not json_str:
             raise RuntimeError("Market not found for given hash")
@@ -2061,7 +2061,7 @@ class TNClient:
         """List markets with optional filtering."""
         settled_int = -1 if settled_filter is None else (1 if settled_filter else 0)
 
-        json_str = truf_sdk.ListMarkets(self._client, settled_int, limit, offset)
+        json_str = truf_sdk.ListMarkets(self.client, settled_int, limit, offset)
 
         if not json_str:
             return []
@@ -2078,11 +2078,11 @@ class TNClient:
         if len(query_hash) != 32:
             raise ValueError("query_hash must be exactly 32 bytes")
 
-        return truf_sdk.MarketExists(self._client, query_hash)
+        return truf_sdk.MarketExists(self.client, query_hash)
 
     def validate_market_collateral(self, query_id: int) -> MarketValidation:
         """Validate market collateral integrity."""
-        json_str = truf_sdk.ValidateMarketCollateral(self._client, query_id)
+        json_str = truf_sdk.ValidateMarketCollateral(self.client, query_id)
 
         if not json_str:
             raise RuntimeError(f"Failed to validate market {query_id}")
@@ -2125,7 +2125,7 @@ class TNClient:
         if amount <= 0:
             raise ValueError("amount must be positive")
 
-        tx_hash = truf_sdk.PlaceBuyOrder(self._client, query_id, outcome, price, amount)
+        tx_hash = truf_sdk.PlaceBuyOrder(self.client, query_id, outcome, price, amount)
 
         if not tx_hash:
             raise RuntimeError("Failed to place buy order")
@@ -2145,7 +2145,7 @@ class TNClient:
         if amount <= 0:
             raise ValueError("amount must be positive")
 
-        tx_hash = truf_sdk.PlaceSellOrder(self._client, query_id, outcome, price, amount)
+        tx_hash = truf_sdk.PlaceSellOrder(self.client, query_id, outcome, price, amount)
 
         if not tx_hash:
             raise RuntimeError("Failed to place sell order")
@@ -2178,7 +2178,7 @@ class TNClient:
         if amount <= 0:
             raise ValueError("amount must be positive")
 
-        tx_hash = truf_sdk.PlaceSplitLimitOrder(self._client, query_id, true_price, amount)
+        tx_hash = truf_sdk.PlaceSplitLimitOrder(self.client, query_id, true_price, amount)
 
         if not tx_hash:
             raise RuntimeError("Failed to place split limit order")
@@ -2197,7 +2197,7 @@ class TNClient:
         if price < -99 or price > 99:
             raise ValueError("price must be between -99 and 99 (excluding 0)")
 
-        tx_hash = truf_sdk.CancelOrder(self._client, query_id, outcome, price)
+        tx_hash = truf_sdk.CancelOrder(self.client, query_id, outcome, price)
 
         if not tx_hash:
             raise RuntimeError("Failed to cancel order")
@@ -2219,7 +2219,7 @@ class TNClient:
             raise ValueError("new_amount must be positive")
 
         tx_hash = truf_sdk.ChangeBid(
-            self._client, query_id, outcome, old_price, new_price, new_amount
+            self.client, query_id, outcome, old_price, new_price, new_amount
         )
 
         if not tx_hash:
@@ -2242,7 +2242,7 @@ class TNClient:
             raise ValueError("new_amount must be positive")
 
         tx_hash = truf_sdk.ChangeAsk(
-            self._client, query_id, outcome, old_price, new_price, new_amount
+            self.client, query_id, outcome, old_price, new_price, new_amount
         )
 
         if not tx_hash:
@@ -2256,7 +2256,7 @@ class TNClient:
 
     def get_order_book(self, query_id: int, outcome: bool) -> list[OrderBookEntry]:
         """Get all buy/sell orders for a market outcome."""
-        json_str = truf_sdk.GetOrderBook(self._client, query_id, outcome)
+        json_str = truf_sdk.GetOrderBook(self.client, query_id, outcome)
 
         if not json_str:
             return []
@@ -2270,7 +2270,7 @@ class TNClient:
 
     def get_user_positions(self) -> list[UserPosition]:
         """Get caller's portfolio across all markets."""
-        json_str = truf_sdk.GetUserPositions(self._client)
+        json_str = truf_sdk.GetUserPositions(self.client)
 
         if not json_str:
             return []
@@ -2279,7 +2279,7 @@ class TNClient:
 
     def get_market_depth(self, query_id: int, outcome: bool) -> list[DepthLevel]:
         """Get aggregated volume per price level."""
-        json_str = truf_sdk.GetMarketDepth(self._client, query_id, outcome)
+        json_str = truf_sdk.GetMarketDepth(self.client, query_id, outcome)
 
         if not json_str:
             return []
@@ -2288,7 +2288,7 @@ class TNClient:
 
     def get_best_prices(self, query_id: int, outcome: bool) -> BestPrices:
         """Get current bid/ask spread."""
-        json_str = truf_sdk.GetBestPrices(self._client, query_id, outcome)
+        json_str = truf_sdk.GetBestPrices(self.client, query_id, outcome)
 
         if not json_str:
             raise RuntimeError("Failed to get best prices")
@@ -2297,7 +2297,7 @@ class TNClient:
 
     def get_user_collateral(self) -> UserCollateral:
         """Get caller's total locked collateral value."""
-        json_str = truf_sdk.GetUserCollateral(self._client)
+        json_str = truf_sdk.GetUserCollateral(self.client)
 
         if not json_str:
             return {
@@ -2314,7 +2314,7 @@ class TNClient:
 
     def settle_market(self, query_id: int) -> str:
         """Settle a market using attestation results."""
-        tx_hash = truf_sdk.SettleMarket(self._client, query_id)
+        tx_hash = truf_sdk.SettleMarket(self.client, query_id)
 
         if not tx_hash:
             raise RuntimeError(f"Failed to settle market {query_id}")
@@ -2323,7 +2323,7 @@ class TNClient:
 
     def sample_lp_rewards(self, query_id: int, block: int) -> str:
         """Sample liquidity provider rewards for a block."""
-        tx_hash = truf_sdk.SampleLPRewards(self._client, query_id, block)
+        tx_hash = truf_sdk.SampleLPRewards(self.client, query_id, block)
 
         if not tx_hash:
             raise RuntimeError(f"Failed to sample LP rewards for market {query_id}")
@@ -2332,7 +2332,7 @@ class TNClient:
 
     def get_distribution_summary(self, query_id: int) -> DistributionSummary:
         """Get fee distribution summary for a market."""
-        json_str = truf_sdk.GetDistributionSummary(self._client, query_id)
+        json_str = truf_sdk.GetDistributionSummary(self.client, query_id)
 
         if not json_str:
             raise RuntimeError(f"No distribution found for market {query_id}")
@@ -2341,7 +2341,7 @@ class TNClient:
 
     def get_distribution_details(self, distribution_id: int) -> list[LPRewardDetail]:
         """Get per-LP reward breakdown."""
-        json_str = truf_sdk.GetDistributionDetails(self._client, distribution_id)
+        json_str = truf_sdk.GetDistributionDetails(self.client, distribution_id)
 
         if not json_str:
             return []
@@ -2355,7 +2355,7 @@ class TNClient:
 
     def get_participant_reward_history(self, wallet_hex: str) -> list[RewardHistory]:
         """Get reward history for a wallet."""
-        json_str = truf_sdk.GetParticipantRewardHistory(self._client, wallet_hex)
+        json_str = truf_sdk.GetParticipantRewardHistory(self.client, wallet_hex)
 
         if not json_str:
             return []

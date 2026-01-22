@@ -1,14 +1,14 @@
 module github.com/trufnetwork/truf-sdk-binding
 
-go 1.24.1
+go 1.25.3
 
 require (
 	github.com/cockroachdb/apd/v3 v3.2.1
 	github.com/go-python/gopy v0.4.10
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9
 	github.com/pkg/errors v0.9.1
-	github.com/trufnetwork/kwil-db/core v0.4.3-0.20251020154327-c407a75ab9f5
-	github.com/trufnetwork/sdk-go v0.5.2-0.20251114145002-21661016b86b
+	github.com/trufnetwork/kwil-db/core v0.4.3-0.20260120153326-4fab48fcfa11
+	github.com/trufnetwork/sdk-go v0.5.3-0.20260121222623-b91f436240fa
 	google.golang.org/genproto v0.0.0-20251111163417-95abcf5c77ba
 )
 
@@ -25,7 +25,7 @@ require (
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/jrick/logrotate v1.1.2 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
-	github.com/trufnetwork/kwil-db v0.10.3-0.20251020154327-c407a75ab9f5 // indirect
+	github.com/trufnetwork/kwil-db v0.10.3-0.20260120153326-4fab48fcfa11 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.44.0 // indirect

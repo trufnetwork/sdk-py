@@ -1582,3 +1582,803 @@ func ListTransactionFees(
 
 	return response, nil
 }
+
+// ═══════════════════════════════════════════════════════════════
+//           ORDER BOOK FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+// CreateMarket creates a new prediction market
+func CreateMarket(
+	client *tnclient.Client,
+	queryHash []byte,
+	settleTime int64,
+	maxSpread int,
+	minOrderSize int64,
+) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	if len(queryHash) != 32 {
+		return "", errors.New("query_hash must be exactly 32 bytes")
+	}
+	if maxSpread < 1 || maxSpread > 50 {
+		return "", errors.New("max_spread must be between 1 and 50")
+	}
+	if minOrderSize <= 0 {
+		return "", errors.New("min_order_size must be positive")
+	}
+
+	input := types.CreateMarketInput{
+		QueryHash:    queryHash,
+		SettleTime:   settleTime,
+		MaxSpread:    maxSpread,
+		MinOrderSize: minOrderSize,
+	}
+
+	txHash, err := orderBook.CreateMarket(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to create market")
+	}
+
+	return txHash.String(), nil
+}
+
+// GetMarketInfo retrieves market details by ID
+func GetMarketInfo(client *tnclient.Client, queryID int) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.GetMarketInfoInput{
+		QueryID: queryID,
+	}
+
+	result, err := orderBook.GetMarketInfo(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get market info")
+	}
+
+	jsonBytes, err := json.Marshal(marketInfoToMap(result))
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal market info")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// GetMarketByHash retrieves market details by query hash
+func GetMarketByHash(client *tnclient.Client, queryHash []byte) (string, error) {
+	ctx := context.Background()
+
+	if len(queryHash) != 32 {
+		return "", errors.New("query_hash must be exactly 32 bytes")
+	}
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.GetMarketByHashInput{
+		QueryHash: queryHash,
+	}
+
+	result, err := orderBook.GetMarketByHash(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get market by hash")
+	}
+
+	jsonBytes, err := json.Marshal(marketInfoToMap(result))
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal market info")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// ListMarkets returns paginated list of markets
+func ListMarkets(
+	client *tnclient.Client,
+	settledFilter int,
+	limit int,
+	offset int,
+) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.ListMarketsInput{}
+
+	if settledFilter != -1 {
+		settled := settledFilter == 1
+		input.SettledFilter = &settled
+	}
+
+	if limit > 0 {
+		input.Limit = &limit
+	}
+
+	if offset > 0 {
+		input.Offset = &offset
+	}
+
+	results, err := orderBook.ListMarkets(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to list markets")
+	}
+
+	markets := make([]map[string]any, len(results))
+	for i, market := range results {
+		markets[i] = map[string]any{
+			"id":             market.ID,
+			"hash":           convertBytesToHex(market.Hash),
+			"settle_time":    market.SettleTime,
+			"settled":        market.Settled,
+			"max_spread":     market.MaxSpread,
+			"min_order_size": market.MinOrderSize,
+			"created_at":     market.CreatedAt,
+		}
+
+		if market.WinningOutcome != nil {
+			markets[i]["winning_outcome"] = *market.WinningOutcome
+		} else {
+			markets[i]["winning_outcome"] = nil
+		}
+	}
+
+	jsonBytes, err := json.Marshal(markets)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal markets")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// MarketExists checks if market exists by hash
+func MarketExists(client *tnclient.Client, queryHash []byte) (bool, error) {
+	ctx := context.Background()
+
+	if len(queryHash) != 32 {
+		return false, errors.New("query_hash must be exactly 32 bytes")
+	}
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return false, errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.MarketExistsInput{
+		QueryHash: queryHash,
+	}
+
+	exists, err := orderBook.MarketExists(ctx, input)
+	if err != nil {
+		return false, errors.Wrap(err, "failed to check market existence")
+	}
+
+	return exists, nil
+}
+
+// ValidateMarketCollateral checks binary token parity and vault balance
+func ValidateMarketCollateral(client *tnclient.Client, queryID int) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.ValidateMarketCollateralInput{
+		QueryID: queryID,
+	}
+
+	result, err := orderBook.ValidateMarketCollateral(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to validate market collateral")
+	}
+
+	validation := map[string]any{
+		"valid_token_binaries": result.ValidTokenBinaries,
+		"valid_collateral":     result.ValidCollateral,
+		"total_true":           result.TotalTrue,
+		"total_false":          result.TotalFalse,
+		"vault_balance":        result.VaultBalance,
+		"expected_collateral":  result.ExpectedCollateral,
+		"open_buys_value":      result.OpenBuysValue,
+	}
+
+	jsonBytes, err := json.Marshal(validation)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal validation")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// PlaceBuyOrder places a buy order for YES or NO shares
+func PlaceBuyOrder(
+	client *tnclient.Client,
+	queryID int,
+	outcome bool,
+	price int,
+	amount int64,
+) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	if price < 1 || price > 99 {
+		return "", errors.New("price must be between 1 and 99 cents")
+	}
+	if amount <= 0 {
+		return "", errors.New("amount must be positive")
+	}
+
+	input := types.PlaceBuyOrderInput{
+		QueryID: queryID,
+		Outcome: outcome,
+		Price:   price,
+		Amount:  amount,
+	}
+
+	txHash, err := orderBook.PlaceBuyOrder(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to place buy order")
+	}
+
+	return txHash.String(), nil
+}
+
+// PlaceSellOrder places a sell order for shares you own
+func PlaceSellOrder(
+	client *tnclient.Client,
+	queryID int,
+	outcome bool,
+	price int,
+	amount int64,
+) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	if price < 1 || price > 99 {
+		return "", errors.New("price must be between 1 and 99 cents")
+	}
+	if amount <= 0 {
+		return "", errors.New("amount must be positive")
+	}
+
+	input := types.PlaceSellOrderInput{
+		QueryID: queryID,
+		Outcome: outcome,
+		Price:   price,
+		Amount:  amount,
+	}
+
+	txHash, err := orderBook.PlaceSellOrder(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to place sell order")
+	}
+
+	return txHash.String(), nil
+}
+
+// PlaceSplitLimitOrder mints binary pairs and lists unwanted side for sale
+func PlaceSplitLimitOrder(
+	client *tnclient.Client,
+	queryID int,
+	truePrice int,
+	amount int64,
+) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	if truePrice < 1 || truePrice > 99 {
+		return "", errors.New("true_price must be between 1 and 99 cents")
+	}
+	if amount <= 0 {
+		return "", errors.New("amount must be positive")
+	}
+
+	input := types.PlaceSplitLimitOrderInput{
+		QueryID:   queryID,
+		TruePrice: truePrice,
+		Amount:    amount,
+	}
+
+	txHash, err := orderBook.PlaceSplitLimitOrder(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to place split limit order")
+	}
+
+	return txHash.String(), nil
+}
+
+// CancelOrder cancels an open buy or sell order
+func CancelOrder(
+	client *tnclient.Client,
+	queryID int,
+	outcome bool,
+	price int,
+) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	if price == 0 {
+		return "", errors.New("cannot cancel holdings (price=0), use place_sell_order instead")
+	}
+	if price < -99 || price > 99 {
+		return "", errors.New("price must be between -99 and 99 (excluding 0)")
+	}
+
+	input := types.CancelOrderInput{
+		QueryID: queryID,
+		Outcome: outcome,
+		Price:   price,
+	}
+
+	txHash, err := orderBook.CancelOrder(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to cancel order")
+	}
+
+	return txHash.String(), nil
+}
+
+// ChangeBid atomically modifies buy order price and amount
+func ChangeBid(
+	client *tnclient.Client,
+	queryID int,
+	outcome bool,
+	oldPrice int,
+	newPrice int,
+	newAmount int64,
+) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	if oldPrice >= 0 || newPrice >= 0 {
+		return "", errors.New("bid prices must be negative (buy orders)")
+	}
+	if newAmount <= 0 {
+		return "", errors.New("new_amount must be positive")
+	}
+
+	input := types.ChangeBidInput{
+		QueryID:   queryID,
+		Outcome:   outcome,
+		OldPrice:  oldPrice,
+		NewPrice:  newPrice,
+		NewAmount: newAmount,
+	}
+
+	txHash, err := orderBook.ChangeBid(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to change bid")
+	}
+
+	return txHash.String(), nil
+}
+
+// ChangeAsk atomically modifies sell order price and amount
+func ChangeAsk(
+	client *tnclient.Client,
+	queryID int,
+	outcome bool,
+	oldPrice int,
+	newPrice int,
+	newAmount int64,
+) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	if oldPrice <= 0 || newPrice <= 0 {
+		return "", errors.New("ask prices must be positive (sell orders)")
+	}
+	if newAmount <= 0 {
+		return "", errors.New("new_amount must be positive")
+	}
+
+	input := types.ChangeAskInput{
+		QueryID:   queryID,
+		Outcome:   outcome,
+		OldPrice:  oldPrice,
+		NewPrice:  newPrice,
+		NewAmount: newAmount,
+	}
+
+	txHash, err := orderBook.ChangeAsk(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to change ask")
+	}
+
+	return txHash.String(), nil
+}
+
+// GetOrderBook retrieves all buy/sell orders for a market outcome
+func GetOrderBook(client *tnclient.Client, queryID int, outcome bool) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.GetOrderBookInput{
+		QueryID: queryID,
+		Outcome: outcome,
+	}
+
+	results, err := orderBook.GetOrderBook(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get order book")
+	}
+
+	entries := make([]map[string]any, len(results))
+	for i, entry := range results {
+		entries[i] = map[string]any{
+			"wallet_address": convertBytesToHex(entry.WalletAddress),
+			"price":          entry.Price,
+			"amount":         entry.Amount,
+			"last_updated":   entry.LastUpdated,
+		}
+	}
+
+	jsonBytes, err := json.Marshal(entries)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal order book")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// GetUserPositions retrieves caller's portfolio across all markets
+func GetUserPositions(client *tnclient.Client) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	results, err := orderBook.GetUserPositions(ctx)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get user positions")
+	}
+
+	positions := make([]map[string]any, len(results))
+	for i, pos := range results {
+		positions[i] = map[string]any{
+			"query_id":     pos.QueryID,
+			"outcome":      pos.Outcome,
+			"price":        pos.Price,
+			"amount":       pos.Amount,
+			"last_updated": pos.LastUpdated,
+		}
+	}
+
+	jsonBytes, err := json.Marshal(positions)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal positions")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// GetMarketDepth returns aggregated volume per price level
+func GetMarketDepth(client *tnclient.Client, queryID int, outcome bool) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.GetMarketDepthInput{
+		QueryID: queryID,
+		Outcome: outcome,
+	}
+
+	results, err := orderBook.GetMarketDepth(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get market depth")
+	}
+
+	levels := make([]map[string]any, len(results))
+	for i, level := range results {
+		levels[i] = map[string]any{
+			"price":        level.Price,
+			"total_amount": level.TotalAmount,
+		}
+	}
+
+	jsonBytes, err := json.Marshal(levels)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal market depth")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// GetBestPrices returns current bid/ask spread
+func GetBestPrices(client *tnclient.Client, queryID int, outcome bool) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.GetBestPricesInput{
+		QueryID: queryID,
+		Outcome: outcome,
+	}
+
+	result, err := orderBook.GetBestPrices(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get best prices")
+	}
+
+	prices := map[string]any{}
+
+	if result.BestBid != nil {
+		prices["best_bid"] = *result.BestBid
+	} else {
+		prices["best_bid"] = nil
+	}
+
+	if result.BestAsk != nil {
+		prices["best_ask"] = *result.BestAsk
+	} else {
+		prices["best_ask"] = nil
+	}
+
+	if result.Spread != nil {
+		prices["spread"] = *result.Spread
+	} else {
+		prices["spread"] = nil
+	}
+
+	jsonBytes, err := json.Marshal(prices)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal prices")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// GetUserCollateral returns caller's total locked collateral value
+func GetUserCollateral(client *tnclient.Client) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	result, err := orderBook.GetUserCollateral(ctx)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get user collateral")
+	}
+
+	collateral := map[string]any{
+		"total_locked":      result.TotalLocked,
+		"buy_orders_locked": result.BuyOrdersLocked,
+		"shares_value":      result.SharesValue,
+	}
+
+	jsonBytes, err := json.Marshal(collateral)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal collateral")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// SettleMarket settles a market using attestation results
+func SettleMarket(client *tnclient.Client, queryID int) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.SettleMarketInput{
+		QueryID: queryID,
+	}
+
+	txHash, err := orderBook.SettleMarket(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to settle market")
+	}
+
+	return txHash.String(), nil
+}
+
+// SampleLPRewards samples liquidity provider rewards for a block
+func SampleLPRewards(client *tnclient.Client, queryID int, block int64) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.SampleLPRewardsInput{
+		QueryID: queryID,
+		Block:   block,
+	}
+
+	txHash, err := orderBook.SampleLPRewards(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to sample LP rewards")
+	}
+
+	return txHash.String(), nil
+}
+
+// GetDistributionSummary retrieves fee distribution summary for a market
+func GetDistributionSummary(client *tnclient.Client, queryID int) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.GetDistributionSummaryInput{
+		QueryID: queryID,
+	}
+
+	result, err := orderBook.GetDistributionSummary(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get distribution summary")
+	}
+
+	summary := map[string]any{
+		"distribution_id":        result.DistributionID,
+		"total_fees_distributed": result.TotalFeesDistributed,
+		"total_lp_count":         result.TotalLPCount,
+		"block_count":            result.BlockCount,
+		"distributed_at":         result.DistributedAt,
+	}
+
+	jsonBytes, err := json.Marshal(summary)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal distribution summary")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// GetDistributionDetails retrieves per-LP reward details
+func GetDistributionDetails(client *tnclient.Client, distributionID int) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.GetDistributionDetailsInput{
+		DistributionID: distributionID,
+	}
+
+	results, err := orderBook.GetDistributionDetails(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get distribution details")
+	}
+
+	details := make([]map[string]any, len(results))
+	for i, detail := range results {
+		details[i] = map[string]any{
+			"wallet_address":       convertBytesToHex(detail.WalletAddress),
+			"reward_amount":        detail.RewardAmount,
+			"total_reward_percent": detail.TotalRewardPercent,
+		}
+	}
+
+	jsonBytes, err := json.Marshal(details)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal distribution details")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// GetParticipantRewardHistory retrieves reward history for a wallet
+func GetParticipantRewardHistory(client *tnclient.Client, walletHex string) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	input := types.GetParticipantRewardHistoryInput{
+		WalletHex: walletHex,
+	}
+
+	results, err := orderBook.GetParticipantRewardHistory(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get participant reward history")
+	}
+
+	history := make([]map[string]any, len(results))
+	for i, h := range results {
+		history[i] = map[string]any{
+			"distribution_id":      h.DistributionID,
+			"query_id":             h.QueryID,
+			"reward_amount":        h.RewardAmount,
+			"total_reward_percent": h.TotalRewardPercent,
+			"distributed_at":       h.DistributedAt,
+		}
+	}
+
+	jsonBytes, err := json.Marshal(history)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal reward history")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// Helper: Convert MarketInfo to map for JSON serialization
+func marketInfoToMap(market *types.MarketInfo) map[string]any {
+	result := map[string]any{
+		"hash":           convertBytesToHex(market.Hash),
+		"settle_time":    market.SettleTime,
+		"settled":        market.Settled,
+		"max_spread":     market.MaxSpread,
+		"min_order_size": market.MinOrderSize,
+		"created_at":     market.CreatedAt,
+		"creator":        convertBytesToHex(market.Creator),
+	}
+
+	if market.WinningOutcome != nil {
+		result["winning_outcome"] = *market.WinningOutcome
+	} else {
+		result["winning_outcome"] = nil
+	}
+
+	if market.SettledAt != nil {
+		result["settled_at"] = *market.SettledAt
+	} else {
+		result["settled_at"] = nil
+	}
+
+	return result
+}

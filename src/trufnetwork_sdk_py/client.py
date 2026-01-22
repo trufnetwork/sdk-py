@@ -165,6 +165,107 @@ class TaxonomyDefinition(BaseModel):
     weight: int | float
 
 
+# Order Book type definitions
+
+
+class MarketInfo(TypedDict):
+    """Market information"""
+    hash: bytes
+    settle_time: int
+    settled: bool
+    winning_outcome: bool | None
+    settled_at: int | None
+    max_spread: int
+    min_order_size: int
+    created_at: int
+    creator: bytes
+
+
+class MarketSummary(TypedDict):
+    """Market summary for list results"""
+    id: int
+    hash: bytes
+    settle_time: int
+    settled: bool
+    winning_outcome: bool | None
+    max_spread: int
+    min_order_size: int
+    created_at: int
+
+
+class MarketValidation(TypedDict):
+    """Market collateral validation result"""
+    valid_token_binaries: bool
+    valid_collateral: bool
+    total_true: int
+    total_false: int
+    vault_balance: str
+    expected_collateral: str
+    open_buys_value: int
+
+
+class OrderBookEntry(TypedDict):
+    """Single order book entry"""
+    wallet_address: bytes
+    price: int
+    amount: int
+    last_updated: int
+
+
+class UserPosition(TypedDict):
+    """User position in a market"""
+    query_id: int
+    outcome: bool
+    price: int
+    amount: int
+    last_updated: int
+
+
+class DepthLevel(TypedDict):
+    """Market depth at price level"""
+    price: int
+    total_amount: int
+
+
+class BestPrices(TypedDict):
+    """Best bid/ask spread"""
+    best_bid: int | None
+    best_ask: int | None
+    spread: int | None
+
+
+class UserCollateral(TypedDict):
+    """User's total collateral locked"""
+    total_locked: str
+    buy_orders_locked: str
+    shares_value: str
+
+
+class DistributionSummary(TypedDict):
+    """Fee distribution summary"""
+    distribution_id: int
+    total_fees_distributed: str
+    total_lp_count: int
+    block_count: int
+    distributed_at: int
+
+
+class LPRewardDetail(TypedDict):
+    """LP reward detail"""
+    wallet_address: bytes
+    reward_amount: str
+    total_reward_percent: str
+
+
+class RewardHistory(TypedDict):
+    """Reward history entry"""
+    distribution_id: int
+    query_id: int
+    reward_amount: str
+    total_reward_percent: str
+    distributed_at: int
+
+
 # Cache-related type definitions
 
 
@@ -1869,6 +1970,397 @@ class TNClient:
             })
 
         return results
+
+    # ═══════════════════════════════════════════════════════════════
+    # ORDER BOOK - MARKET OPERATIONS
+    # ═══════════════════════════════════════════════════════════════
+
+    def create_market(
+        self,
+        query_hash: bytes,
+        settle_time: int,
+        max_spread: int,
+        min_order_size: int,
+    ) -> str:
+        """
+        Create a new prediction market.
+
+        Args:
+            query_hash: 32-byte SHA256 hash of the query
+            settle_time: Unix timestamp when market can be settled
+            max_spread: Maximum spread for LP rewards (1-50 cents)
+            min_order_size: Minimum order size for LP rewards
+
+        Returns:
+            Transaction hash
+
+        Raises:
+            RuntimeError: If market creation fails
+
+        Example:
+            >>> import hashlib
+            >>> query_hash = hashlib.sha256(b"btc_price_gt_50000").digest()
+            >>> settle_time = int(time.time()) + 3600
+            >>> tx_hash = client.create_market(query_hash, settle_time, 5, 100)
+        """
+        if len(query_hash) != 32:
+            raise ValueError("query_hash must be exactly 32 bytes")
+        if max_spread < 1 or max_spread > 50:
+            raise ValueError("max_spread must be between 1 and 50")
+        if min_order_size <= 0:
+            raise ValueError("min_order_size must be positive")
+
+        tx_hash = truf_sdk.CreateMarket(
+            self._client,
+            query_hash,
+            settle_time,
+            max_spread,
+            min_order_size,
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to create market")
+
+        return tx_hash
+
+    def get_market_info(self, query_id: int) -> MarketInfo:
+        """Get market details by ID."""
+        json_str = truf_sdk.GetMarketInfo(self._client, query_id)
+
+        if not json_str:
+            raise RuntimeError(f"Market {query_id} not found")
+
+        data = json.loads(json_str)
+        data["hash"] = bytes.fromhex(data["hash"].replace("0x", ""))
+        data["creator"] = bytes.fromhex(data["creator"].replace("0x", ""))
+
+        return cast(MarketInfo, data)
+
+    def get_market_by_hash(self, query_hash: bytes) -> MarketInfo:
+        """Get market details by query hash."""
+        if len(query_hash) != 32:
+            raise ValueError("query_hash must be exactly 32 bytes")
+
+        json_str = truf_sdk.GetMarketByHash(self._client, query_hash)
+
+        if not json_str:
+            raise RuntimeError("Market not found for given hash")
+
+        data = json.loads(json_str)
+        data["hash"] = bytes.fromhex(data["hash"].replace("0x", ""))
+        data["creator"] = bytes.fromhex(data["creator"].replace("0x", ""))
+
+        return cast(MarketInfo, data)
+
+    def list_markets(
+        self,
+        settled_filter: bool | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[MarketSummary]:
+        """List markets with optional filtering."""
+        settled_int = -1 if settled_filter is None else (1 if settled_filter else 0)
+
+        json_str = truf_sdk.ListMarkets(self._client, settled_int, limit, offset)
+
+        if not json_str:
+            return []
+
+        markets = json.loads(json_str)
+
+        for market in markets:
+            market["hash"] = bytes.fromhex(market["hash"].replace("0x", ""))
+
+        return cast(list[MarketSummary], markets)
+
+    def market_exists(self, query_hash: bytes) -> bool:
+        """Check if market exists by hash."""
+        if len(query_hash) != 32:
+            raise ValueError("query_hash must be exactly 32 bytes")
+
+        return truf_sdk.MarketExists(self._client, query_hash)
+
+    def validate_market_collateral(self, query_id: int) -> MarketValidation:
+        """Validate market collateral integrity."""
+        json_str = truf_sdk.ValidateMarketCollateral(self._client, query_id)
+
+        if not json_str:
+            raise RuntimeError(f"Failed to validate market {query_id}")
+
+        return cast(MarketValidation, json.loads(json_str))
+
+    # ═══════════════════════════════════════════════════════════════
+    # ORDER BOOK - ORDER OPERATIONS
+    # ═══════════════════════════════════════════════════════════════
+
+    def place_buy_order(
+        self,
+        query_id: int,
+        outcome: bool,
+        price: int,
+        amount: int,
+    ) -> str:
+        """
+        Place a buy order for YES or NO shares.
+
+        Args:
+            query_id: Market ID
+            outcome: True for YES shares, False for NO shares
+            price: Price per share in cents (1-99)
+            amount: Number of shares to buy
+
+        Returns:
+            Transaction hash
+
+        Example:
+            >>> tx_hash = client.place_buy_order(
+            ...     query_id=1,
+            ...     outcome=True,
+            ...     price=56,
+            ...     amount=100
+            ... )
+        """
+        if price < 1 or price > 99:
+            raise ValueError("price must be between 1 and 99 cents")
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+
+        tx_hash = truf_sdk.PlaceBuyOrder(self._client, query_id, outcome, price, amount)
+
+        if not tx_hash:
+            raise RuntimeError("Failed to place buy order")
+
+        return tx_hash
+
+    def place_sell_order(
+        self,
+        query_id: int,
+        outcome: bool,
+        price: int,
+        amount: int,
+    ) -> str:
+        """Place a sell order for shares you own."""
+        if price < 1 or price > 99:
+            raise ValueError("price must be between 1 and 99 cents")
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+
+        tx_hash = truf_sdk.PlaceSellOrder(self._client, query_id, outcome, price, amount)
+
+        if not tx_hash:
+            raise RuntimeError("Failed to place sell order")
+
+        return tx_hash
+
+    def place_split_limit_order(
+        self,
+        query_id: int,
+        true_price: int,
+        amount: int,
+    ) -> str:
+        """
+        Mint binary share pairs and list unwanted side for sale.
+
+        Args:
+            query_id: Market ID
+            true_price: YES price in cents (1-99)
+            amount: Number of share PAIRS to mint
+
+        Example:
+            >>> tx_hash = client.place_split_limit_order(
+            ...     query_id=1,
+            ...     true_price=56,
+            ...     amount=100
+            ... )
+        """
+        if true_price < 1 or true_price > 99:
+            raise ValueError("true_price must be between 1 and 99 cents")
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+
+        tx_hash = truf_sdk.PlaceSplitLimitOrder(self._client, query_id, true_price, amount)
+
+        if not tx_hash:
+            raise RuntimeError("Failed to place split limit order")
+
+        return tx_hash
+
+    def cancel_order(
+        self,
+        query_id: int,
+        outcome: bool,
+        price: int,
+    ) -> str:
+        """Cancel an open buy or sell order."""
+        if price == 0:
+            raise ValueError("Cannot cancel holdings (price=0), use place_sell_order instead")
+        if price < -99 or price > 99:
+            raise ValueError("price must be between -99 and 99 (excluding 0)")
+
+        tx_hash = truf_sdk.CancelOrder(self._client, query_id, outcome, price)
+
+        if not tx_hash:
+            raise RuntimeError("Failed to cancel order")
+
+        return tx_hash
+
+    def change_bid(
+        self,
+        query_id: int,
+        outcome: bool,
+        old_price: int,
+        new_price: int,
+        new_amount: int,
+    ) -> str:
+        """Atomically modify buy order price and amount."""
+        if old_price >= 0 or new_price >= 0:
+            raise ValueError("bid prices must be negative (buy orders)")
+        if new_amount <= 0:
+            raise ValueError("new_amount must be positive")
+
+        tx_hash = truf_sdk.ChangeBid(
+            self._client, query_id, outcome, old_price, new_price, new_amount
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to change bid")
+
+        return tx_hash
+
+    def change_ask(
+        self,
+        query_id: int,
+        outcome: bool,
+        old_price: int,
+        new_price: int,
+        new_amount: int,
+    ) -> str:
+        """Atomically modify sell order price and amount."""
+        if old_price <= 0 or new_price <= 0:
+            raise ValueError("ask prices must be positive (sell orders)")
+        if new_amount <= 0:
+            raise ValueError("new_amount must be positive")
+
+        tx_hash = truf_sdk.ChangeAsk(
+            self._client, query_id, outcome, old_price, new_price, new_amount
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to change ask")
+
+        return tx_hash
+
+    # ═══════════════════════════════════════════════════════════════
+    # ORDER BOOK - QUERY OPERATIONS
+    # ═══════════════════════════════════════════════════════════════
+
+    def get_order_book(self, query_id: int, outcome: bool) -> list[OrderBookEntry]:
+        """Get all buy/sell orders for a market outcome."""
+        json_str = truf_sdk.GetOrderBook(self._client, query_id, outcome)
+
+        if not json_str:
+            return []
+
+        orders = json.loads(json_str)
+
+        for order in orders:
+            order["wallet_address"] = bytes.fromhex(order["wallet_address"].replace("0x", ""))
+
+        return cast(list[OrderBookEntry], orders)
+
+    def get_user_positions(self) -> list[UserPosition]:
+        """Get caller's portfolio across all markets."""
+        json_str = truf_sdk.GetUserPositions(self._client)
+
+        if not json_str:
+            return []
+
+        return cast(list[UserPosition], json.loads(json_str))
+
+    def get_market_depth(self, query_id: int, outcome: bool) -> list[DepthLevel]:
+        """Get aggregated volume per price level."""
+        json_str = truf_sdk.GetMarketDepth(self._client, query_id, outcome)
+
+        if not json_str:
+            return []
+
+        return cast(list[DepthLevel], json.loads(json_str))
+
+    def get_best_prices(self, query_id: int, outcome: bool) -> BestPrices:
+        """Get current bid/ask spread."""
+        json_str = truf_sdk.GetBestPrices(self._client, query_id, outcome)
+
+        if not json_str:
+            raise RuntimeError("Failed to get best prices")
+
+        return cast(BestPrices, json.loads(json_str))
+
+    def get_user_collateral(self) -> UserCollateral:
+        """Get caller's total locked collateral value."""
+        json_str = truf_sdk.GetUserCollateral(self._client)
+
+        if not json_str:
+            return {
+                "total_locked": "0",
+                "buy_orders_locked": "0",
+                "shares_value": "0",
+            }
+
+        return cast(UserCollateral, json.loads(json_str))
+
+    # ═══════════════════════════════════════════════════════════════
+    # ORDER BOOK - SETTLEMENT & REWARDS
+    # ═══════════════════════════════════════════════════════════════
+
+    def settle_market(self, query_id: int) -> str:
+        """Settle a market using attestation results."""
+        tx_hash = truf_sdk.SettleMarket(self._client, query_id)
+
+        if not tx_hash:
+            raise RuntimeError(f"Failed to settle market {query_id}")
+
+        return tx_hash
+
+    def sample_lp_rewards(self, query_id: int, block: int) -> str:
+        """Sample liquidity provider rewards for a block."""
+        tx_hash = truf_sdk.SampleLPRewards(self._client, query_id, block)
+
+        if not tx_hash:
+            raise RuntimeError(f"Failed to sample LP rewards for market {query_id}")
+
+        return tx_hash
+
+    def get_distribution_summary(self, query_id: int) -> DistributionSummary:
+        """Get fee distribution summary for a market."""
+        json_str = truf_sdk.GetDistributionSummary(self._client, query_id)
+
+        if not json_str:
+            raise RuntimeError(f"No distribution found for market {query_id}")
+
+        return cast(DistributionSummary, json.loads(json_str))
+
+    def get_distribution_details(self, distribution_id: int) -> list[LPRewardDetail]:
+        """Get per-LP reward breakdown."""
+        json_str = truf_sdk.GetDistributionDetails(self._client, distribution_id)
+
+        if not json_str:
+            return []
+
+        details = json.loads(json_str)
+
+        for detail in details:
+            detail["wallet_address"] = bytes.fromhex(detail["wallet_address"].replace("0x", ""))
+
+        return cast(list[LPRewardDetail], details)
+
+    def get_participant_reward_history(self, wallet_hex: str) -> list[RewardHistory]:
+        """Get reward history for a wallet."""
+        json_str = truf_sdk.GetParticipantRewardHistory(self._client, wallet_hex)
+
+        if not json_str:
+            return []
+
+        return cast(list[RewardHistory], json.loads(json_str))
 
 
 def all_is_list_of_strings[T](arg_list: list[T]) -> bool:

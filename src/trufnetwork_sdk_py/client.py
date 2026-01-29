@@ -170,7 +170,10 @@ class TaxonomyDefinition(BaseModel):
 
 class MarketInfo(TypedDict):
     """Market information"""
+    id: int
     hash: bytes
+    query_components: bytes  # ABI-encoded (address, bytes32, string, bytes)
+    bridge: str  # Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
     settle_time: int
     settled: bool
     winning_outcome: bool | None
@@ -264,6 +267,121 @@ class RewardHistory(TypedDict):
     reward_amount: str
     total_reward_percent: str
     distributed_at: int
+
+
+# Binary action TypedDicts
+
+
+class BooleanResultOutput(TypedDict):
+    """Output from parse_boolean_result"""
+    result: bool  # The boolean outcome (TRUE/FALSE)
+    action_id: int  # The action ID (should be 6-9)
+
+
+class DecodedQueryComponents(TypedDict):
+    """Decoded query components"""
+    data_provider: str  # 0x-prefixed Ethereum address
+    stream_id: str  # 32-character stream ID
+    action_id: str  # Action name
+    args: str  # Hex-encoded arguments
+
+
+# ═══════════════════════════════════════════════════════════════
+#           ACTION REGISTRY
+# ═══════════════════════════════════════════════════════════════
+
+# Action Registry - Maps action names to their metadata
+# These correspond to the actions defined in the node's migrations
+ACTION_REGISTRY: dict[str, dict[str, Any]] = {
+    # Numeric actions (IDs 1-5) - return uint256[], int256[]
+    "get_record": {
+        "id": 1,
+        "name": "get_record",
+        "is_binary": False,
+        "description": "Get record value at a specific timestamp",
+    },
+    "get_index": {
+        "id": 2,
+        "name": "get_index",
+        "is_binary": False,
+        "description": "Get index value at a specific timestamp",
+    },
+    "get_change_over_time": {
+        "id": 3,
+        "name": "get_change_over_time",
+        "is_binary": False,
+        "description": "Get change in value over a time period",
+    },
+    "get_last_record": {
+        "id": 4,
+        "name": "get_last_record",
+        "is_binary": False,
+        "description": "Get the most recent record value",
+    },
+    "get_first_record": {
+        "id": 5,
+        "name": "get_first_record",
+        "is_binary": False,
+        "description": "Get the earliest record value",
+    },
+    # Binary actions (IDs 6-9) - return bool (TRUE/FALSE)
+    "price_above_threshold": {
+        "id": 6,
+        "name": "price_above_threshold",
+        "is_binary": True,
+        "description": "TRUE if value > threshold",
+    },
+    "price_below_threshold": {
+        "id": 7,
+        "name": "price_below_threshold",
+        "is_binary": True,
+        "description": "TRUE if value < threshold",
+    },
+    "value_in_range": {
+        "id": 8,
+        "name": "value_in_range",
+        "is_binary": True,
+        "description": "TRUE if min <= value <= max",
+    },
+    "value_equals": {
+        "id": 9,
+        "name": "value_equals",
+        "is_binary": True,
+        "description": "TRUE if value = target ± tolerance",
+    },
+}
+
+# Valid attestation actions (both numeric and binary)
+VALID_ATTESTATION_ACTIONS = list(ACTION_REGISTRY.keys())
+
+# Binary action names
+BINARY_ACTION_NAMES = [name for name, info in ACTION_REGISTRY.items() if info["is_binary"]]
+
+# Valid bridge namespaces
+VALID_BRIDGES = ["hoodi_tt2", "sepolia_bridge", "ethereum_bridge"]
+
+
+def is_binary_action(name: str) -> bool:
+    """Returns True if the action name corresponds to a binary action (IDs 6-9)"""
+    return ACTION_REGISTRY.get(name, {}).get("is_binary", False)
+
+
+def is_binary_action_id(action_id: int) -> bool:
+    """Returns True if the action ID corresponds to a binary action (6-9)"""
+    return 6 <= action_id <= 9
+
+
+def get_action_id(name: str) -> int:
+    """Returns the action ID for a given action name, or 0 if not found"""
+    return ACTION_REGISTRY.get(name, {}).get("id", 0)
+
+
+def get_action_name(action_id: int) -> str:
+    """Returns the action name for a given action ID, or empty string if not found"""
+    for name, info in ACTION_REGISTRY.items():
+        if info["id"] == action_id:
+            return name
+    return ""
 
 
 # Cache-related type definitions
@@ -1977,7 +2095,8 @@ class TNClient:
 
     def create_market(
         self,
-        query_hash: bytes,
+        bridge: str,
+        query_components: bytes,
         settle_time: int,
         max_spread: int,
         min_order_size: int,
@@ -1987,7 +2106,9 @@ class TNClient:
         Create a new prediction market.
 
         Args:
-            query_hash: 32-byte SHA256 hash of the query
+            bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+            query_components: ABI-encoded tuple (address, bytes32, string, bytes)
+                              Use encode_query_components() to create this
             settle_time: Unix timestamp when market can be settled
             max_spread: Maximum spread for LP rewards (1-50 cents)
             min_order_size: Minimum order size for LP rewards
@@ -1997,16 +2118,26 @@ class TNClient:
             Transaction hash
 
         Raises:
+            ValueError: If inputs are invalid
             RuntimeError: If market creation fails
 
         Example:
-            >>> import hashlib
-            >>> query_hash = hashlib.sha256(b"btc_price_gt_50000").digest()
-            >>> settle_time = int(time.time()) + 3600
-            >>> tx_hash = client.create_market(query_hash, settle_time, 5, 100)
+            >>> # Create a "Will BTC exceed $100k?" market
+            >>> args = client.encode_action_args([
+            ...     "0x1234...", "stbtcusd...", 1735689600, "100000", None
+            ... ])
+            >>> query_components = client.encode_query_components(
+            ...     "0x1234...", "stbtcusd...", "price_above_threshold", args
+            ... )
+            >>> tx_hash = client.create_market(
+            ...     "ethereum_bridge", query_components,
+            ...     int(time.time()) + 3600, 5, 100
+            ... )
         """
-        if len(query_hash) != 32:
-            raise ValueError("query_hash must be exactly 32 bytes")
+        if bridge not in VALID_BRIDGES:
+            raise ValueError(f"bridge must be one of: {', '.join(VALID_BRIDGES)}")
+        if len(query_components) < 128:
+            raise ValueError("query_components too short for ABI-encoded tuple")
         if max_spread < 1 or max_spread > 50:
             raise ValueError("max_spread must be between 1 and 50")
         if min_order_size <= 0:
@@ -2014,7 +2145,8 @@ class TNClient:
 
         tx_hash = truf_sdk.CreateMarket(
             self.client,
-            query_hash,
+            bridge,
+            query_components,
             settle_time,
             max_spread,
             min_order_size,
@@ -2040,6 +2172,7 @@ class TNClient:
         # Validate required fields
         data_hash = data.get("hash")
         data_creator = data.get("creator")
+        data_query_components = data.get("query_components")
 
         if not data_hash or not isinstance(data_hash, str):
             raise ValueError("MarketInfo response missing or invalid 'hash' field")
@@ -2048,6 +2181,12 @@ class TNClient:
 
         data["hash"] = bytes.fromhex(data_hash.replace("0x", ""))
         data["creator"] = bytes.fromhex(data_creator.replace("0x", ""))
+
+        # Handle query_components (may be empty for legacy markets)
+        if data_query_components:
+            data["query_components"] = bytes.fromhex(data_query_components.replace("0x", ""))
+        else:
+            data["query_components"] = b""
 
         return cast(MarketInfo, data)
 
@@ -2066,6 +2205,7 @@ class TNClient:
         # Validate required fields
         data_hash = data.get("hash")
         data_creator = data.get("creator")
+        data_query_components = data.get("query_components")
 
         if not data_hash or not isinstance(data_hash, str):
             raise ValueError("MarketInfo response missing or invalid 'hash' field")
@@ -2074,6 +2214,12 @@ class TNClient:
 
         data["hash"] = bytes.fromhex(data_hash.replace("0x", ""))
         data["creator"] = bytes.fromhex(data_creator.replace("0x", ""))
+
+        # Handle query_components (may be empty for legacy markets)
+        if data_query_components:
+            data["query_components"] = bytes.fromhex(data_query_components.replace("0x", ""))
+        else:
+            data["query_components"] = b""
 
         return cast(MarketInfo, data)
 
@@ -2486,6 +2632,373 @@ class TNClient:
             return []
 
         return cast(list[RewardHistory], json.loads(json_str))
+
+    # ═══════════════════════════════════════════════════════════════
+    # QUERY COMPONENTS ENCODING
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def encode_query_components(
+        data_provider: str,
+        stream_id: str,
+        action_id: str,
+        args: bytes,
+    ) -> bytes:
+        """
+        ABI-encode query components for use with create_market.
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address (42 chars)
+            stream_id: 32-character stream ID
+            action_id: Action name (e.g., "price_above_threshold", "get_record")
+            args: Pre-encoded action arguments (from encode_action_args)
+
+        Returns:
+            ABI-encoded query_components bytes
+
+        Example:
+            >>> args = TNClient.encode_action_args([
+            ...     "0x1234...", "stbtcusd...", 1735689600, "100000", None
+            ... ])
+            >>> qc = TNClient.encode_query_components(
+            ...     "0x1234...", "stbtcusd...", "price_above_threshold", args
+            ... )
+        """
+        return truf_sdk.EncodeQueryComponents(data_provider, stream_id, action_id, args)
+
+    @staticmethod
+    def encode_action_args(args: list[Any]) -> bytes:
+        """
+        Encode action arguments for use in query_components.
+
+        Args:
+            args: List of arguments for the action
+
+        Returns:
+            Encoded arguments bytes
+
+        Example:
+            >>> # For price_above_threshold:
+            >>> args = TNClient.encode_action_args([
+            ...     "0x1234...",  # data_provider
+            ...     "stbtcusd...", # stream_id
+            ...     1735689600,    # timestamp
+            ...     "100000",      # threshold
+            ...     None           # frozen_at (optional)
+            ... ])
+        """
+        args_json = json.dumps(args)
+        return truf_sdk.EncodeActionArgs(args_json)
+
+    @staticmethod
+    def decode_query_components(query_components: bytes) -> DecodedQueryComponents:
+        """
+        Decode ABI-encoded query components back to its parts.
+
+        Args:
+            query_components: ABI-encoded query_components bytes
+
+        Returns:
+            DecodedQueryComponents with data_provider, stream_id, action_id, args
+        """
+        json_str = truf_sdk.DecodeQueryComponents(query_components)
+        return cast(DecodedQueryComponents, json.loads(json_str))
+
+    # ═══════════════════════════════════════════════════════════════
+    # BOOLEAN RESULT PARSING
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def parse_boolean_result(payload: bytes) -> BooleanResultOutput:
+        """
+        Parse a boolean result from a binary action attestation payload.
+
+        This is specifically for binary attestation actions (IDs 6-9):
+          - price_above_threshold (6)
+          - price_below_threshold (7)
+          - value_in_range (8)
+          - value_equals (9)
+
+        Args:
+            payload: The canonical attestation payload (without signature)
+
+        Returns:
+            BooleanResultOutput with result (bool) and action_id (int)
+
+        Raises:
+            ValueError: If payload is not from a binary action
+        """
+        if len(payload) < 20:
+            raise ValueError(f"payload too short ({len(payload)} bytes)")
+
+        json_str = truf_sdk.ParseBooleanResult(payload)
+        return cast(BooleanResultOutput, json.loads(json_str))
+
+    # ═══════════════════════════════════════════════════════════════
+    # BINARY MARKET CREATION HELPERS
+    # ═══════════════════════════════════════════════════════════════
+
+    def create_price_above_threshold_market(
+        self,
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        threshold: str,
+        bridge: str,
+        settle_time: int,
+        max_spread: int,
+        min_order_size: int,
+        frozen_at: int | None = None,
+        wait: bool = True,
+    ) -> str:
+        """
+        Create a binary prediction market that settles TRUE if the stream value
+        exceeds the threshold at the specified timestamp.
+
+        Example: "Will BTC exceed $100,000 by December 31, 2025?"
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID
+            timestamp: Unix timestamp to check the value at
+            threshold: Threshold value as decimal string (e.g., "100000")
+            bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+            settle_time: Unix timestamp when market can be settled
+            max_spread: Maximum spread for LP rewards (1-50 cents)
+            min_order_size: Minimum order size for LP rewards
+            frozen_at: Optional Unix timestamp to freeze the value lookup
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
+        self._validate_binary_market_inputs(
+            data_provider, stream_id, bridge, max_spread, min_order_size
+        )
+
+        tx_hash = truf_sdk.CreatePriceAboveThresholdMarket(
+            self.client,
+            data_provider,
+            stream_id,
+            timestamp,
+            threshold,
+            frozen_at if frozen_at is not None else -1,
+            bridge,
+            settle_time,
+            max_spread,
+            min_order_size,
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to create price above threshold market")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
+    def create_price_below_threshold_market(
+        self,
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        threshold: str,
+        bridge: str,
+        settle_time: int,
+        max_spread: int,
+        min_order_size: int,
+        frozen_at: int | None = None,
+        wait: bool = True,
+    ) -> str:
+        """
+        Create a binary prediction market that settles TRUE if the stream value
+        is below the threshold at the specified timestamp.
+
+        Example: "Will unemployment drop below 4% by Q2 2025?"
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID
+            timestamp: Unix timestamp to check the value at
+            threshold: Threshold value as decimal string (e.g., "4.0")
+            bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+            settle_time: Unix timestamp when market can be settled
+            max_spread: Maximum spread for LP rewards (1-50 cents)
+            min_order_size: Minimum order size for LP rewards
+            frozen_at: Optional Unix timestamp to freeze the value lookup
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
+        self._validate_binary_market_inputs(
+            data_provider, stream_id, bridge, max_spread, min_order_size
+        )
+
+        tx_hash = truf_sdk.CreatePriceBelowThresholdMarket(
+            self.client,
+            data_provider,
+            stream_id,
+            timestamp,
+            threshold,
+            frozen_at if frozen_at is not None else -1,
+            bridge,
+            settle_time,
+            max_spread,
+            min_order_size,
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to create price below threshold market")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
+    def create_value_in_range_market(
+        self,
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        min_value: str,
+        max_value: str,
+        bridge: str,
+        settle_time: int,
+        max_spread: int,
+        min_order_size: int,
+        frozen_at: int | None = None,
+        wait: bool = True,
+    ) -> str:
+        """
+        Create a binary prediction market that settles TRUE if the stream value
+        is within the specified range (inclusive) at the timestamp.
+
+        Example: "Will BTC stay between $90k-$110k on settlement date?"
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID
+            timestamp: Unix timestamp to check the value at
+            min_value: Minimum value (inclusive) as decimal string
+            max_value: Maximum value (inclusive) as decimal string
+            bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+            settle_time: Unix timestamp when market can be settled
+            max_spread: Maximum spread for LP rewards (1-50 cents)
+            min_order_size: Minimum order size for LP rewards
+            frozen_at: Optional Unix timestamp to freeze the value lookup
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
+        self._validate_binary_market_inputs(
+            data_provider, stream_id, bridge, max_spread, min_order_size
+        )
+
+        tx_hash = truf_sdk.CreateValueInRangeMarket(
+            self.client,
+            data_provider,
+            stream_id,
+            timestamp,
+            min_value,
+            max_value,
+            frozen_at if frozen_at is not None else -1,
+            bridge,
+            settle_time,
+            max_spread,
+            min_order_size,
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to create value in range market")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
+    def create_value_equals_market(
+        self,
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        target_value: str,
+        tolerance: str,
+        bridge: str,
+        settle_time: int,
+        max_spread: int,
+        min_order_size: int,
+        frozen_at: int | None = None,
+        wait: bool = True,
+    ) -> str:
+        """
+        Create a binary prediction market that settles TRUE if the stream value
+        equals the target (within tolerance) at the timestamp.
+
+        Example: "Will the Fed rate be exactly 5.25%?"
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID
+            timestamp: Unix timestamp to check the value at
+            target_value: Target value as decimal string (e.g., "5.25")
+            tolerance: Tolerance for equality check (e.g., "0.01")
+            bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+            settle_time: Unix timestamp when market can be settled
+            max_spread: Maximum spread for LP rewards (1-50 cents)
+            min_order_size: Minimum order size for LP rewards
+            frozen_at: Optional Unix timestamp to freeze the value lookup
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
+        self._validate_binary_market_inputs(
+            data_provider, stream_id, bridge, max_spread, min_order_size
+        )
+
+        tx_hash = truf_sdk.CreateValueEqualsMarket(
+            self.client,
+            data_provider,
+            stream_id,
+            timestamp,
+            target_value,
+            tolerance,
+            frozen_at if frozen_at is not None else -1,
+            bridge,
+            settle_time,
+            max_spread,
+            min_order_size,
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to create value equals market")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
+    def _validate_binary_market_inputs(
+        self,
+        data_provider: str,
+        stream_id: str,
+        bridge: str,
+        max_spread: int,
+        min_order_size: int,
+    ) -> None:
+        """Validate common inputs for binary market creation."""
+        if not data_provider.startswith("0x") or len(data_provider) != 42:
+            raise ValueError("data_provider must be 0x-prefixed 40-character hex string")
+        if len(stream_id) != 32:
+            raise ValueError("stream_id must be exactly 32 characters")
+        if bridge not in VALID_BRIDGES:
+            raise ValueError(f"bridge must be one of: {', '.join(VALID_BRIDGES)}")
+        if max_spread < 1 or max_spread > 50:
+            raise ValueError("max_spread must be between 1 and 50")
+        if min_order_size <= 0:
+            raise ValueError("min_order_size must be positive")
 
 
 def all_is_list_of_strings[T](arg_list: list[T]) -> bool:

@@ -67,65 +67,93 @@ def client(tn_node, grant_network_writer):
 class TestMarketOperationsValidation:
     """Test input validation for market operations"""
 
+    # Test data for query_components
+    VALID_DATA_PROVIDER = "0x1234567890123456789012345678901234567890"
+    VALID_STREAM_ID = "stbtcusd000000000000000000000000"  # 32 chars
+    VALID_ACTION_ID = "price_above_threshold"
+
+    @pytest.fixture
+    def valid_query_components(self, client):  # noqa: ARG002 - fixture dependency
+        """Create valid query_components for testing"""
+        args = TNClient.encode_action_args([
+            self.VALID_DATA_PROVIDER,
+            self.VALID_STREAM_ID,
+            1735689600,
+            "100000",
+            None
+        ])
+        return TNClient.encode_query_components(
+            self.VALID_DATA_PROVIDER,
+            self.VALID_STREAM_ID,
+            self.VALID_ACTION_ID,
+            args
+        )
+
     # ==========================================
     #     create_market() validation
     # ==========================================
 
-    def test_create_market_invalid_hash_length_short(self, client):
-        """Test that query_hash must be exactly 32 bytes"""
-        with pytest.raises(ValueError, match="query_hash must be exactly 32 bytes"):
+    def test_create_market_invalid_bridge(self, client, valid_query_components):
+        """Test that bridge must be valid"""
+        with pytest.raises(ValueError, match="bridge must be one of"):
             client.create_market(
-                query_hash=b"short",  # Too short
+                bridge="invalid_bridge",
+                query_components=valid_query_components,
                 settle_time=int(time.time()) + 3600,
                 max_spread=5,
                 min_order_size=100,
             )
 
-    def test_create_market_invalid_hash_length_long(self, client):
-        """Test that query_hash must be exactly 32 bytes"""
-        with pytest.raises(ValueError, match="query_hash must be exactly 32 bytes"):
+    def test_create_market_invalid_query_components_too_short(self, client):
+        """Test that query_components must be at least 128 bytes"""
+        with pytest.raises(ValueError, match="query_components too short"):
             client.create_market(
-                query_hash=b"x" * 64,  # Too long
+                bridge="ethereum_bridge",
+                query_components=b"short",  # Too short
                 settle_time=int(time.time()) + 3600,
                 max_spread=5,
                 min_order_size=100,
             )
 
-    def test_create_market_invalid_max_spread_too_low(self, client):
+    def test_create_market_invalid_max_spread_too_low(self, client, valid_query_components):
         """Test that max_spread must be at least 1"""
         with pytest.raises(ValueError, match="max_spread must be between 1 and 50"):
             client.create_market(
-                query_hash=hashlib.sha256(b"test").digest(),
+                bridge="ethereum_bridge",
+                query_components=valid_query_components,
                 settle_time=int(time.time()) + 3600,
                 max_spread=0,  # Too low
                 min_order_size=100,
             )
 
-    def test_create_market_invalid_max_spread_too_high(self, client):
+    def test_create_market_invalid_max_spread_too_high(self, client, valid_query_components):
         """Test that max_spread must be at most 50"""
         with pytest.raises(ValueError, match="max_spread must be between 1 and 50"):
             client.create_market(
-                query_hash=hashlib.sha256(b"test").digest(),
+                bridge="ethereum_bridge",
+                query_components=valid_query_components,
                 settle_time=int(time.time()) + 3600,
                 max_spread=51,  # Too high
                 min_order_size=100,
             )
 
-    def test_create_market_invalid_min_order_size(self, client):
+    def test_create_market_invalid_min_order_size(self, client, valid_query_components):
         """Test that min_order_size must be positive"""
         with pytest.raises(ValueError, match="min_order_size must be positive"):
             client.create_market(
-                query_hash=hashlib.sha256(b"test").digest(),
+                bridge="ethereum_bridge",
+                query_components=valid_query_components,
                 settle_time=int(time.time()) + 3600,
                 max_spread=5,
                 min_order_size=0,  # Zero
             )
 
-    def test_create_market_invalid_min_order_size_negative(self, client):
+    def test_create_market_invalid_min_order_size_negative(self, client, valid_query_components):
         """Test that min_order_size must be positive"""
         with pytest.raises(ValueError, match="min_order_size must be positive"):
             client.create_market(
-                query_hash=hashlib.sha256(b"test").digest(),
+                bridge="ethereum_bridge",
+                query_components=valid_query_components,
                 settle_time=int(time.time()) + 3600,
                 max_spread=5,
                 min_order_size=-100,  # Negative
@@ -530,3 +558,177 @@ class TestTypeDefinitions:
         assert DistributionSummary is not None
         assert LPRewardDetail is not None
         assert RewardHistory is not None
+
+
+# ═══════════════════════════════════════════════════════════════
+# BINARY MARKET CREATION TESTS
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestBinaryMarketCreation:
+    """Test binary market creation helper functions"""
+
+    VALID_DATA_PROVIDER = "0x1234567890123456789012345678901234567890"
+    VALID_STREAM_ID = "stbtcusd000000000000000000000000"  # 32 chars
+
+    def test_create_price_above_threshold_market_invalid_data_provider(self, client):
+        """Test data_provider validation"""
+        with pytest.raises(ValueError, match="data_provider must be 0x-prefixed"):
+            client.create_price_above_threshold_market(
+                data_provider="invalid",
+                stream_id=self.VALID_STREAM_ID,
+                timestamp=1735689600,
+                threshold="100000",
+                bridge="ethereum_bridge",
+                settle_time=int(time.time()) + 3600,
+                max_spread=5,
+                min_order_size=100,
+            )
+
+    def test_create_price_above_threshold_market_invalid_stream_id(self, client):
+        """Test stream_id validation"""
+        with pytest.raises(ValueError, match="stream_id must be exactly 32 characters"):
+            client.create_price_above_threshold_market(
+                data_provider=self.VALID_DATA_PROVIDER,
+                stream_id="tooshort",
+                timestamp=1735689600,
+                threshold="100000",
+                bridge="ethereum_bridge",
+                settle_time=int(time.time()) + 3600,
+                max_spread=5,
+                min_order_size=100,
+            )
+
+    def test_create_price_above_threshold_market_invalid_bridge(self, client):
+        """Test bridge validation"""
+        with pytest.raises(ValueError, match="bridge must be one of"):
+            client.create_price_above_threshold_market(
+                data_provider=self.VALID_DATA_PROVIDER,
+                stream_id=self.VALID_STREAM_ID,
+                timestamp=1735689600,
+                threshold="100000",
+                bridge="invalid_bridge",
+                settle_time=int(time.time()) + 3600,
+                max_spread=5,
+                min_order_size=100,
+            )
+
+    def test_binary_market_helpers_exist(self, client):
+        """Verify all binary market helper methods are available"""
+        assert hasattr(client, "create_price_above_threshold_market")
+        assert hasattr(client, "create_price_below_threshold_market")
+        assert hasattr(client, "create_value_in_range_market")
+        assert hasattr(client, "create_value_equals_market")
+
+
+# ═══════════════════════════════════════════════════════════════
+# ACTION REGISTRY TESTS
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestActionRegistry:
+    """Test action registry functionality"""
+
+    def test_action_registry_has_all_actions(self):
+        """Test that all 9 actions are in the registry"""
+        from trufnetwork_sdk_py.client import ACTION_REGISTRY
+        assert len(ACTION_REGISTRY) == 9
+
+    def test_numeric_actions(self):
+        """Test numeric action IDs 1-5"""
+        from trufnetwork_sdk_py.client import ACTION_REGISTRY
+        numeric_actions = ["get_record", "get_index", "get_change_over_time",
+                          "get_last_record", "get_first_record"]
+        for name in numeric_actions:
+            assert name in ACTION_REGISTRY
+            assert not ACTION_REGISTRY[name]["is_binary"]
+            assert ACTION_REGISTRY[name]["id"] <= 5
+
+    def test_binary_actions(self):
+        """Test binary action IDs 6-9"""
+        from trufnetwork_sdk_py.client import ACTION_REGISTRY
+        binary_actions = ["price_above_threshold", "price_below_threshold",
+                         "value_in_range", "value_equals"]
+        for name in binary_actions:
+            assert name in ACTION_REGISTRY
+            assert ACTION_REGISTRY[name]["is_binary"]
+            assert ACTION_REGISTRY[name]["id"] >= 6
+
+    def test_is_binary_action(self):
+        """Test is_binary_action helper"""
+        from trufnetwork_sdk_py.client import is_binary_action
+        assert not is_binary_action("get_record")
+        assert is_binary_action("price_above_threshold")
+        assert not is_binary_action("unknown_action")
+
+    def test_is_binary_action_id(self):
+        """Test is_binary_action_id helper"""
+        from trufnetwork_sdk_py.client import is_binary_action_id
+        assert not is_binary_action_id(1)
+        assert not is_binary_action_id(5)
+        assert is_binary_action_id(6)
+        assert is_binary_action_id(9)
+        assert not is_binary_action_id(10)
+
+    def test_get_action_id(self):
+        """Test get_action_id helper"""
+        from trufnetwork_sdk_py.client import get_action_id
+        assert get_action_id("get_record") == 1
+        assert get_action_id("price_above_threshold") == 6
+        assert get_action_id("unknown") == 0
+
+    def test_get_action_name(self):
+        """Test get_action_name helper"""
+        from trufnetwork_sdk_py.client import get_action_name
+        assert get_action_name(1) == "get_record"
+        assert get_action_name(6) == "price_above_threshold"
+        assert get_action_name(100) == ""
+
+
+# ═══════════════════════════════════════════════════════════════
+# QUERY COMPONENTS ENCODING TESTS
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestQueryComponentsEncoding:
+    """Test query components encoding/decoding"""
+
+    VALID_DATA_PROVIDER = "0x1234567890123456789012345678901234567890"
+    VALID_STREAM_ID = "stbtcusd000000000000000000000000"  # 32 chars
+
+    def test_encode_query_components_roundtrip(self):
+        """Test that encoding and decoding produces original values"""
+        args = TNClient.encode_action_args([
+            self.VALID_DATA_PROVIDER,
+            self.VALID_STREAM_ID,
+            1735689600,
+            "100000",
+            None
+        ])
+
+        encoded = TNClient.encode_query_components(
+            self.VALID_DATA_PROVIDER,
+            self.VALID_STREAM_ID,
+            "price_above_threshold",
+            args
+        )
+
+        assert len(encoded) >= 128  # Minimum ABI-encoded tuple size
+
+        decoded = TNClient.decode_query_components(encoded)
+        assert decoded["data_provider"].lower() == self.VALID_DATA_PROVIDER.lower()
+        assert decoded["stream_id"] == self.VALID_STREAM_ID
+        assert decoded["action_id"] == "price_above_threshold"
+
+    def test_encode_action_args(self):
+        """Test encoding action arguments"""
+        args = TNClient.encode_action_args([
+            "0x1234567890123456789012345678901234567890",
+            "stream_id_here_32_chars_padding_",
+            1735689600,
+            "100000",
+            None
+        ])
+        assert len(args) > 0
+        # gopy returns go.Slice_byte, not native bytes, which can be used
+        # interchangeably with bytes in most contexts

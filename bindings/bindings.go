@@ -1588,9 +1588,16 @@ func ListTransactionFees(
 // ═══════════════════════════════════════════════════════════════
 
 // CreateMarket creates a new prediction market
+// Parameters:
+//   - bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+//   - queryComponents: ABI-encoded tuple (address, bytes32, string, bytes)
+//   - settleTime: Unix timestamp when market can be settled
+//   - maxSpread: Maximum spread for LP rewards (1-50 cents)
+//   - minOrderSize: Minimum order size for LP rewards
 func CreateMarket(
 	client *tnclient.Client,
-	queryHash []byte,
+	bridge string,
+	queryComponents []byte,
 	settleTime int64,
 	maxSpread int,
 	minOrderSize int64,
@@ -1602,8 +1609,19 @@ func CreateMarket(
 		return "", errors.Wrap(err, "failed to load order book")
 	}
 
-	if len(queryHash) != 32 {
-		return "", errors.New("query_hash must be exactly 32 bytes")
+	// Validate bridge
+	validBridges := map[string]bool{
+		"hoodi_tt2":       true,
+		"sepolia_bridge":  true,
+		"ethereum_bridge": true,
+	}
+	if !validBridges[bridge] {
+		return "", errors.New("bridge must be one of: hoodi_tt2, sepolia_bridge, ethereum_bridge")
+	}
+
+	// Validate query components (minimum ABI-encoded tuple size)
+	if len(queryComponents) < 128 {
+		return "", errors.New("query_components too short for ABI-encoded tuple")
 	}
 	if maxSpread < 1 || maxSpread > 50 {
 		return "", errors.New("max_spread must be between 1 and 50")
@@ -1613,10 +1631,11 @@ func CreateMarket(
 	}
 
 	input := types.CreateMarketInput{
-		QueryHash:    queryHash,
-		SettleTime:   settleTime,
-		MaxSpread:    maxSpread,
-		MinOrderSize: minOrderSize,
+		Bridge:          bridge,
+		QueryComponents: queryComponents,
+		SettleTime:      settleTime,
+		MaxSpread:       maxSpread,
+		MinOrderSize:    minOrderSize,
 	}
 
 	txHash, err := orderBook.CreateMarket(ctx, input)
@@ -2359,13 +2378,16 @@ func GetParticipantRewardHistory(client *tnclient.Client, walletHex string) (str
 // Helper: Convert MarketInfo to map for JSON serialization
 func marketInfoToMap(market *types.MarketInfo) map[string]any {
 	result := map[string]any{
-		"hash":           convertBytesToHex(market.Hash),
-		"settle_time":    market.SettleTime,
-		"settled":        market.Settled,
-		"max_spread":     market.MaxSpread,
-		"min_order_size": market.MinOrderSize,
-		"created_at":     market.CreatedAt,
-		"creator":        convertBytesToHex(market.Creator),
+		"id":               market.ID,
+		"hash":             convertBytesToHex(market.Hash),
+		"query_components": convertBytesToHex(market.QueryComponents),
+		"bridge":           market.Bridge,
+		"settle_time":      market.SettleTime,
+		"settled":          market.Settled,
+		"max_spread":       market.MaxSpread,
+		"min_order_size":   market.MinOrderSize,
+		"created_at":       market.CreatedAt,
+		"creator":          convertBytesToHex(market.Creator),
 	}
 
 	if market.WinningOutcome != nil {
@@ -2381,4 +2403,311 @@ func marketInfoToMap(market *types.MarketInfo) map[string]any {
 	}
 
 	return result
+}
+
+// ═══════════════════════════════════════════════════════════════
+//           QUERY COMPONENTS ENCODING
+// ═══════════════════════════════════════════════════════════════
+
+// EncodeQueryComponents ABI-encodes query components tuple.
+// Parameters:
+//   - dataProvider: 0x-prefixed Ethereum address (42 chars)
+//   - streamID: 32-character stream ID
+//   - actionID: Action name (e.g., "price_above_threshold")
+//   - args: Pre-encoded action arguments (from EncodeActionArgs)
+//
+// Returns the ABI-encoded query_components bytes
+func EncodeQueryComponents(dataProvider, streamID, actionID string, args []byte) ([]byte, error) {
+	return contractsapi.EncodeQueryComponents(dataProvider, streamID, actionID, args)
+}
+
+// DecodeQueryComponents decodes ABI-encoded query components.
+// Returns JSON string with data_provider, stream_id, action_id, args (hex-encoded)
+func DecodeQueryComponents(queryComponents []byte) (string, error) {
+	dataProvider, streamID, actionID, args, err := contractsapi.DecodeQueryComponents(queryComponents)
+	if err != nil {
+		return "", err
+	}
+
+	result := map[string]any{
+		"data_provider": dataProvider,
+		"stream_id":     streamID,
+		"action_id":     actionID,
+		"args":          convertBytesToHex(args),
+	}
+
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal decoded components")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// EncodeActionArgs encodes action arguments for use in query_components.
+// argsJSON should be a JSON array of arguments
+// (e.g., '["0x123...", "stbtc...", 1735689600, "100000", null]')
+func EncodeActionArgs(argsJSON string) ([]byte, error) {
+	var args []any
+	if argsJSON != "" && argsJSON != "[]" {
+		decoder := json.NewDecoder(strings.NewReader(argsJSON))
+		decoder.UseNumber() // Preserve numbers as json.Number
+		err := decoder.Decode(&args)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal args JSON")
+		}
+
+		// Convert json.Number to appropriate types
+		for i, arg := range args {
+			if num, ok := arg.(json.Number); ok {
+				if intVal, err := num.Int64(); err == nil {
+					args[i] = intVal
+				} else if floatVal, err := num.Float64(); err == nil {
+					args[i] = floatVal
+				}
+			}
+		}
+	}
+
+	return contractsapi.EncodeActionArgs(args)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//           ACTION REGISTRY
+// ═══════════════════════════════════════════════════════════════
+
+// GetActionID returns the action ID for a given action name, or 0 if not found
+func GetActionID(name string) int {
+	return int(types.GetActionID(name))
+}
+
+// GetActionName returns the action name for a given action ID, or empty string if not found
+func GetActionName(id int) string {
+	return types.GetActionName(uint16(id))
+}
+
+// IsBinaryAction returns true if the action name corresponds to a binary action (IDs 6-9)
+func IsBinaryAction(name string) bool {
+	return types.IsBinaryAction(name)
+}
+
+// IsBinaryActionID returns true if the action ID corresponds to a binary action (6-9)
+func IsBinaryActionID(id int) bool {
+	return types.IsBinaryActionID(uint16(id))
+}
+
+// ValidateActionName returns an error if the action name is not recognized
+func ValidateActionName(name string) error {
+	return types.ValidateActionName(name)
+}
+
+// GetActionRegistry returns the full action registry as JSON
+func GetActionRegistry() (string, error) {
+	registry := make(map[string]map[string]any)
+	for name, info := range types.ActionRegistry {
+		registry[name] = map[string]any{
+			"id":          info.ID,
+			"name":        info.Name,
+			"is_binary":   info.IsBinary,
+			"description": info.Description,
+		}
+	}
+	jsonBytes, err := json.Marshal(registry)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal action registry")
+	}
+	return string(jsonBytes), nil
+}
+
+// ═══════════════════════════════════════════════════════════════
+//           BOOLEAN RESULT PARSING
+// ═══════════════════════════════════════════════════════════════
+
+// ParseBooleanResult extracts a boolean result from a binary action attestation payload.
+// This is specifically for binary attestation actions (IDs 6-9).
+// Returns JSON with result (bool) and action_id (int).
+func ParseBooleanResult(payload []byte) (string, error) {
+	result, actionID, err := contractsapi.ParseBooleanResult(payload)
+	if err != nil {
+		return "", err
+	}
+
+	response := map[string]any{
+		"result":    result,
+		"action_id": int(actionID),
+	}
+
+	jsonBytes, err := json.Marshal(response)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal result")
+	}
+	return string(jsonBytes), nil
+}
+
+// ═══════════════════════════════════════════════════════════════
+//           BINARY MARKET CREATION HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+// CreatePriceAboveThresholdMarket creates a binary prediction market that settles
+// TRUE if the stream value exceeds the threshold at the specified timestamp.
+//
+// Example: "Will BTC exceed $100,000 by December 31, 2025?"
+//
+// Parameters:
+//   - dataProvider: 0x-prefixed Ethereum address of the data provider
+//   - streamID: 32-character stream ID
+//   - timestamp: Unix timestamp to check the value at
+//   - threshold: Threshold value as decimal string (e.g., "100000")
+//   - frozenAt: Unix timestamp to freeze the value lookup (-1 for nil)
+//   - bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+//   - settleTime: Unix timestamp when market can be settled
+//   - maxSpread: Maximum spread for LP rewards (1-50 cents)
+//   - minOrderSize: Minimum order size for LP rewards
+func CreatePriceAboveThresholdMarket(
+	client *tnclient.Client,
+	dataProvider string,
+	streamID string,
+	timestamp int64,
+	threshold string,
+	frozenAt int64,
+	bridge string,
+	settleTime int64,
+	maxSpread int,
+	minOrderSize int64,
+) (string, error) {
+	// Build action arguments
+	var frozenAtPtr *int64
+	if frozenAt >= 0 {
+		frozenAtPtr = &frozenAt
+	}
+
+	input := types.PriceAboveThresholdInput{
+		DataProvider: dataProvider,
+		StreamID:     streamID,
+		Timestamp:    timestamp,
+		Threshold:    threshold,
+		FrozenAt:     frozenAtPtr,
+	}
+
+	queryComponents, err := contractsapi.BuildPriceAboveThresholdQueryComponents(input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to build query components")
+	}
+
+	return CreateMarket(client, bridge, queryComponents, settleTime, maxSpread, minOrderSize)
+}
+
+// CreatePriceBelowThresholdMarket creates a binary prediction market that settles
+// TRUE if the stream value is below the threshold at the specified timestamp.
+//
+// Example: "Will unemployment drop below 4% by Q2 2025?"
+func CreatePriceBelowThresholdMarket(
+	client *tnclient.Client,
+	dataProvider string,
+	streamID string,
+	timestamp int64,
+	threshold string,
+	frozenAt int64,
+	bridge string,
+	settleTime int64,
+	maxSpread int,
+	minOrderSize int64,
+) (string, error) {
+	var frozenAtPtr *int64
+	if frozenAt >= 0 {
+		frozenAtPtr = &frozenAt
+	}
+
+	input := types.PriceBelowThresholdInput{
+		DataProvider: dataProvider,
+		StreamID:     streamID,
+		Timestamp:    timestamp,
+		Threshold:    threshold,
+		FrozenAt:     frozenAtPtr,
+	}
+
+	queryComponents, err := contractsapi.BuildPriceBelowThresholdQueryComponents(input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to build query components")
+	}
+
+	return CreateMarket(client, bridge, queryComponents, settleTime, maxSpread, minOrderSize)
+}
+
+// CreateValueInRangeMarket creates a binary prediction market that settles
+// TRUE if the stream value is within the specified range (inclusive) at the timestamp.
+//
+// Example: "Will BTC stay between $90k-$110k on settlement date?"
+func CreateValueInRangeMarket(
+	client *tnclient.Client,
+	dataProvider string,
+	streamID string,
+	timestamp int64,
+	minValue string,
+	maxValue string,
+	frozenAt int64,
+	bridge string,
+	settleTime int64,
+	maxSpread int,
+	minOrderSize int64,
+) (string, error) {
+	var frozenAtPtr *int64
+	if frozenAt >= 0 {
+		frozenAtPtr = &frozenAt
+	}
+
+	input := types.ValueInRangeInput{
+		DataProvider: dataProvider,
+		StreamID:     streamID,
+		Timestamp:    timestamp,
+		MinValue:     minValue,
+		MaxValue:     maxValue,
+		FrozenAt:     frozenAtPtr,
+	}
+
+	queryComponents, err := contractsapi.BuildValueInRangeQueryComponents(input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to build query components")
+	}
+
+	return CreateMarket(client, bridge, queryComponents, settleTime, maxSpread, minOrderSize)
+}
+
+// CreateValueEqualsMarket creates a binary prediction market that settles
+// TRUE if the stream value equals the target (within tolerance) at the timestamp.
+//
+// Example: "Will the Fed rate be exactly 5.25%?"
+func CreateValueEqualsMarket(
+	client *tnclient.Client,
+	dataProvider string,
+	streamID string,
+	timestamp int64,
+	targetValue string,
+	tolerance string,
+	frozenAt int64,
+	bridge string,
+	settleTime int64,
+	maxSpread int,
+	minOrderSize int64,
+) (string, error) {
+	var frozenAtPtr *int64
+	if frozenAt >= 0 {
+		frozenAtPtr = &frozenAt
+	}
+
+	input := types.ValueEqualsInput{
+		DataProvider: dataProvider,
+		StreamID:     streamID,
+		Timestamp:    timestamp,
+		TargetValue:  targetValue,
+		Tolerance:    tolerance,
+		FrozenAt:     frozenAtPtr,
+	}
+
+	queryComponents, err := contractsapi.BuildValueEqualsQueryComponents(input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to build query components")
+	}
+
+	return CreateMarket(client, bridge, queryComponents, settleTime, maxSpread, minOrderSize)
 }

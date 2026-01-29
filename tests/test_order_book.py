@@ -73,7 +73,7 @@ class TestMarketOperationsValidation:
     VALID_ACTION_ID = "price_above_threshold"
 
     @pytest.fixture
-    def valid_query_components(self, _client):
+    def valid_query_components(self, client):  # noqa: ARG002 - fixture dependency
         """Create valid query_components for testing"""
         args = TNClient.encode_action_args([
             self.VALID_DATA_PROVIDER,

@@ -2,15 +2,17 @@
 Order Book E2E Test - Step 4: Verify Final State
 
 Queries postgres directly to show the final state of the order book.
+
+Note: This script uses hardcoded credentials for local development only.
+The database connection is for a tunneled PostgreSQL instance.
 """
 
+import os
 import subprocess
 
 
-import os
-
 def get_query_id():
-    """Read query_id from file."""
+    """Read query_id from file created by 01_create_market.py."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     query_id_file = os.path.join(script_dir, ".query_id")
     try:
@@ -18,7 +20,7 @@ def get_query_id():
             return int(f.read().strip())
     except FileNotFoundError:
         print(f"Warning: {query_id_file} not found. Run 01_create_market.py first.")
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
 
 QUERY_ID = get_query_id()
@@ -35,11 +37,13 @@ def run_query(query: str, description: str):
         "-d", "kwild",
         "-c", query,
     ]
-    env = {"PGPASSWORD": "kwild"}
-    result = subprocess.run(cmd, capture_output=True, text=True, env={**subprocess.os.environ, **env})
+    env = {**os.environ, "PGPASSWORD": "kwild"}
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     print(result.stdout)
     if result.stderr:
         print(f"Error: {result.stderr}")
+    if result.returncode != 0:
+        print(f"Query failed with return code: {result.returncode}")
 
 
 def main():

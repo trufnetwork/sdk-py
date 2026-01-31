@@ -7,15 +7,15 @@ Buyer and Seller takers execute against Market Maker's orders.
 - OBSellerTaker: Sells YES shares (takes from YES buy orders)
 """
 
+import os
 from trufnetwork_sdk_py.client import TNClient
 
 # Testnet configuration
 TESTNET_URL = "http://ec2-3-141-77-16.us-east-2.compute.amazonaws.com:8484"
 
-# Market ID from Step 1 (read from file or use default)
-import os
 
 def get_query_id():
+    """Read query_id from file created by 01_create_market.py."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     query_id_file = os.path.join(script_dir, ".query_id")
     try:
@@ -23,7 +23,7 @@ def get_query_id():
             return int(f.read().strip())
     except FileNotFoundError:
         print(f"Warning: {query_id_file} not found. Run 01_create_market.py first.")
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
 QUERY_ID = get_query_id()
 

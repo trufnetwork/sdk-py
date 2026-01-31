@@ -9,15 +9,15 @@ Order Book Strategy:
 - Place buy orders for YES at lower prices
 """
 
+import os
 from trufnetwork_sdk_py.client import TNClient
 
 # Testnet configuration
 TESTNET_URL = "http://ec2-3-141-77-16.us-east-2.compute.amazonaws.com:8484"
 
-# Market ID from Step 1 (read from file or use default)
-import os
 
 def get_query_id():
+    """Read query_id from file created by 01_create_market.py."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     query_id_file = os.path.join(script_dir, ".query_id")
     try:
@@ -25,7 +25,7 @@ def get_query_id():
             return int(f.read().strip())
     except FileNotFoundError:
         print(f"Warning: {query_id_file} not found. Run 01_create_market.py first.")
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
 QUERY_ID = get_query_id()
 
@@ -138,7 +138,8 @@ def main():
     # Display user positions
     print("\n--- Market Maker Positions ---")
     try:
-        positions = client.get_user_positions(QUERY_ID)
+        all_positions = client.get_user_positions()
+        positions = [p for p in all_positions if p.get("query_id") == QUERY_ID]
         if positions:
             print(f"  {'Outcome':>7} | {'Price':>6} | {'Amount':>8} | {'Type':>12}")
             print(f"  {'-'*7} | {'-'*6} | {'-'*8} | {'-'*12}")

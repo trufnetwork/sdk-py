@@ -1088,18 +1088,21 @@ market = client.get_market_info(query_id=1)
 print(f"Market {market['id']} - Settled: {market['settled']}")
 ```
 
-#### `client.list_markets(settled_filter: int = 0, limit: int = 100, offset: int = 0) -> list[MarketInfo]`
+#### `client.list_markets(settled_filter: bool | None = None, limit: int = 100, offset: int = 0) -> list[MarketSummary]`
 List markets with optional filtering.
 
 **Parameters:**
-- `settled_filter: int` - 0=all, 1=unsettled only, 2=settled only
+- `settled_filter: bool | None` - None=all markets, True=unsettled only, False=settled only (default: None)
 - `limit: int` - Maximum results (default: 100)
 - `offset: int` - Pagination offset (default: 0)
 
 **Example:**
 ```python
 # Get unsettled markets
-unsettled = client.list_markets(settled_filter=1, limit=10)
+unsettled = client.list_markets(settled_filter=True, limit=10)
+
+# Get all markets
+all_markets = client.list_markets()
 ```
 
 ### Order Placement

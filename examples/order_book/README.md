@@ -66,7 +66,7 @@ python 04_verify_state.py
 
 ## Market Lifecycle
 
-```
+```text
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │  Create Market  │────▶│  Place Orders   │────▶│  Take Orders    │
 │  (01_create)    │     │  (02_place)     │     │  (03_take)      │

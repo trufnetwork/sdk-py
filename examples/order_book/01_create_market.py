@@ -7,6 +7,7 @@ Uses OBMarketCreator wallet to create the market on TrufNetwork testnet.
 The market uses hoodi_tt2 (USDC) as collateral.
 """
 
+import os
 import time
 from datetime import datetime, timezone, timedelta
 from trufnetwork_sdk_py.client import TNClient
@@ -94,7 +95,7 @@ def main():
         for market in markets:
             if market.get('settle_time') == settle_timestamp:
                 query_id = market.get('id')
-                print(f"\n✓ Found our market!")
+                print("\n✓ Found our market!")
                 print(f"  Query ID: {query_id}")
                 print(f"  Hash: {market.get('hash', b'').hex() if isinstance(market.get('hash'), bytes) else market.get('hash', 'N/A')}")
                 print(f"  Settle Time: {market.get('settle_time')}")
@@ -102,11 +103,10 @@ def main():
                 break
 
         if query_id:
-            print(f"\n✓ Market created successfully!")
+            print("\n✓ Market created successfully!")
             print(f"  Use query_id={query_id} for placing orders in the next step.")
 
             # Save to file for other scripts to use
-            import os
             script_dir = os.path.dirname(os.path.abspath(__file__))
             query_id_file = os.path.join(script_dir, ".query_id")
             with open(query_id_file, "w") as f:

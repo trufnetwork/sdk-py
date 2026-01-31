@@ -980,5 +980,300 @@ for row in result["values"]:
     print(row)
 ```
 
-> **Note**  
-> `call_procedure` is *read-only* and therefore free of on-chain gas costs.  For state-changing procedures, use `client.execute_procedure` which returns a transaction hash. 
+> **Note**
+> `call_procedure` is *read-only* and therefore free of on-chain gas costs.  For state-changing procedures, use `client.execute_procedure` which returns a transaction hash.
+
+## Order Book Operations
+
+The Order Book API provides functionality for binary prediction markets. Markets are automatically settled based on real-world data from trusted data providers.
+
+### Market Creation
+
+#### `client.create_price_above_threshold_market(...) -> str`
+Create a binary prediction market that settles TRUE if the stream value exceeds the threshold.
+
+**Parameters:**
+- `data_provider: str` - 0x-prefixed Ethereum address of the data provider
+- `stream_id: str` - 32-character stream ID
+- `timestamp: int` - Unix timestamp to check the value at
+- `threshold: str` - Threshold value as decimal string (e.g., "100000")
+- `bridge: str` - Bridge namespace (`hoodi_tt2`)
+- `settle_time: int` - Unix timestamp when market can be settled
+- `max_spread: int` - Maximum spread for LP rewards (1-50 cents)
+- `min_order_size: int` - Minimum order size for LP rewards
+- `frozen_at: int | None` - Optional Unix timestamp to freeze the value lookup
+- `wait: bool` - If True, wait for transaction confirmation (default: True)
+
+**Returns:** Transaction hash
+
+**Example:**
+```python
+from datetime import datetime, timezone, timedelta
+
+# Create market: "Will BTC be above $100,000?"
+settle_time = int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp())
+
+tx_hash = client.create_price_above_threshold_market(
+    data_provider="0xe5252596672cd0208a881bdb67c9df429916ba92",
+    stream_id="st9bc3cf61c3a88aa17f4ea5f1bad7b2",
+    timestamp=settle_time,
+    threshold="100000",
+    bridge="hoodi_tt2",
+    settle_time=settle_time,
+    max_spread=10,
+    min_order_size=1_000_000_000_000_000_000,  # 1 token
+)
+```
+
+#### `client.create_price_below_threshold_market(...) -> str`
+Create a binary prediction market that settles TRUE if the stream value is below the threshold.
+
+**Parameters:** Same as `create_price_above_threshold_market`
+
+**Example:**
+```python
+# Create market: "Will unemployment drop below 4%?"
+tx_hash = client.create_price_below_threshold_market(
+    data_provider="0x...",
+    stream_id="st_unemployment_rate_000000000",
+    timestamp=settle_time,
+    threshold="4.0",
+    bridge="hoodi_tt2",
+    settle_time=settle_time,
+    max_spread=10,
+    min_order_size=1_000_000_000_000_000_000,
+)
+```
+
+#### `client.create_value_in_range_market(...) -> str`
+Create a binary prediction market that settles TRUE if the stream value is within the specified range.
+
+**Additional Parameters:**
+- `min_value: str` - Minimum value (inclusive) as decimal string
+- `max_value: str` - Maximum value (inclusive) as decimal string
+
+**Example:**
+```python
+# Create market: "Will BTC stay between $90k-$110k?"
+tx_hash = client.create_value_in_range_market(
+    data_provider="0x...",
+    stream_id="st9bc3cf61c3a88aa17f4ea5f1bad7b2",
+    timestamp=settle_time,
+    min_value="90000",
+    max_value="110000",
+    bridge="hoodi_tt2",
+    settle_time=settle_time,
+    max_spread=10,
+    min_order_size=1_000_000_000_000_000_000,
+)
+```
+
+### Market Queries
+
+#### `client.get_market_info(query_id: int) -> MarketInfo`
+Get detailed information about a market.
+
+**Returns:** Dictionary containing:
+- `id: int` - Market ID
+- `hash: bytes` - Market hash
+- `settle_time: int` - Settlement timestamp
+- `settled: bool` - Whether market is settled
+- `winning_outcome: bool | None` - Winning outcome (if settled)
+- `max_spread: int` - Maximum spread for LP rewards
+- `min_order_size: int` - Minimum order size
+
+**Example:**
+```python
+market = client.get_market_info(query_id=1)
+print(f"Market {market['id']} - Settled: {market['settled']}")
+```
+
+#### `client.list_markets(settled_filter: bool | None = None, limit: int = 100, offset: int = 0) -> list[MarketSummary]`
+List markets with optional filtering.
+
+**Parameters:**
+- `settled_filter: bool | None` - None=all markets, True=unsettled only, False=settled only (default: None)
+- `limit: int` - Maximum results (default: 100)
+- `offset: int` - Pagination offset (default: 0)
+
+**Example:**
+```python
+# Get unsettled markets
+unsettled = client.list_markets(settled_filter=True, limit=10)
+
+# Get all markets
+all_markets = client.list_markets()
+```
+
+### Order Placement
+
+#### `client.place_buy_order(query_id, outcome, price, amount, wait=True) -> str`
+Place a buy order for YES or NO shares.
+
+**Parameters:**
+- `query_id: int` - Market ID
+- `outcome: bool` - True for YES shares, False for NO shares
+- `price: int` - Price per share in cents (1-99)
+- `amount: int` - Number of shares to buy
+- `wait: bool` - If True, wait for transaction confirmation
+
+**Example:**
+```python
+# Buy 100 YES shares at 56 cents
+tx_hash = client.place_buy_order(
+    query_id=1,
+    outcome=True,
+    price=56,
+    amount=100
+)
+```
+
+#### `client.place_sell_order(query_id, outcome, price, amount, wait=True) -> str`
+Place a sell order for shares you own.
+
+**Parameters:** Same as `place_buy_order`
+
+**Example:**
+```python
+# Sell 50 NO shares at 45 cents
+tx_hash = client.place_sell_order(
+    query_id=1,
+    outcome=False,
+    price=45,
+    amount=50
+)
+```
+
+#### `client.place_split_limit_order(query_id, true_price, amount, wait=True) -> str`
+Mint binary share pairs and list the NO side for sale.
+
+This is the primary way to provide liquidity. It atomically:
+1. Locks collateral (amount × $1.00)
+2. Mints YES/NO share pairs
+3. Keeps YES shares as holdings
+4. Places NO shares as a sell order at `100 - true_price`
+
+**Parameters:**
+- `query_id: int` - Market ID
+- `true_price: int` - YES price in cents (1-99)
+- `amount: int` - Number of share PAIRS to mint
+- `wait: bool` - If True, wait for transaction confirmation
+
+**Example:**
+```python
+# Mint 100 share pairs, hold YES, sell NO at 40 cents
+tx_hash = client.place_split_limit_order(
+    query_id=1,
+    true_price=60,  # YES at 60 cents, NO at 40 cents
+    amount=100
+)
+```
+
+### Order Management
+
+#### `client.cancel_order(query_id, outcome, price, wait=True) -> str`
+Cancel an open buy or sell order.
+
+**Parameters:**
+- `query_id: int` - Market ID
+- `outcome: bool` - True for YES, False for NO
+- `price: int` - Price of order to cancel (negative for buy, positive for sell)
+
+**Example:**
+```python
+# Cancel a YES buy order at 56 cents
+tx_hash = client.cancel_order(query_id=1, outcome=True, price=-56)
+```
+
+#### `client.change_bid(query_id, outcome, old_price, new_price, new_amount, wait=True) -> str`
+Atomically modify a buy order's price and amount.
+
+**Example:**
+```python
+# Change buy order from -50 to -55 with new amount of 200
+tx_hash = client.change_bid(
+    query_id=1,
+    outcome=True,
+    old_price=-50,
+    new_price=-55,
+    new_amount=200
+)
+```
+
+#### `client.change_ask(query_id, outcome, old_price, new_price, new_amount, wait=True) -> str`
+Atomically modify a sell order's price and amount.
+
+**Example:**
+```python
+# Change sell order from 45 to 50 with new amount of 150
+tx_hash = client.change_ask(
+    query_id=1,
+    outcome=False,
+    old_price=45,
+    new_price=50,
+    new_amount=150
+)
+```
+
+### Order Book Queries
+
+#### `client.get_order_book(query_id, outcome) -> list[OrderBookEntry]`
+Get all buy/sell orders for a market outcome.
+
+**Returns:** List of order entries with:
+- `wallet_address: bytes` - Trader's address
+- `price: int` - Order price (negative=buy, positive=sell, 0=holding)
+- `amount: int` - Order amount
+
+**Example:**
+```python
+# Get YES order book
+yes_orders = client.get_order_book(query_id=1, outcome=True)
+for order in yes_orders:
+    print(f"Price: {order['price']}, Amount: {order['amount']}")
+```
+
+#### `client.get_user_positions() -> list[UserPosition]`
+Get all positions for the current user across all markets.
+
+**Example:**
+```python
+positions = client.get_user_positions()
+for pos in positions:
+    print(f"Market {pos['query_id']}: {pos['amount']} shares")
+```
+
+#### `client.get_market_depth(query_id, outcome) -> list[DepthLevel]`
+Get aggregated order book depth for a market outcome.
+
+**Returns:** List of depth levels with aggregated amounts at each price.
+
+### Settlement
+
+Markets are settled **automatically** by the network scheduler. No manual intervention is required.
+
+The settlement process:
+1. Scheduler polls for markets past their settlement time
+2. Attestation is requested from the data provider's stream
+3. TEE signs the attestation cryptographically
+4. Settlement executes and determines the winner
+5. Payouts are distributed to winning positions
+
+### Price Representation
+
+| Type | Price Range | Description |
+|------|-------------|-------------|
+| Buy Order | -99 to -1 | Bid to buy at abs(price) cents |
+| Holding | 0 | Shares owned |
+| Sell Order | 1 to 99 | Ask to sell at price cents |
+
+A YES price of 60 cents implies:
+- 60% probability of YES
+- Complementary NO price of 40 cents
+
+### Collateral
+
+- Each share pair requires $1.00 collateral
+- Winners receive $1.00 per winning share
+- Collateral from losing positions funds winner payouts
+- Supported bridges: `hoodi_tt2` (testnet)

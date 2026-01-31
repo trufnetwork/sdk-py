@@ -8,7 +8,7 @@ require (
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9
 	github.com/pkg/errors v0.9.1
 	github.com/trufnetwork/kwil-db/core v0.4.3-0.20260120153326-4fab48fcfa11
-	github.com/trufnetwork/sdk-go v0.5.4-0.20260128162358-52dede3b5f1e
+	github.com/trufnetwork/sdk-go v0.5.4-0.20260130234322-d015f142ce33
 	google.golang.org/genproto v0.0.0-20251111163417-95abcf5c77ba
 )
 
@@ -21,10 +21,15 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.28.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/jrick/logrotate v1.1.2 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
+	github.com/shopspring/decimal v1.4.0 // indirect
+	github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20251021010742-3f8d3dba17d8 // indirect
+	github.com/smartcontractkit/cre-sdk-go v1.1.2 // indirect
+	github.com/smartcontractkit/cre-sdk-go/capabilities/networking/http v0.10.0 // indirect
 	github.com/trufnetwork/kwil-db v0.10.3-0.20260120153326-4fab48fcfa11 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect

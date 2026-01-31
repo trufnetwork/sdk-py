@@ -47,3 +47,6 @@ gitignore
 trufnetwork_sdk_c_bindings
 .repomix
 .cursorrules
+
+# Temporary test files
+.query_id

@@ -10,7 +10,6 @@ These examples demonstrate how to create and interact with binary prediction mar
 
 - Python 3.8+
 - TRUF.NETWORK SDK installed: `pip install trufnetwork-sdk-py`
-- PostgreSQL client (for state verification): `psql`
 - Access to TRUF.NETWORK testnet
 
 ## Example Scripts
@@ -56,13 +55,17 @@ python 03_take_orders.py
 
 ### 4. Verify State (`04_verify_state.py`)
 
-Queries the database directly to show the final state of positions and the order book.
+Queries the order book state using SDK methods to verify results.
 
 ```bash
 python 04_verify_state.py
 ```
 
-**Requirements:** PostgreSQL tunnel to the node (default port 5433)
+**What it does:**
+- Displays market info (settlement time, status, winning outcome)
+- Shows YES/NO order books with participant names
+- Reports best bid/ask prices and spread
+- Validates market collateral integrity
 
 ## Market Lifecycle
 

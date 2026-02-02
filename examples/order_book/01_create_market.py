@@ -21,7 +21,7 @@ TESTNET_URL = "http://ec2-3-141-77-16.us-east-2.compute.amazonaws.com:8484"
 MARKET_CREATOR_PRIVATE_KEY = "a537437df2ed8d3bcb3b99b4f88818cadf8ac365cd0a66595bb50973ac4ecf51"
 
 # Bitcoin stream configuration
-BITCOIN_STREAM_ID = "st9bc3cf61c3a88aa17f4ea5f1bad7b2"
+BITCOIN_STREAM_ID = "st9058219c3c3247faf2b0a738de7027"
 DATA_PROVIDER = "0xe5252596672cd0208a881bdb67c9df429916ba92"
 
 # Market parameters

@@ -29,16 +29,23 @@ python 01_create_market.py
 
 ### 2. Place Orders (`02_place_orders.py`)
 
-Market maker provides liquidity by placing orders on both sides of the market.
+Market maker provides two-sided liquidity to earn LP rewards.
 
 ```bash
 python 02_place_orders.py
 ```
 
 **What it does:**
-- Places split limit orders (creates YES holdings, sells NO shares)
-- Places buy orders for YES at various price levels
-- Establishes initial market liquidity
+1. Places split limit orders to create YES holdings (needed for selling)
+2. Places LP-eligible paired orders: YES SELL + NO BUY at complementary prices
+
+**LP Rewards Eligibility:**
+```
+yes_price + no_price == 100
+```
+Example: YES SELL @ 55 + NO BUY @ 45 → `55 + 45 = 100` ✓
+
+The scheduler samples LP positions every 10 blocks and records reward percentages.
 
 ### 3. Take Orders (`03_take_orders.py`)
 
@@ -74,11 +81,16 @@ python 04_verify_state.py
 │  Create Market  │────▶│  Place Orders   │────▶│  Take Orders    │
 │  (01_create)    │     │  (02_place)     │     │  (03_take)      │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                        │
-                                                        ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Payouts Sent   │◀────│  Auto-Settle    │◀────│  Wait for       │
-│  to Winners     │     │  (Scheduler)    │     │  Settlement     │
+                              │                         │
+                              ▼                         ▼
+                        ┌───────────┐           ┌─────────────────┐
+                        │ LP Rewards│           │  Wait for       │
+                        │ (sampled) │           │  Settlement     │
+                        └───────────┘           └────────┬────────┘
+                                                         │
+┌─────────────────┐     ┌─────────────────┐     ┌────────▼────────┐
+│  Payouts Sent   │◀────│  Auto-Settle    │◀────│  LP Fees        │
+│  to Winners     │     │  (Scheduler)    │     │  Distributed    │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
 

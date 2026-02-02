@@ -9,9 +9,10 @@ Order Book Strategy:
 2. Place LP-eligible paired orders: YES SELL + NO BUY at complementary prices
 
 LP Rewards Eligibility:
-- Formula: yes_price == 100 + no_price (where no_price is negative for BUY)
-- Example: YES SELL @ 55 + NO BUY @ 45 → 55 == 100 + (-45) ✓
+- Formula: yes_price == 100 - no_buy_price (using positive API prices)
+- Example: YES SELL @ 55 + NO BUY @ 45 → 55 == 100 - 45 ✓
 - Both orders must have the same amount
+- Note: The system stores NO BUY prices internally as negative values
 """
 
 import os
@@ -33,8 +34,6 @@ def get_query_id():
         raise SystemExit(1) from None
 
 
-QUERY_ID = get_query_id()
-
 # WARNING: This is a throwaway private key provided for testnet examples only.
 # DO NOT use this key for production or store any real funds in this wallet.
 # Always use secure key management practices in production environments.
@@ -51,12 +50,13 @@ def main():
     print(f"\nConnecting to testnet: {TESTNET_URL}")
     client = TNClient(TESTNET_URL, MARKET_MAKER_PRIVATE_KEY)
     print(f"Market Maker: {MARKET_MAKER_ADDRESS}")
-    print(f"Market ID: {QUERY_ID}")
+    query_id = get_query_id()
+    print(f"Market ID: {query_id}")
 
     # Get market info
     print(f"\n--- Market Info ---")
     try:
-        market = client.get_market_info(QUERY_ID)
+        market = client.get_market_info(query_id)
         print(f"  Settled: {market.get('settled')}")
         print(f"  Settle Time: {market.get('settle_time')}")
     except Exception as e:
@@ -77,7 +77,7 @@ def main():
         try:
             print(f"\n  Creating {order['amount']} YES holdings @ {order['true_price']}c...")
             tx_hash = client.place_split_limit_order(
-                query_id=QUERY_ID,
+                query_id=query_id,
                 true_price=order["true_price"],
                 amount=order["amount"],
             )
@@ -107,7 +107,7 @@ def main():
         # Place YES sell order (we have YES holdings from split limit orders)
         try:
             tx_hash = client.place_sell_order(
-                query_id=QUERY_ID,
+                query_id=query_id,
                 outcome=True,  # YES
                 price=pair["yes_price"],
                 amount=pair["amount"],
@@ -120,7 +120,7 @@ def main():
         # Place NO buy order at complementary price
         try:
             tx_hash = client.place_buy_order(
-                query_id=QUERY_ID,
+                query_id=query_id,
                 outcome=False,  # NO
                 price=pair["no_price"],
                 amount=pair["amount"],
@@ -141,7 +141,7 @@ def main():
     print("\n--- Current Positions ---")
     try:
         all_positions = client.get_user_positions()
-        positions = [p for p in all_positions if p.get("query_id") == QUERY_ID]
+        positions = [p for p in all_positions if p.get("query_id") == query_id]
         if positions:
             print(f"  {'Outcome':>7} | {'Price':>6} | {'Amount':>8} | {'Type':>12}")
             print(f"  {'-'*7} | {'-'*6} | {'-'*8} | {'-'*12}")
@@ -167,7 +167,7 @@ def main():
     print("\n--- Market Prices ---")
     try:
         for name, outcome in [("YES", True), ("NO", False)]:
-            prices = client.get_best_prices(QUERY_ID, outcome)
+            prices = client.get_best_prices(query_id, outcome)
             bid = prices.get("best_bid", "N/A")
             ask = prices.get("best_ask", "N/A")
             spread = prices.get("spread", "N/A")

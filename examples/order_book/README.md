@@ -40,7 +40,7 @@ python 02_place_orders.py
 2. Places LP-eligible paired orders: YES SELL + NO BUY at complementary prices
 
 **LP Rewards Eligibility:**
-```
+```text
 yes_price + no_price == 100
 ```
 Example: YES SELL @ 55 + NO BUY @ 45 → `55 + 45 = 100` ✓

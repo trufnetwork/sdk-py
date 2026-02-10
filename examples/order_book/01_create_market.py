@@ -25,7 +25,7 @@ BITCOIN_STREAM_ID = "st9058219c3c3247faf2b0a738de7027"
 DATA_PROVIDER = "0xe5252596672cd0208a881bdb67c9df429916ba92"
 
 # Market parameters
-THRESHOLD = "85000"  # Will BTC be above $85,000?
+THRESHOLD = "60000"  # Will BTC be above $60,000?
 BRIDGE = "hoodi_tt2"  # USDC collateral
 MAX_SPREAD = 10  # 10 cents max spread for LP rewards
 MIN_ORDER_SIZE = 1_000_000_000_000_000_000  # 1 USDC (18 decimals)
@@ -43,9 +43,9 @@ def main():
 
     # Note: Balances can be checked via postgres query on kwil_erc20_meta.balances table
 
-    # Set settlement time (30 minutes from now for testing)
+    # Set settlement time (10 minutes from now for testing)
     now = datetime.now(timezone.utc)
-    settle_time = now + timedelta(minutes=30)
+    settle_time = now + timedelta(minutes=10)
     settle_timestamp = int(settle_time.timestamp())
 
     # The timestamp to check the BTC price at (same as settle time for this test)

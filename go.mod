@@ -7,8 +7,8 @@ require (
 	github.com/go-python/gopy v0.4.10
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9
 	github.com/pkg/errors v0.9.1
-	github.com/trufnetwork/kwil-db/core v0.4.3-0.20260120153326-4fab48fcfa11
-	github.com/trufnetwork/sdk-go v0.5.4-0.20260130234322-d015f142ce33
+	github.com/trufnetwork/kwil-db/core v0.4.3-0.20260202044852-b5a45e78041c
+	github.com/trufnetwork/sdk-go v0.6.1-0.20260210095617-d2c9a19e5153
 	google.golang.org/genproto v0.0.0-20251111163417-95abcf5c77ba
 )
 
@@ -30,7 +30,7 @@ require (
 	github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20251021010742-3f8d3dba17d8 // indirect
 	github.com/smartcontractkit/cre-sdk-go v1.1.2 // indirect
 	github.com/smartcontractkit/cre-sdk-go/capabilities/networking/http v0.10.0 // indirect
-	github.com/trufnetwork/kwil-db v0.10.3-0.20260120153326-4fab48fcfa11 // indirect
+	github.com/trufnetwork/kwil-db v0.10.3-0.20260202044852-b5a45e78041c // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.44.0 // indirect

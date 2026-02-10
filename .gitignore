@@ -48,5 +48,7 @@ trufnetwork_sdk_c_bindings
 .repomix
 .cursorrules
 
+GEMINI.md
+
 # Temporary test files
 .query_id

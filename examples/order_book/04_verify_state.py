@@ -129,10 +129,10 @@ def main():
     try:
         depth = client.get_market_depth(QUERY_ID, outcome=True)
         if depth:
-            print(f"  {'Price':>6} | {'Volume':>10}")
-            print(f"  {'-'*6} | {'-'*10}")
+            print(f"  {'Price':>6} | {'Buy Vol':>10} | {'Sell Vol':>10}")
+            print(f"  {'-'*6} | {'-'*10} | {'-'*10}")
             for level in depth:
-                print(f"  {level['price']:>6}c | {level['total_amount']:>10}")
+                print(f"  {level['price']:>6}c | {level['buy_volume']:>10} | {level['sell_volume']:>10}")
         else:
             print("  No depth data")
     except Exception as e:

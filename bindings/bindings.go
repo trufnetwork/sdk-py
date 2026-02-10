@@ -2068,6 +2068,7 @@ func GetOrderBook(client *tnclient.Client, queryID int, outcome bool) (string, e
 	entries := make([]map[string]any, len(results))
 	for i, entry := range results {
 		entries[i] = map[string]any{
+			"participant_id": entry.ParticipantID,
 			"wallet_address": convertBytesToHex(entry.WalletAddress),
 			"price":          entry.Price,
 			"amount":         entry.Amount,
@@ -2100,11 +2101,11 @@ func GetUserPositions(client *tnclient.Client) (string, error) {
 	positions := make([]map[string]any, len(results))
 	for i, pos := range results {
 		positions[i] = map[string]any{
-			"query_id":     pos.QueryID,
-			"outcome":      pos.Outcome,
-			"price":        pos.Price,
-			"amount":       pos.Amount,
-			"last_updated": pos.LastUpdated,
+			"query_id":      pos.QueryID,
+			"outcome":       pos.Outcome,
+			"price":         pos.Price,
+			"amount":        pos.Amount,
+			"position_type": pos.PositionType,
 		}
 	}
 
@@ -2138,8 +2139,9 @@ func GetMarketDepth(client *tnclient.Client, queryID int, outcome bool) (string,
 	levels := make([]map[string]any, len(results))
 	for i, level := range results {
 		levels[i] = map[string]any{
-			"price":        level.Price,
-			"total_amount": level.TotalAmount,
+			"price":       level.Price,
+			"buy_volume":  level.BuyVolume,
+			"sell_volume": level.SellVolume,
 		}
 	}
 

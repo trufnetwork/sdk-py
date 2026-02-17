@@ -372,7 +372,7 @@ VALID_ATTESTATION_ACTIONS = list(ACTION_REGISTRY.keys())
 BINARY_ACTION_NAMES = [name for name, info in ACTION_REGISTRY.items() if info["is_binary"]]
 
 # Valid bridge namespaces
-VALID_BRIDGES = ["hoodi_tt2", "sepolia_bridge", "ethereum_bridge"]
+VALID_BRIDGES = ["hoodi_tt", "hoodi_tt2", "sepolia_bridge", "ethereum_bridge"]
 
 
 def is_binary_action(name: str) -> bool:
@@ -3015,6 +3015,8 @@ class TNClient:
         """
         if not bridge_identifier:
             raise ValueError("bridge_identifier is required")
+        if bridge_identifier not in VALID_BRIDGES:
+            raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
 
         action_name = f"{bridge_identifier}_get_history"
         resp = self.call_procedure(action_name, [wallet_address, str(limit), str(offset)])

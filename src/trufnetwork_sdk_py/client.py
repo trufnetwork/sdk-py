@@ -3018,6 +3018,9 @@ class TNClient:
         if bridge_identifier not in VALID_BRIDGES:
             raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
 
+        if not wallet_address or wallet_address.strip() == "":
+            raise ValueError("wallet_address is required and cannot be empty")
+
         if limit <= 0 or limit > 1000:
             raise ValueError("limit must be between 1 and 1000")
         if offset < 0:
@@ -3034,21 +3037,21 @@ class TNClient:
             record: dict = {}
             for i, col in enumerate(columns):
                 val = row[i]
-                col_lower = col.lower()
+                snake_col = to_snake_case(col)
                 # Coerce numeric fields to int
-                if col_lower in ("block_height", "block_timestamp") or col_lower.endswith("height"):
+                if snake_col in ("block_height", "block_timestamp") or snake_col.lower().endswith("height"):
                     if val is not None:
                         try:
                             val = int(val)
                         except (ValueError, TypeError):
-                            # For nullable fields (like external_block_height), None/parse error stays None
-                            # unless it's a core field where we default to 0
-                            val = 0 if col_lower in ("block_height", "block_timestamp") else None
-                    elif col_lower in ("block_height", "block_timestamp"):
+                            # For nullable fields, parse error sets to None
+                            # unless it's a mandatory field where we might prefer 0
+                            val = 0 if snake_col in ("block_height", "block_timestamp") else None
+                    elif snake_col in ("block_height", "block_timestamp"):
                         val = 0
                     else:
                         val = None
-                record[col] = val
+                record[snake_col] = val
             result.append(cast(BridgeHistory, record))
 
         return result
@@ -3086,3 +3089,10 @@ def all_is_list_of_floats[T](arg_list: list[T]) -> bool:
         isinstance(arg, list) and all(isinstance(item, (float, int)) for item in arg)
         for arg in arg_list
     )
+
+
+def to_snake_case(s: str) -> str:
+    """Convert a string to snake_case."""
+    import re
+    s = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', s)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s).lower()

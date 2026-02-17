@@ -99,6 +99,20 @@ class AttestationSignatureVerification(TypedDict):
     signature: bytes  # The 65-byte signature (R || S || V)
 
 
+class BridgeHistory(TypedDict):
+    """Transaction history record from the bridge extension."""
+    type: str
+    amount: str
+    from_address: str | None
+    to_address: str | None
+    internal_tx_hash: str | None
+    external_tx_hash: str | None
+    status: str
+    block_height: int
+    block_timestamp: int
+    external_block_height: int | None
+
+
 class ParsedAttestationPayload(BaseModel):
     """Parsed attestation payload structure
 
@@ -2979,6 +2993,40 @@ class TNClient:
             self.wait_for_tx(tx_hash)
 
         return tx_hash
+
+    def get_history(
+        self,
+        bridge_identifier: str,
+        wallet_address: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[BridgeHistory]:
+        """
+        Retrieves the unified transaction history for a wallet on a specific bridge.
+
+        Args:
+            bridge_identifier: The name of the bridge instance (e.g., "hoodi_tt", "sepolia_bridge")
+            wallet_address: The wallet address to query
+            limit: Max number of records to return (default 20)
+            offset: Number of records to skip (default 0)
+
+        Returns:
+            A list of BridgeHistory records
+        """
+        action_name = f"{bridge_identifier}_get_history"
+        resp = self.call_procedure(action_name, [wallet_address, str(limit), str(offset)])
+
+        columns = resp.get("column_names", [])
+        rows = resp.get("values", [])
+
+        result: list[BridgeHistory] = []
+        for row in rows:
+            record: dict = {}
+            for i, col in enumerate(columns):
+                record[col] = row[i]
+            result.append(cast(BridgeHistory, record))
+
+        return result
 
     def _validate_binary_market_inputs(
         self,

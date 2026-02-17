@@ -908,6 +908,47 @@ print(f"Paid {paid_count} transaction fees")
 print(f"Received {received_count} fee distributions")
 ```
 
+### `client.get_history(bridge_identifier: str, wallet_address: str, limit: int = 20, offset: int = 0) -> List[BridgeHistory]`
+Retrieves the transaction history for a wallet on a specific bridge.
+
+#### Parameters
+- `bridge_identifier: str` - The name of the bridge instance (e.g., "hoodi_tt2")
+- `wallet_address: str` - The wallet address to query
+- `limit: int` - Max number of records to return (default: 20)
+- `offset: int` - Number of records to skip (default: 0)
+
+#### Returns
+- `List[BridgeHistory]` - List of history records
+
+#### Example
+```python
+history = client.get_history(
+    bridge_identifier="hoodi_tt2",
+    wallet_address="0x..."
+)
+
+for rec in history:
+    print(f"{rec['type']} - Amount: {rec['amount']}")
+```
+
+#### `BridgeHistory` (TypedDict)
+
+Dictionary representing a transaction history record.
+
+```python
+class BridgeHistory(TypedDict):
+    type: str                # "deposit" or "withdrawal"
+    amount: str              # NUMERIC(78,0) as string
+    from_address: str | None # Sender address (if available)
+    to_address: str          # Recipient address
+    internal_tx_hash: str | None # Kwil TX hash (base64)
+    external_tx_hash: str | None # Ethereum TX hash (base64)
+    status: str              # "completed", "claimed", "pending_epoch"
+    block_height: int        # Kwil block height
+    block_timestamp: int     # Kwil block timestamp
+    external_block_height: int | None # Ethereum block height
+```
+
 ### Transaction Ledger Use Cases
 
 **Auditing**: Track all fees paid and received by your wallets

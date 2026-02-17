@@ -3018,6 +3018,11 @@ class TNClient:
         if bridge_identifier not in VALID_BRIDGES:
             raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
 
+        if limit <= 0 or limit > 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        if offset < 0:
+            raise ValueError("offset must be non-negative")
+
         action_name = f"{bridge_identifier}_get_history"
         resp = self.call_procedure(action_name, [wallet_address, str(limit), str(offset)])
 
@@ -3029,11 +3034,20 @@ class TNClient:
             record: dict = {}
             for i, col in enumerate(columns):
                 val = row[i]
-                if col in ("block_height", "block_timestamp") or col.endswith("Height"):
-                    try:
-                        val = int(val) if val is not None else 0
-                    except (ValueError, TypeError):
+                col_lower = col.lower()
+                # Coerce numeric fields to int
+                if col_lower in ("block_height", "block_timestamp") or col_lower.endswith("height"):
+                    if val is not None:
+                        try:
+                            val = int(val)
+                        except (ValueError, TypeError):
+                            # For nullable fields (like external_block_height), None/parse error stays None
+                            # unless it's a core field where we default to 0
+                            val = 0 if col_lower in ("block_height", "block_timestamp") else None
+                    elif col_lower in ("block_height", "block_timestamp"):
                         val = 0
+                    else:
+                        val = None
                 record[col] = val
             result.append(cast(BridgeHistory, record))
 

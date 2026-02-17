@@ -99,6 +99,20 @@ class AttestationSignatureVerification(TypedDict):
     signature: bytes  # The 65-byte signature (R || S || V)
 
 
+class BridgeHistory(TypedDict):
+    """Transaction history record from the bridge extension."""
+    type: str
+    amount: str
+    from_address: str | None
+    to_address: str | None
+    internal_tx_hash: str | None
+    external_tx_hash: str | None
+    status: str
+    block_height: int
+    block_timestamp: int
+    external_block_height: int | None
+
+
 class ParsedAttestationPayload(BaseModel):
     """Parsed attestation payload structure
 
@@ -358,7 +372,7 @@ VALID_ATTESTATION_ACTIONS = list(ACTION_REGISTRY.keys())
 BINARY_ACTION_NAMES = [name for name, info in ACTION_REGISTRY.items() if info["is_binary"]]
 
 # Valid bridge namespaces
-VALID_BRIDGES = ["hoodi_tt2", "sepolia_bridge", "ethereum_bridge"]
+VALID_BRIDGES = ["hoodi_tt", "hoodi_tt2", "sepolia_bridge", "ethereum_bridge"]
 
 
 def is_binary_action(name: str) -> bool:
@@ -2980,6 +2994,68 @@ class TNClient:
 
         return tx_hash
 
+    def get_history(
+        self,
+        bridge_identifier: str,
+        wallet_address: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[BridgeHistory]:
+        """
+        Retrieves the unified transaction history for a wallet on a specific bridge.
+
+        Args:
+            bridge_identifier: The name of the bridge instance (e.g., "hoodi_tt2", "sepolia_bridge")
+            wallet_address: The wallet address to query
+            limit: Max number of records to return (default 20)
+            offset: Number of records to skip (default 0)
+
+        Returns:
+            A list of BridgeHistory records
+        """
+        if not bridge_identifier:
+            raise ValueError("bridge_identifier is required")
+        if bridge_identifier not in VALID_BRIDGES:
+            raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
+
+        if not wallet_address or wallet_address.strip() == "":
+            raise ValueError("wallet_address is required and cannot be empty")
+
+        if limit <= 0 or limit > 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        if offset < 0:
+            raise ValueError("offset must be non-negative")
+
+        action_name = f"{bridge_identifier}_get_history"
+        resp = self.call_procedure(action_name, [wallet_address, str(limit), str(offset)])
+
+        columns = resp.get("column_names", [])
+        rows = resp.get("values", [])
+
+        result: list[BridgeHistory] = []
+        for row in rows:
+            record: dict = {}
+            for i, col in enumerate(columns):
+                val = row[i]
+                snake_col = to_snake_case(col)
+                # Coerce numeric fields to int
+                if snake_col in ("block_height", "block_timestamp") or snake_col.lower().endswith("height"):
+                    if val is not None:
+                        try:
+                            val = int(val)
+                        except (ValueError, TypeError):
+                            # For nullable fields, parse error sets to None
+                            # unless it's a mandatory field where we might prefer 0
+                            val = 0 if snake_col in ("block_height", "block_timestamp") else None
+                    elif snake_col in ("block_height", "block_timestamp"):
+                        val = 0
+                    else:
+                        val = None
+                record[snake_col] = val
+            result.append(cast(BridgeHistory, record))
+
+        return result
+
     def _validate_binary_market_inputs(
         self,
         data_provider: str,
@@ -3013,3 +3089,10 @@ def all_is_list_of_floats[T](arg_list: list[T]) -> bool:
         isinstance(arg, list) and all(isinstance(item, (float, int)) for item in arg)
         for arg in arg_list
     )
+
+
+def to_snake_case(s: str) -> str:
+    """Convert a string to snake_case."""
+    import re
+    s = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', s)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s).lower()

@@ -918,6 +918,8 @@ func structToMapString(record any) map[string]string {
 // convertToString converts various data types to a string representation.
 func convertToString(val any) string {
 	switch v := val.(type) {
+	case nil:
+		return ""
 	case string:
 		return v
 	case int:

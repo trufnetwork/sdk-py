@@ -3005,7 +3005,7 @@ class TNClient:
         Retrieves the unified transaction history for a wallet on a specific bridge.
 
         Args:
-            bridge_identifier: The name of the bridge instance (e.g., "hoodi_tt", "sepolia_bridge")
+            bridge_identifier: The name of the bridge instance (e.g., "hoodi_tt2", "sepolia_bridge")
             wallet_address: The wallet address to query
             limit: Max number of records to return (default 20)
             offset: Number of records to skip (default 0)
@@ -3013,6 +3013,9 @@ class TNClient:
         Returns:
             A list of BridgeHistory records
         """
+        if not bridge_identifier:
+            raise ValueError("bridge_identifier is required")
+
         action_name = f"{bridge_identifier}_get_history"
         resp = self.call_procedure(action_name, [wallet_address, str(limit), str(offset)])
 
@@ -3023,7 +3026,13 @@ class TNClient:
         for row in rows:
             record: dict = {}
             for i, col in enumerate(columns):
-                record[col] = row[i]
+                val = row[i]
+                if col in ("block_height", "block_timestamp") or col.endswith("Height"):
+                    try:
+                        val = int(val) if val is not None else 0
+                    except (ValueError, TypeError):
+                        val = 0
+                record[col] = val
             result.append(cast(BridgeHistory, record))
 
         return result

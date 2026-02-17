@@ -14,8 +14,8 @@ def main():
     endpoint = os.getenv("TN_GATEWAY_URL", "https://gateway.testnet.truf.network")
     
     # Initialize client
-    print(f"🔄 Transaction History Demo (Python)")
-    print(f"==================================")
+    print("🔄 Transaction History Demo (Python)")
+    print("==================================")
     print(f"Endpoint: {endpoint}")
     
     try:

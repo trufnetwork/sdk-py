@@ -940,7 +940,7 @@ class BridgeHistory(TypedDict):
     type: str                # "deposit" or "withdrawal"
     amount: str              # NUMERIC(78,0) as string
     from_address: str | None # Sender address (if available)
-    to_address: str          # Recipient address
+    to_address: str | None   # Recipient address
     internal_tx_hash: str | None # Kwil TX hash (base64)
     external_tx_hash: str | None # Ethereum TX hash (base64)
     status: str              # "completed", "claimed", "pending_epoch"

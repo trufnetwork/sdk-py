@@ -300,6 +300,15 @@ class DecodedQueryComponents(TypedDict):
     args: str  # Hex-encoded arguments
 
 
+class MarketData(TypedDict):
+    """Structured content of a prediction market's query components"""
+    data_provider: str
+    stream_id: str
+    action_id: str
+    type: Literal["above", "below", "between", "equals", "unknown"]
+    thresholds: list[str]
+
+
 # ═══════════════════════════════════════════════════════════════
 #           ACTION REGISTRY
 # ═══════════════════════════════════════════════════════════════
@@ -2678,7 +2687,10 @@ class TNClient:
             ...     "0x1234...", "stbtcusd...", "price_above_threshold", args
             ... )
         """
-        return truf_sdk.EncodeQueryComponents(data_provider, stream_id, action_id, args)
+        # Ensure args is a go.Slice_byte for the bindings
+        go_args = go.Slice_byte(args)
+        res = truf_sdk.EncodeQueryComponents(data_provider, stream_id, action_id, go_args)
+        return bytes(res)
 
     @staticmethod
     def encode_action_args(args: list[Any]) -> bytes:
@@ -2702,7 +2714,8 @@ class TNClient:
             ... ])
         """
         args_json = json.dumps(args)
-        return truf_sdk.EncodeActionArgs(args_json)
+        res = truf_sdk.EncodeActionArgs(args_json)
+        return bytes(res)
 
     @staticmethod
     def decode_query_components(query_components: bytes) -> DecodedQueryComponents:
@@ -2715,8 +2728,24 @@ class TNClient:
         Returns:
             DecodedQueryComponents with data_provider, stream_id, action_id, args
         """
-        json_str = truf_sdk.DecodeQueryComponents(query_components)
+        go_qc = go.Slice_byte(query_components)
+        json_str = truf_sdk.DecodeQueryComponents(go_qc)
         return cast(DecodedQueryComponents, json.loads(json_str))
+
+    @staticmethod
+    def decode_market_data(query_components: bytes) -> MarketData:
+        """
+        Decode ABI-encoded query_components into high-level MarketData.
+
+        Args:
+            query_components: ABI-encoded query_components bytes
+
+        Returns:
+            MarketData dictionary with type and thresholds
+        """
+        go_qc = go.Slice_byte(query_components)
+        json_str = truf_sdk.DecodeMarketData(go_qc)
+        return cast(MarketData, json.loads(json_str))
 
     # ═══════════════════════════════════════════════════════════════
     # BOOLEAN RESULT PARSING

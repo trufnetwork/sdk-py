@@ -2413,6 +2413,55 @@ func marketInfoToMap(market *types.MarketInfo) map[string]any {
 //           QUERY COMPONENTS ENCODING
 // ═══════════════════════════════════════════════════════════════
 
+// MarketData represents the structured content of a prediction market's query components
+type MarketData struct {
+	DataProvider string   `json:"data_provider"`
+	StreamID     string   `json:"stream_id"`
+	ActionID     string   `json:"action_id"`
+	Type         string   `json:"type"`       // "above", "below", "between", "equals"
+	Thresholds   []string `json:"thresholds"` // Formatted numeric values
+}
+
+// DecodeMarketData decodes ABI-encoded query_components into high-level MarketData JSON string
+func DecodeMarketData(encoded []byte) (string, error) {
+	market, err := contractsapi.DecodeMarketData(encoded)
+	if err != nil {
+		return "", err
+	}
+
+	// Re-map to local struct for JSON consistency if needed, 
+    // or just return the contractsapi struct serialized.
+    // contractsapi.MarketData is already JSON-annotated.
+	jsonBytes, err := json.Marshal(market)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal market data")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// DecodeQueryComponents decodes ABI-encoded query_components back to its parts JSON
+func DecodeQueryComponents(encoded []byte) (string, error) {
+	dataProvider, streamID, actionID, args, err := contractsapi.DecodeQueryComponents(encoded)
+	if err != nil {
+		return "", err
+	}
+
+	res := map[string]any{
+		"data_provider": dataProvider,
+		"stream_id":     streamID,
+		"action_id":     actionID,
+		"args":          convertBytesToHex(args),
+	}
+
+	jsonBytes, err := json.Marshal(res)
+	if err != nil {
+		return "", err
+	}
+
+	return string(jsonBytes), nil
+}
+
 // EncodeQueryComponents ABI-encodes query components tuple.
 // Parameters:
 //   - dataProvider: 0x-prefixed Ethereum address (42 chars)
@@ -2425,24 +2474,22 @@ func EncodeQueryComponents(dataProvider, streamID, actionID string, args []byte)
 	return contractsapi.EncodeQueryComponents(dataProvider, streamID, actionID, args)
 }
 
-// DecodeQueryComponents decodes ABI-encoded query components.
-// Returns JSON string with data_provider, stream_id, action_id, args (hex-encoded)
-func DecodeQueryComponents(queryComponents []byte) (string, error) {
-	dataProvider, streamID, actionID, args, err := contractsapi.DecodeQueryComponents(queryComponents)
+// DecodeActionArgs decodes canonical bytes back into action arguments JSON
+func DecodeActionArgs(data []byte) (string, error) {
+	args, err := contractsapi.DecodeActionArgs(data)
 	if err != nil {
 		return "", err
 	}
 
-	result := map[string]any{
-		"data_provider": dataProvider,
-		"stream_id":     streamID,
-		"action_id":     actionID,
-		"args":          convertBytesToHex(args),
+	// Convert arguments to strings for easy JSON representation
+	strArgs := make([]string, len(args))
+	for i, arg := range args {
+		strArgs[i] = convertToString(arg)
 	}
 
-	jsonBytes, err := json.Marshal(result)
+	jsonBytes, err := json.Marshal(strArgs)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to marshal decoded components")
+		return "", err
 	}
 
 	return string(jsonBytes), nil

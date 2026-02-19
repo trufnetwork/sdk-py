@@ -1146,6 +1146,49 @@ unsettled = client.list_markets(settled_filter=True, limit=10)
 all_markets = client.list_markets()
 ```
 
+### Market Data Decoding
+
+High-level utilities for decoding prediction market query components. This is essential for extracting market types and threshold values from the `query_components` field returned by the node.
+
+#### `TNClient.decode_market_data(query_components: bytes) -> MarketData`
+Decodes ABI-encoded query components into structured high-level data.
+
+**Parameters:**
+- `query_components: bytes` - The query components from a market info object.
+
+**Returns:** `MarketData` TypedDict
+
+**Example:**
+```python
+market = client.get_market_info(123)
+# market['query_components'] is bytes
+data = TNClient.decode_market_data(market['query_components'])
+
+print(f"Type: {data['type']}")             # e.g. "above"
+print(f"Thresholds: {data['thresholds']}") # e.g. ["100000.0"]
+```
+
+#### `TNClient.decode_query_components(query_components: bytes) -> DecodedQueryComponents`
+Decodes ABI-encoded query components back into its basic parts.
+
+**Parameters:**
+- `query_components: bytes` - ABI-encoded bytes
+
+**Returns:** `DecodedQueryComponents` TypedDict
+
+#### `MarketData` (TypedDict)
+- `data_provider: str`
+- `stream_id: str`
+- `action_id: str`
+- `type: str` - One of: "above", "below", "between", "equals", "unknown"
+- `thresholds: List[str]` - Formatted numeric values as strings
+
+#### `DecodedQueryComponents` (TypedDict)
+- `data_provider: str`
+- `stream_id: str`
+- `action_id: str`
+- `args: str` - Hex-encoded arguments
+
 ### Order Placement
 
 #### `client.place_buy_order(query_id, outcome, price, amount, wait=True) -> str`

@@ -2799,6 +2799,8 @@ class TNClient:
         Returns:
             list[dict]: A list of withdrawal proof objects containing signatures and merkle data
         """
+        if bridge_identifier not in VALID_BRIDGES:
+            raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
         json_str = truf_sdk.GetWithdrawalProof(self.client, bridge_identifier, wallet)
         if not json_str:
             return []

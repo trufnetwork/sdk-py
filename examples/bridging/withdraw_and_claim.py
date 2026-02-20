@@ -3,8 +3,10 @@ import sys
 import json
 import time
 import base64
+import requests
 from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
+from eth_account import Account
 from trufnetwork_sdk_py.client import TNClient
 
 def parse_withdrawal_proof(proof):
@@ -31,14 +33,16 @@ def parse_withdrawal_proof(proof):
         for sig_b64 in raw_signatures:
             sig_bytes = base64.b64decode(sig_b64)
             
+            if len(sig_bytes) < 65:
+                print(f"[!] Warning: Skipping malformed signature (length {len(sig_bytes)})")
+                continue
+
             # Extract r, s, v
             r = "0x" + sig_bytes[:32].hex()
             s = "0x" + sig_bytes[32:64].hex()
             v = sig_bytes[64]
             
-            # Adjust v for Ethereum (27/28) if needed, though usually standard 0/1 for some bridges
-            # The frontend logic uses raw v, r, s. Let's stick to standard EVM recovery id if needed.
-            # Kwil usually returns standard 65-byte signatures.
+            # Adjust v for Ethereum (27/28) if needed
             if v < 27:
                 v += 27
                 
@@ -66,23 +70,31 @@ def main():
     bridge_escrow_address = Web3.to_checksum_address("0x878d6aaeb6e746033f50b8dc268d54b4631554e7")
     
     # Bot Wallet
-    private_key = "<your_private_key_here>"  # Replace with your bot's private key
+    # Use environment variable for security, fallback to placeholder if not set
+    private_key = os.environ.get("BOT_PRIVATE_KEY", "<your_private_key_here>")
     
     # Amount to withdraw (1 TRUF)
     amount_to_withdraw = 1 * 10**18
     amount_str = str(amount_to_withdraw)
 
     # 2. Initialize Clients
-    # Note: TNClient expects private key without 0x prefix
-    kwil_key = private_key[2:] if private_key.startswith("0x") else private_key
-    tn_client = TNClient(kwil_endpoint, kwil_key)
-    
-    w3 = Web3(Web3.HTTPProvider(hoodi_rpc_url))
-    w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
-    
-    account = w3.eth.account.from_key(private_key)
-    my_address = account.address
-    print(f"[*] Bot Address: {my_address}")
+    try:
+        # Note: TNClient expects private key without 0x prefix
+        kwil_key = private_key[2:] if private_key.startswith("0x") else private_key
+        tn_client = TNClient(kwil_endpoint, kwil_key)
+        
+        w3 = Web3(Web3.HTTPProvider(hoodi_rpc_url))
+        w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+        
+        account = Account.from_key(private_key)
+        my_address = account.address
+        print(f"[*] Bot Address: {my_address}")
+    except (ValueError, KeyError) as e:
+        print(f"[!] Configuration error (invalid key): {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"[!] Failed to initialize clients: {e}")
+        sys.exit(1)
 
     # Load Bridge ABI
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -90,13 +102,12 @@ def main():
         with open(os.path.join(script_dir, "TrufBridge.json")) as f:
             bridge_abi = json.load(f)
     except FileNotFoundError:
-        print("[!] TrufBridge.json not found.")
+        print("[!] TrufBridge.json not found in script directory.")
         sys.exit(1)
         
     bridge_contract = w3.eth.contract(address=bridge_escrow_address, abi=bridge_abi)
 
     # 3. Check Kwil Balance
-    # Note: get_wallet_balance returns a string (wei)
     try:
         kwil_balance = tn_client.get_wallet_balance(bridge_id, my_address)
         print(f"[*] Kwil TT Balance: {int(kwil_balance) / 10**18} TT")
@@ -104,8 +115,11 @@ def main():
         if int(kwil_balance) < amount_to_withdraw:
             print("[!] Insufficient Kwil balance for withdrawal")
             sys.exit(1)
+    except requests.RequestException as e:
+        print(f"[!] Network error in get_wallet_balance: {e}")
+        sys.exit(1)
     except Exception as e:
-        print(f"[!] Failed to get Kwil balance: {e}")
+        print(f"[!] Error in get_wallet_balance: {e}")
         sys.exit(1)
 
     # 4. Initiate Withdrawal on Kwil (Burn)
@@ -113,8 +127,11 @@ def main():
     try:
         burn_tx = tn_client.withdraw(bridge_id, amount_str, my_address)
         print(f"[+] Burn TX Hash: {burn_tx}")
+    except requests.RequestException as e:
+        print(f"[!] Network error in tn_client.withdraw: {e}")
+        sys.exit(1)
     except Exception as e:
-        print(f"[!] Withdrawal failed: {e}")
+        print(f"[!] Error in tn_client.withdraw: {e}")
         sys.exit(1)
 
     # 5. Wait for Proof (Polling)
@@ -124,53 +141,62 @@ def main():
     proof = None
     max_retries = 30 # 30 * 30s = 15 minutes
     
-    for i in range(max_retries):
-        print(f"    Polling attempt {i+1}/{max_retries}...", end="\r")
-        try:
-            # Check history to see status
-            history = tn_client.get_history(bridge_id, my_address, 5, 0)
-            # Find our withdrawal (most recent matching amount)
-            target_tx = None
-            for tx in history:
-                # Basic matching logic: Same amount, status logic
-                if tx['amount'] == amount_str and tx['type'] == 'withdrawal':
-                    target_tx = tx
-                    break
-            
-            if target_tx:
-                status = target_tx['status']
-                if status == 'completed': # Ready to claim
-                    print(f"\n[+] Withdrawal ready! Fetching proof...")
-                    
-                    # Fetch the actual proof data
-                    # get_withdrawal_proof returns an ARRAY of proofs for all unclaimed withdrawals
-                    proofs = tn_client.get_withdrawal_proof(bridge_id, my_address)
-                    
-                    if proofs and len(proofs) > 0:
-                        # Find the specific proof matching our amount/time if needed
-                        # For simplicity, we grab the first one (LIFO/FIFO depends on implementation)
-                        proof = proofs[0] 
+    try:
+        for i in range(max_retries):
+            print(f"    Polling attempt {i+1}/{max_retries}...", end="\r")
+            try:
+                # Check history to see status
+                history = tn_client.get_history(bridge_id, my_address, 5, 0)
+                # Find our withdrawal (most recent matching amount)
+                target_tx = None
+                for tx in history:
+                    if tx['amount'] == amount_str and tx['type'] == 'withdrawal':
+                        target_tx = tx
                         break
-                elif status == 'claimed':
-                    print(f"\n[!] This withdrawal is already claimed.")
-                    return
-            
-        except Exception as e:
-            pass # Ignore transient errors during polling
-            
-        time.sleep(30) # Poll every 30 seconds
+                
+                if target_tx:
+                    status = target_tx['status']
+                    if status == 'completed': # Ready to claim
+                        print("\n[+] Withdrawal ready! Fetching proof...")
+                        
+                        # Fetch the actual proof data
+                        proofs = tn_client.get_withdrawal_proof(bridge_id, my_address)
+                        
+                        # Find the specific proof matching our criteria
+                        for p in proofs:
+                            # Match by amount and recipient to ensure we claim the right one
+                            if p['amount'] == amount_str and p['recipient'].lower() == my_address.lower():
+                                proof = p
+                                break
+                        
+                        if proof:
+                            break
+                        else:
+                            print("\n[!] Withdrawal completed in history, but proof not found in get_withdrawal_proof.")
+                    elif status == 'claimed':
+                        print("\n[!] This withdrawal is already claimed.")
+                        return
+                
+            except requests.RequestException as e:
+                print(f"\n[!] Network error in polling: {e}")
+            except Exception as e:
+                print(f"\n[!] Polling error: {e}")
+                
+            time.sleep(30) # Poll every 30 seconds
+    except KeyboardInterrupt:
+        print("\n[!] Polling interrupted by user. Exiting...")
+        sys.exit(0)
 
     if not proof:
-        print("[!] Timeout waiting for proof. Check back later.")
+        print("\n[!] Timeout or match not found. Check back later.")
         sys.exit(1)
 
     # 6. Parse and Submit Claim to EVM
-    print(f"\n[*] Proof received. Submitting claim to Hoodi...")
+    print("\n[*] Proof received. Submitting claim to Hoodi...")
     parsed_proof = parse_withdrawal_proof(proof)
     
     try:
         # Contract function: withdraw(recipient, amount, blockHash, root, proofs, signatures)
-        # Note: 'proofs' arg is for merkle siblings, often empty for this bridge implementation
         tx = bridge_contract.functions.withdraw(
             parsed_proof['recipient'],
             parsed_proof['amount'],

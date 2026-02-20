@@ -2764,7 +2764,7 @@ class TNClient:
         """
         return truf_sdk.GetWalletBalance(self.client, bridge_identifier, wallet_address)
 
-    def withdraw(self, bridge_identifier: str, amount: str, recipient: str) -> str:
+    def withdraw(self, bridge_identifier: str, amount: str, recipient: str, wait: bool = True) -> str:
         """
         Initiate a withdrawal by burning tokens on the Kwil network.
 
@@ -2772,11 +2772,17 @@ class TNClient:
             bridge_identifier: The bridge instance identifier (e.g., "hoodi_tt", "sepolia")
             amount: The amount to withdraw in wei (as a string)
             recipient: The EVM address to receive the funds
+            wait: If True, wait for the transaction to be confirmed on-chain
 
         Returns:
             str: The transaction hash of the burn operation
         """
-        return truf_sdk.Withdraw(self.client, bridge_identifier, amount, recipient)
+        tx_hash = truf_sdk.Withdraw(self.client, bridge_identifier, amount, recipient)
+        
+        if wait:
+            self.wait_for_tx(tx_hash)
+            
+        return tx_hash
 
     def get_withdrawal_proof(self, bridge_identifier: str, wallet: str) -> list[dict]:
         """
@@ -2790,9 +2796,11 @@ class TNClient:
             list[dict]: A list of withdrawal proof objects containing signatures and merkle data
         """
         json_str = truf_sdk.GetWithdrawalProof(self.client, bridge_identifier, wallet)
-        return json.loads(json_str)
+        if not json_str:
+            return []
+        return cast(list[dict], json.loads(json_str))
 
-    def get_history(self, bridge_identifier: str, wallet: str, limit: int = 20, offset: int = 0) -> list[dict]:
+    def get_history(self, bridge_identifier: str, wallet: str, limit: int = 20, offset: int = 0) -> list[BridgeHistory]:
         """
         Get transaction history for a wallet on a specific bridge.
 
@@ -2803,10 +2811,12 @@ class TNClient:
             offset: Records to skip (default 0)
 
         Returns:
-            list[dict]: A list of history records (deposits and withdrawals)
+            list[BridgeHistory]: A list of history records (deposits and withdrawals)
         """
         json_str = truf_sdk.GetHistory(self.client, bridge_identifier, wallet, limit, offset)
-        return json.loads(json_str)
+        if not json_str:
+            return []
+        return cast(list[BridgeHistory], json.loads(json_str))
 
     # ═══════════════════════════════════════════════════════════════
     # BOOLEAN RESULT PARSING

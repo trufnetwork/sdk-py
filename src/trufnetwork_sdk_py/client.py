@@ -2762,6 +2762,8 @@ class TNClient:
         Returns:
             str: The balance in wei (as a string to preserve precision)
         """
+        if bridge_identifier not in VALID_BRIDGES:
+            raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
         return truf_sdk.GetWalletBalance(self.client, bridge_identifier, wallet_address)
 
     def withdraw(self, bridge_identifier: str, amount: str, recipient: str, wait: bool = True) -> str:
@@ -2777,6 +2779,8 @@ class TNClient:
         Returns:
             str: The transaction hash of the burn operation
         """
+        if bridge_identifier not in VALID_BRIDGES:
+            raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
         tx_hash = truf_sdk.Withdraw(self.client, bridge_identifier, amount, recipient)
         
         if wait:
@@ -2799,24 +2803,6 @@ class TNClient:
         if not json_str:
             return []
         return cast(list[dict], json.loads(json_str))
-
-    def get_history(self, bridge_identifier: str, wallet: str, limit: int = 20, offset: int = 0) -> list[BridgeHistory]:
-        """
-        Get transaction history for a wallet on a specific bridge.
-
-        Args:
-            bridge_identifier: The bridge instance identifier
-            wallet: The wallet address
-            limit: Max records to return (default 20)
-            offset: Records to skip (default 0)
-
-        Returns:
-            list[BridgeHistory]: A list of history records (deposits and withdrawals)
-        """
-        json_str = truf_sdk.GetHistory(self.client, bridge_identifier, wallet, limit, offset)
-        if not json_str:
-            return []
-        return cast(list[BridgeHistory], json.loads(json_str))
 
     # ═══════════════════════════════════════════════════════════════
     # BOOLEAN RESULT PARSING

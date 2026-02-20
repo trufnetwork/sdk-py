@@ -908,12 +908,12 @@ print(f"Paid {paid_count} transaction fees")
 print(f"Received {received_count} fee distributions")
 ```
 
-### `client.get_history(bridge_identifier: str, wallet: str, limit: int = 20, offset: int = 0) -> List[BridgeHistory]`
+### `client.get_history(bridge_identifier: str, wallet_address: str, limit: int = 20, offset: int = 0) -> List[BridgeHistory]`
 Retrieves the transaction history for a wallet on a specific bridge.
 
 #### Parameters
 - `bridge_identifier: str` - The name of the bridge instance (e.g., "hoodi_tt2")
-- `wallet: str` - The wallet address to query
+- `wallet_address: str` - The wallet address to query
 - `limit: int` - Max number of records to return (default: 20)
 - `offset: int` - Number of records to skip (default: 0)
 
@@ -924,7 +924,7 @@ Retrieves the transaction history for a wallet on a specific bridge.
 ```python
 history = client.get_history(
     bridge_identifier="hoodi_tt2",
-    wallet="0x..."
+    wallet_address="0x..."
 )
 
 for rec in history:

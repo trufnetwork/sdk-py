@@ -2762,3 +2762,83 @@ func CreateValueEqualsMarket(
 
 	return CreateMarket(client, bridge, queryComponents, settleTime, maxSpread, minOrderSize)
 }
+
+// ═══════════════════════════════════════════════════════════════
+//           BRIDGE FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+// GetWalletBalance retrieves the wallet balance for a specific bridge instance
+func GetWalletBalance(client *tnclient.Client, bridgeIdentifier string, walletAddress string) (string, error) {
+	ctx := context.Background()
+	balance, err := client.GetWalletBalance(ctx, bridgeIdentifier, walletAddress)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get wallet balance")
+	}
+	return balance, nil
+}
+
+// Withdraw performs a withdrawal operation by bridging tokens from TN to a destination chain
+func Withdraw(client *tnclient.Client, bridgeIdentifier string, amount string, recipient string) (string, error) {
+	ctx := context.Background()
+	txHash, err := client.Withdraw(ctx, bridgeIdentifier, amount, recipient)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to withdraw tokens")
+	}
+	return txHash, nil
+}
+
+// GetWithdrawalProof retrieves the proofs and signatures needed to claim a withdrawal on EVM.
+func GetWithdrawalProof(client *tnclient.Client, bridgeIdentifier string, wallet string) (string, error) {
+	ctx := context.Background()
+
+	input := types.GetWithdrawalProofInput{
+		BridgeIdentifier: bridgeIdentifier,
+		Wallet:           wallet,
+	}
+
+	actions, err := client.LoadActions()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load actions")
+	}
+
+	results, err := actions.GetWithdrawalProof(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get withdrawal proof")
+	}
+
+	jsonBytes, err := json.Marshal(results)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal withdrawal proofs")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// GetHistory retrieves the transaction history for a wallet on a specific bridge
+func GetHistory(client *tnclient.Client, bridgeIdentifier string, wallet string, limit int, offset int) (string, error) {
+	ctx := context.Background()
+
+	input := types.GetHistoryInput{
+		BridgeIdentifier: bridgeIdentifier,
+		Wallet:           wallet,
+		Limit:            &limit,
+		Offset:           &offset,
+	}
+
+	actions, err := client.LoadActions()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load actions")
+	}
+
+	results, err := actions.GetHistory(ctx, input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get bridge history")
+	}
+
+	jsonBytes, err := json.Marshal(results)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal bridge history")
+	}
+
+	return string(jsonBytes), nil
+}

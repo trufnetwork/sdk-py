@@ -2747,6 +2747,65 @@ class TNClient:
         json_str = truf_sdk.DecodeMarketData(go_qc)
         return cast(MarketData, json.loads(json_str))
 
+    # ==========================================
+    #           BRIDGE FUNCTIONS
+    # ==========================================
+
+    def get_wallet_balance(self, bridge_identifier: str, wallet_address: str) -> str:
+        """
+        Get the wallet balance for a specific bridge instance.
+
+        Args:
+            bridge_identifier: The bridge instance identifier (e.g., "hoodi_tt", "sepolia")
+            wallet_address: The wallet address to check
+
+        Returns:
+            str: The balance in wei (as a string to preserve precision)
+        """
+        if bridge_identifier not in VALID_BRIDGES:
+            raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
+        return truf_sdk.GetWalletBalance(self.client, bridge_identifier, wallet_address)
+
+    def withdraw(self, bridge_identifier: str, amount: str, recipient: str, wait: bool = True) -> str:
+        """
+        Initiate a withdrawal by burning tokens on the Kwil network.
+
+        Args:
+            bridge_identifier: The bridge instance identifier (e.g., "hoodi_tt", "sepolia")
+            amount: The amount to withdraw in wei (as a string)
+            recipient: The EVM address to receive the funds
+            wait: If True, wait for the transaction to be confirmed on-chain
+
+        Returns:
+            str: The transaction hash of the burn operation
+        """
+        if bridge_identifier not in VALID_BRIDGES:
+            raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
+        tx_hash = truf_sdk.Withdraw(self.client, bridge_identifier, amount, recipient)
+        
+        if wait:
+            self.wait_for_tx(tx_hash)
+            
+        return tx_hash
+
+    def get_withdrawal_proof(self, bridge_identifier: str, wallet: str) -> list[dict]:
+        """
+        Get withdrawal proofs for claiming funds on the destination chain.
+
+        Args:
+            bridge_identifier: The bridge instance identifier (e.g., "hoodi_tt")
+            wallet: The wallet address that initiated the withdrawal
+
+        Returns:
+            list[dict]: A list of withdrawal proof objects containing signatures and merkle data
+        """
+        if bridge_identifier not in VALID_BRIDGES:
+            raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
+        json_str = truf_sdk.GetWithdrawalProof(self.client, bridge_identifier, wallet)
+        if not json_str:
+            return []
+        return cast(list[dict], json.loads(json_str))
+
     # ═══════════════════════════════════════════════════════════════
     # BOOLEAN RESULT PARSING
     # ═══════════════════════════════════════════════════════════════

@@ -1361,3 +1361,94 @@ A YES price of 60 cents implies:
 - Winners receive $1.00 per winning share
 - Collateral from losing positions funds winner payouts
 - Supported bridges: `hoodi_tt2` (testnet)
+
+## Attestation Helpers
+
+### `TNClient.parse_attestation_payload(payload: bytes) -> Dict[str, Any]`
+
+Parses a canonical attestation payload (without signature) into structured data.
+
+**Parameters:**
+- `payload: bytes` - The canonical payload from `GetSignedAttestation` (excluding the last 65 bytes of signature).
+
+**Returns:**
+- `Dict[str, Any]` - Structured dictionary containing:
+  - `version: int`
+  - `algorithm: int`
+  - `block_height: int`
+  - `data_provider: str` (0x-prefixed address)
+  - `stream_id: str`
+  - `action_id: int`
+  - `arguments: List[Any]` (decoded arguments)
+  - `result: List[Dict[str, Any]]` (decoded result rows)
+
+## Bridge Actions
+
+The Bridge Actions interface enables programmatic interaction with the TRUF.NETWORK bridge system. It allows bots and applications to manage token balances, initiate withdrawals to external chains, and retrieve cryptographic proofs for claiming assets.
+
+### `client.get_wallet_balance(bridge_identifier: str, wallet_address: str) -> str`
+
+Retrieves the token balance for a wallet on a specific bridge instance.
+
+**Parameters:**
+- `bridge_identifier: str` - Unique identifier for the bridge (e.g., "hoodi_tt", "sepolia").
+- `wallet_address: str` - The wallet address to query (0x-prefixed).
+
+**Returns:**
+- `str` - The balance in wei (as a string to preserve precision).
+
+**Example:**
+```python
+balance = client.get_wallet_balance("hoodi_tt", "0x123...")
+print(f"Balance: {int(balance) / 1e18} TT")
+```
+
+### `client.withdraw(bridge_identifier: str, amount: str, recipient: str) -> str`
+
+Initiates a withdrawal by burning tokens on the TRUF.NETWORK. This is the first step in bridging assets back to an external chain.
+
+**Parameters:**
+- `bridge_identifier: str` - Unique identifier for the bridge (e.g., "hoodi_tt").
+- `amount: str` - The amount to withdraw in wei. Must be a valid numeric string.
+- `recipient: str` - The EVM address that will receive the funds on the destination chain.
+
+**Returns:**
+- `str` - The transaction hash of the burn operation on Kwil.
+
+**Example:**
+```python
+# Withdraw 1 token (18 decimals)
+tx_hash = client.withdraw(
+    bridge_identifier="hoodi_tt", 
+    amount="1000000000000000000", 
+    recipient="0xRecipient..."
+)
+print(f"Burn TX Hash: {tx_hash}")
+```
+
+### `client.get_withdrawal_proof(bridge_identifier: str, wallet: str) -> List[Dict]`
+
+Retrieves the cryptographic proofs required to claim a withdrawal on the destination chain.
+
+**Parameters:**
+- `bridge_identifier: str` - The bridge ID (e.g., "hoodi_tt").
+- `wallet: str` - The wallet address that initiated the withdrawal.
+
+**Returns:**
+- `List[Dict]` - A list of proof objects, each containing:
+  - `block_height: int`
+  - `block_hash: str` (Base64)
+  - `root: str` (Base64)
+  - `signatures: List[str]` (Base64)
+  - `amount: str`
+  - `recipient: str`
+
+**Example:**
+```python
+proofs = client.get_withdrawal_proof("hoodi_tt", "0xSender...")
+
+if proofs:
+    proof = proofs[0]
+    print(f"Ready to claim {proof['amount']} tokens")
+    # Use proof data to submit claim transaction on Ethereum
+```

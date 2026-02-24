@@ -25,52 +25,47 @@ def main():
         # 1. Initialize the TNClient
         client = TNClient(endpoint, private_key)
 
-        # 2. List the most recently created markets
-        # We'll look at the top 3 active markets.
-        limit = 3
-        print(f"[*] Fetching the {limit} latest markets...")
-        markets = client.list_markets(limit=limit)
+        # 2. List Markets (Both Active and Settled)
+        states = [
+            {"label": "ACTIVE", "filter": False},
+            {"label": "SETTLED", "filter": True}
+        ]
+        limit = 2
 
-        if not markets:
-            print("[!] No markets found on the network.")
-            return
+        for state in states:
+            print(f"\n--- Fetching Latest {state['label']} Markets ---")
+            markets = client.list_markets(limit=limit, settled_filter=state['filter'])
 
-        print(f"[+] Found {len(markets)} markets.\n")
+            if not markets:
+                print(f"[!] No {state['label']} markets found.")
+                continue
 
-        # 3. Process each market
-        for m in markets:
-            market_id = m['id']
-            print(f"{'-' * 40}")
-            print(f" MARKET ID: {market_id}")
-            print(f"{'-' * 40}")
-            
-            try:
-                # Fetch the FULL market info, which includes the 'query_components'
-                # list_markets only returns a summary for performance.
-                market_info = client.get_market_info(market_id)
+            print(f"[+] Found {len(markets)} markets.\n")
 
-                # Use the SDK's built-in decoder to parse the binary components
-                # This handles ABI-decoding the (address, bytes32, string, bytes) tuple
-                # and further parsing the 'args' based on the action type.
-                details = TNClient.decode_market_data(market_info['query_components'])
-
-                # Display the decoded information
-                print(f"  [Action]      {details['action_id']}")
-                print(f"  [Market Type] {details['type'].upper()}")
+            # 3. Process each market
+            for m in markets:
+                market_id = m['id']
+                print(f"  MARKET ID: {market_id}")
                 
-                # Format thresholds for readability
-                thresholds_str = ", ".join(details['thresholds'])
-                print(f"  [Thresholds]  {thresholds_str}")
-                
-                print(f"  [Provider]    {details['data_provider']}")
-                print(f"  [Stream ID]   {details['stream_id']}")
-                
-                # Print the raw decoded dictionary for reference
-                # print(f"\n  [Raw Data] {json.dumps(details, indent=4)}")
-                print()
+                try:
+                    # Fetch the FULL market info
+                    market_info = client.get_market_info(market_id)
 
-            except Exception as e:
-                print(f"  [!] Error processing market {market_id}: {e}")
+                    # Use the SDK's built-in decoder
+                    details = TNClient.decode_market_data(market_info['query_components'])
+
+                    # Display the decoded information
+                    print(f"    [Action]      {details['action_id']}")
+                    print(f"    [Market Type] {details['type'].upper()}")
+                    
+                    # Format thresholds for readability
+                    thresholds_str = ", ".join(details['thresholds'])
+                    print(f"    [Thresholds]  {thresholds_str}")
+                    print(f"    [Stream ID]   {details['stream_id']}")
+                    print()
+
+                except Exception as e:
+                    print(f"    [!] Error processing market {market_id}: {e}")
 
     except Exception as e:
         print(f"[!] Critical error: {e}")

@@ -29,7 +29,7 @@ import warnings
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
-from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar
+from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Optional
 
 from pydantic import BaseModel
 
@@ -2624,12 +2624,12 @@ class TNClient:
 
         return tx_hash
 
-    def get_distribution_summary(self, query_id: int) -> DistributionSummary:
+    def get_distribution_summary(self, query_id: int) -> Optional[DistributionSummary]:
         """Get fee distribution summary for a market."""
         json_str = truf_sdk.GetDistributionSummary(self.client, query_id)
 
         if not json_str:
-            raise RuntimeError(f"No distribution found for market {query_id}")
+            return None
 
         return cast(DistributionSummary, json.loads(json_str))
 

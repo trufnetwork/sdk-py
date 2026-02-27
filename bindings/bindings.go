@@ -2291,6 +2291,11 @@ func GetDistributionSummary(client *tnclient.Client, queryID int) (string, error
 		return "", errors.Wrap(err, "failed to get distribution summary")
 	}
 
+	// Safety: return empty string if no distribution found
+	if result == nil {
+		return "", nil
+	}
+
 	summary := map[string]any{
 		"distribution_id":        result.DistributionID,
 		"total_fees_distributed": result.TotalFeesDistributed,
@@ -2429,9 +2434,9 @@ func DecodeMarketData(encoded []byte) (string, error) {
 		return "", err
 	}
 
-	// Re-map to local struct for JSON consistency if needed, 
-    // or just return the contractsapi struct serialized.
-    // contractsapi.MarketData is already JSON-annotated.
+	// Re-map to local struct for JSON consistency if needed,
+	// or just return the contractsapi struct serialized.
+	// contractsapi.MarketData is already JSON-annotated.
 	jsonBytes, err := json.Marshal(market)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to marshal market data")

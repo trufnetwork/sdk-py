@@ -2,33 +2,43 @@
 
 import argparse
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import requests
-from web3 import Web3
 
 # --- Configuration ---
 # Kwil/Node Configuration
-NODE_URL = "http://ec2-3-141-77-16.us-east-2.compute.amazonaws.com:8484"
 INDEXER_URL = "http://ec2-52-15-66-172.us-east-2.compute.amazonaws.com:8080"
-TEST_CHAIN_ID = "testnet-v1"
 
 # Wallets
 MARKET_MAKER_ADDR = "0xc11Ff6d3cC60823EcDCAB1089F1A4336053851EF"
 BUYER_TAKER_ADDR = "0x1c6790935a3a1A6B914399Ba743BEC8C41Fe89Fb"
 
 # --- Helper Functions ---
-def with_retry(func, *args, **kwargs):
-    """Simple retry for network calls."""
-    for i in range(3):
+def with_retry(fn, *args, max_retries=5, initial_backoff=1, **kwargs):
+    """
+    Executes a function with exponential backoff on failure.
+    Returns None if all retries fail.
+    """
+    retries = 0
+    err_msg = ""
+    while retries < max_retries:
         try:
-            resp = func(*args, **kwargs)
-            if resp.status_code == 200:
+            resp = fn(*args, **kwargs)
+            if hasattr(resp, "status_code") and resp.status_code == 200:
                 return resp
-            print(f"  Attempt {i+1} failed with status {resp.status_code}, retrying...")
-        except requests.exceptions.RequestException as e:
-            print(f"  Attempt {i+1} failed with exception: {e}")
-        time.sleep(2)
-    return requests.Response() # Return empty response if all retries fail
+            
+            err_msg = f"Status {resp.status_code}" if hasattr(resp, "status_code") else "Unknown failure"
+        except Exception as e:
+            err_msg = str(e)
+            
+        retries += 1
+        if retries >= max_retries:
+            print(f"  ❌ All {max_retries} attempts failed: {err_msg}")
+            return None
+            
+        backoff = initial_backoff * (2 ** (retries - 1))
+        print(f"  ⚠️ Attempt {retries} failed ({err_msg}). Retrying in {backoff}s... ({retries}/{max_retries})")
+        time.sleep(backoff)
 
 def main(query_id: int):
     """
@@ -42,7 +52,7 @@ def main(query_id: int):
     # 1. Verify Distribution Summary
     dist_url = f"{INDEXER_URL}/v0/prediction-market/markets/{query_id}/distribution"
     resp = with_retry(requests.get, dist_url)
-    if resp.status_code == 200:
+    if resp and resp.status_code == 200:
         data = resp.json().get("data", {})
         print(f"1. Distribution Summary for Market {query_id}:")
         print(f"  - Total Fees Distributed: {data.get('total_fees_distributed')}")
@@ -52,30 +62,36 @@ def main(query_id: int):
             dist_time = datetime.fromtimestamp(dist_at, timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
             print(f"  - Distributed At:         {dist_time}")
         else:
-            print(f"  - Distributed At:         Not yet distributed")
+            print("  - Distributed At:         Not yet distributed")
             
         print(f"  - Total LP Count:         {data.get('total_lp_count')}")
         print(f"  - Data Provider Fees:     {data.get('total_dp_fees')}")
         print(f"  - Validator Fees:         {data.get('total_validator_fees')}")
     else:
-        print(f"1. Failed to get distribution summary: {resp.status_code}")
+        print(f"1. Failed to get distribution summary (Status 404 or Timeout)")
 
     # 2. Check Reward History for known participants
-    print("2. Participant Reward History:")
+    print("\n2. Participant Reward History:")
     for label, wallet in [("Market Maker", MARKET_MAKER_ADDR), ("Buyer Taker", BUYER_TAKER_ADDR)]:
         rewards_url = f"{INDEXER_URL}/v0/prediction-market/participants/{wallet}/rewards?query_id={query_id}"
         resp = with_retry(requests.get, rewards_url)
-        if resp.status_code == 200:
+        if resp and resp.status_code == 200:
             data = resp.json().get("data", {})
             rewards = data.get("rewards", [])
             print(f"  - {label} ({wallet[:10]}...):")
             if rewards:
                 for r in rewards:
-                    print(f"    - Earned: {r['reward_amount']} (at {datetime.fromtimestamp(r['distributed_at'], timezone.utc).strftime('%H:%M:%S')})")
+                    reward_amount = r.get('reward_amount', 0)
+                    ts = r.get('distributed_at')
+                    if ts is not None and isinstance(ts, (int, float)):
+                        dist_time = datetime.fromtimestamp(ts, timezone.utc).strftime('%H:%M:%S')
+                    else:
+                        dist_time = "unknown time"
+                    print(f"    - Earned: {reward_amount} (at {dist_time})")
             else:
                 print("    - No rewards found for this market.")
         else:
-            print(f"  - {label}: Failed to get rewards history ({resp.status_code})")
+            print(f"  - {label}: Failed to get rewards history.")
 
     print("" + "=" * 60)
     print("Verification complete!")

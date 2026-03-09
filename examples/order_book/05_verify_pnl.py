@@ -43,7 +43,7 @@ def with_retry(fn, *args, max_retries=5, initial_backoff=1, **kwargs):
         except Exception as e:
             retries += 1
             if retries >= max_retries:
-                raise e
+                raise
             
             backoff = initial_backoff * (2 ** (retries - 1))
             print(f"   ⚠️ Operation failed ({e}). Retrying in {backoff}s... ({retries}/{max_retries})")
@@ -119,15 +119,13 @@ def main():
 
     # 5. Verify Indexer P&L
     print("\n5. Verifying LP Reward Distribution...")
-    dist_url = f"{INDEXER_URL}/v0/prediction-market/markets/{query_id}/distribution"
-    resp = with_retry(requests.get, dist_url)
-    if resp.status_code == 200:
-        data = resp.json().get("data", {})
+    dist_summary = with_retry(client_creator.get_distribution_summary, query_id)
+    if dist_summary:
         print(f"  Distribution Summary for Market {query_id}:")
-        print(f"    Total Fees:     {data.get('total_fees_distributed')}")
-        print(f"    Distributed At: {data.get('distributed_at')}")
+        print(f"    Total Fees:     {dist_summary.get('total_fees_distributed')}")
+        print(f"    Distributed At: {dist_summary.get('distributed_at')}")
     else:
-        print(f"  Failed to get distribution summary: {resp.status_code}")
+        print(f"  No distribution summary found for market {query_id}")
 
     print("\n6. Verifying Indexer Endpoints...")
     time.sleep(10) # Wait for final sync cycle
@@ -140,7 +138,7 @@ def main():
         resp = with_retry(requests.get, pnl_url)
         if resp.status_code == 200:
             data = resp.json().get("data", {})
-            print(f"  Summary P&L:")
+            print("  Summary P&L:")
             print(f"    Realized:   {data.get('realized')}")
             print(f"    Unrealized: {data.get('unrealized')}")
             print(f"    Total:      {data.get('total')}")
@@ -168,7 +166,7 @@ def main():
             data = resp.json().get("data", {})
             print(f"  Reward History (Total: {data.get('total_rewards')}):")
             for r in data.get("rewards", [])[:3]:
-                print(f"    - Market {r['query_id']}: {r['reward_amount']} (at {r['distributed_at']})")
+                print(f"    - Market {r.get('query_id')}: {r.get('reward_amount')} (at {r.get('distributed_at')})")
         else:
             print(f"  Failed to get rewards history: {resp.status_code}")
 

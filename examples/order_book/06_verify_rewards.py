@@ -25,13 +25,17 @@ DATA_PROVIDER_ADDR = "0xe5252596672cd0208a881bdb67c9df429916ba92"
 VALIDATOR_ADDR = "0x231ea6C42aD77036237EF1C6398b76D0afc7Fd9e"
 
 
-def with_retry(fn, *args, max_retries=5, initial_backoff=2, **kwargs):
-    """Executes a function with exponential backoff on failure."""
+def with_retry(fn, *args, max_retries=5, initial_backoff=2, retry_on=(Exception,), **kwargs):
+    """Executes a function with exponential backoff on transient failures.
+
+    Only retries when the raised exception is an instance of one of the
+    types listed in *retry_on*.  Non-matching exceptions propagate immediately.
+    """
     retries = 0
     while retries < max_retries:
         try:
             return fn(*args, **kwargs)
-        except Exception as e:
+        except retry_on as e:
             retries += 1
             if retries >= max_retries:
                 raise
@@ -74,7 +78,7 @@ def main(query_id: int):
     print(f"\n1. Distribution Summary for Market {query_id}...")
 
     dist_url = f"{INDEXER_URL}/v0/prediction-market/markets/{query_id}/distribution"
-    resp = with_retry(requests.get, dist_url, max_retries=5, initial_backoff=3)
+    resp = with_retry(requests.get, dist_url, timeout=20, max_retries=5, initial_backoff=3)
 
     distributed_at = None
     if resp.status_code == 200:
@@ -128,7 +132,7 @@ def main(query_id: int):
         if distributed_at:
             params["cursor"] = str(distributed_at)
 
-        resp = with_retry(requests.get, rewards_url, params=params, max_retries=5, initial_backoff=3)
+        resp = with_retry(requests.get, rewards_url, params=params, timeout=20, max_retries=5, initial_backoff=3)
         if resp.status_code == 200:
             data = resp.json().get("data", {})
             rewards = data.get("rewards", [])
@@ -163,7 +167,7 @@ def main(query_id: int):
     print(f"\n--- Buyer Taker ({BUYER_TAKER_ADDR[:10]}...{BUYER_TAKER_ADDR[-4:]}) ---")
 
     settle_url = f"{INDEXER_URL}/v0/prediction-market/participants/{BUYER_TAKER_ADDR}/settlements"
-    resp = with_retry(requests.get, settle_url, max_retries=5, initial_backoff=3)
+    resp = with_retry(requests.get, settle_url, timeout=20, max_retries=5, initial_backoff=3)
     if resp.status_code == 200:
         data = resp.json().get("data", {})
         settlements = data.get("settlements", [])
@@ -192,13 +196,15 @@ def main(query_id: int):
 
     # Also check buyer P&L
     pnl_url = f"{INDEXER_URL}/v0/prediction-market/participants/{BUYER_TAKER_ADDR}/pnl"
-    resp = with_retry(requests.get, pnl_url, max_retries=5, initial_backoff=3)
+    resp = with_retry(requests.get, pnl_url, timeout=20, max_retries=5, initial_backoff=3)
     if resp.status_code == 200:
         data = resp.json().get("data", {})
         print(f"  P&L Summary:")
         print(f"    Realized:   {data.get('realized')}")
         print(f"    Unrealized: {data.get('unrealized')}")
         print(f"    Total:      {data.get('total')}")
+    else:
+        print(f"  Failed to get P&L: {resp.status_code} {resp.text[:200]}")
 
     # =========================================================================
     # Summary

@@ -48,13 +48,17 @@ THRESHOLD = "10000"  # Guaranteed to be above (BTC price is high) → YES wins
 BRIDGE = "hoodi_tt2"
 
 
-def with_retry(fn, *args, max_retries=5, initial_backoff=2, **kwargs):
-    """Executes a function with exponential backoff on failure."""
+def with_retry(fn, *args, max_retries=5, initial_backoff=2, retry_on=(Exception,), **kwargs):
+    """Executes a function with exponential backoff on transient failures.
+
+    Only retries when the raised exception is an instance of one of the
+    types listed in *retry_on*.  Non-matching exceptions propagate immediately.
+    """
     retries = 0
     while retries < max_retries:
         try:
             return fn(*args, **kwargs)
-        except Exception as e:
+        except retry_on as e:
             retries += 1
             if retries >= max_retries:
                 raise
@@ -106,7 +110,7 @@ def main():
     print(f"\n1. Creating market settling at {settle_time.strftime('%H:%M:%S UTC')}...")
     print(f"   Threshold: BTC > ${THRESHOLD} → YES wins (guaranteed)")
     try:
-        with_retry(client_creator.create_price_above_threshold_market,
+        tx_hash = client_creator.create_price_above_threshold_market(
             data_provider=DATA_PROVIDER,
             stream_id=BITCOIN_STREAM_ID,
             timestamp=settle_timestamp,
@@ -116,11 +120,12 @@ def main():
             max_spread=10,
             min_order_size=1_000_000_000_000_000_000,
         )
+        print(f"   Tx hash: {tx_hash}")
+        client_creator.wait_for_tx(tx_hash)
     except Exception as e:
         print(f"Error creating market: {e}")
         return
 
-    time.sleep(5)
     markets = with_retry(client_creator.list_markets, limit=10)
     query_id = None
     for m in markets:
@@ -137,7 +142,7 @@ def main():
     query_id_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".query_id")
     with open(query_id_file, "w") as f:
         f.write(str(query_id))
-    print(f"   Saved to .query_id for 06_verify_rewards.py")
+    print("   Saved to .query_id for 06_verify_rewards.py")
 
     # =========================================================================
     # 2. Market Maker: Create holdings + LP pair orders
@@ -167,27 +172,27 @@ def main():
 
     # Step 1: Split order -- creates YES holdings + NO sell@50
     print("   a) Split order: 300 shares at price 50...")
-    with_retry(client_mm.place_split_limit_order, query_id, true_price=50, amount=300)
+    client_mm.place_split_limit_order(query_id, true_price=50, amount=300)
     print("      Created: 300 YES holdings + 300 NO sell@50")
 
     # Step 2: Establish bid/ask for midpoint calculation (far from LP prices)
     print("   b) Setting bid/ask for midpoint...")
-    with_retry(client_mm.place_buy_order, query_id, outcome=True, price=46, amount=50)
+    client_mm.place_buy_order(query_id, outcome=True, price=46, amount=50)
     print("      YES buy@46 (bid)")
-    with_retry(client_mm.place_sell_order, query_id, outcome=True, price=54, amount=50)
+    client_mm.place_sell_order(query_id, outcome=True, price=54, amount=50)
     print("      YES sell@54 (ask)")
 
     # Step 3: TRUE-side LP pair -- YES sell@51 + NO buy@49
     print("   c) TRUE-side LP pair...")
-    with_retry(client_mm.place_sell_order, query_id, outcome=True, price=51, amount=100)
+    client_mm.place_sell_order(query_id, outcome=True, price=51, amount=100)
     print("      YES sell@51 (amount=100)")
-    with_retry(client_mm.place_buy_order, query_id, outcome=False, price=49, amount=100)
+    client_mm.place_buy_order(query_id, outcome=False, price=49, amount=100)
     print("      NO buy@49 (amount=100) -- safe: 49 < NO sell@50")
 
     # Step 4: FALSE-side LP pair -- NO sell@50 (from split) + YES buy@50
     print("   d) FALSE-side LP pair...")
-    with_retry(client_mm.place_buy_order, query_id, outcome=True, price=50, amount=300)
-    print("      YES buy@50 (amount=300) -- matches NO sell@50, safe: 50 < YES sell@51")
+    client_mm.place_buy_order(query_id, outcome=True, price=50, amount=300)
+    print("      YES buy@50 (amount=300) -- pairs with NO sell@50 for LP, safe: 50 < YES sell@51")
 
     print("   LP setup complete!")
     print("   Expected LP pairs:")
@@ -210,7 +215,7 @@ def main():
     # =========================================================================
     print(f"\n3. Buyer Taker ({BUYER_TAKER_ADDR[:10]}...) buying YES shares...")
     client_taker = create_client(NODE_URL, BUYER_TAKER_KEY)
-    with_retry(client_taker.place_buy_order, query_id, outcome=True, price=52, amount=5)
+    client_taker.place_buy_order(query_id, outcome=True, price=52, amount=5)
     print("   Buyer placed YES buy@52 (amount=5)")
     print("   Price-crossing: matches YES sell@51 → Buyer acquires 5 YES shares at $0.51")
     print("   Expected at settlement: 5 shares × $1.00 = 5 TRUF payout (minus fees)")
@@ -242,7 +247,7 @@ def main():
     time.sleep(10)  # Wait for indexer sync
 
     dist_url = f"{INDEXER_URL}/v0/prediction-market/markets/{query_id}/distribution"
-    resp = with_retry(requests.get, dist_url, max_retries=5, initial_backoff=5)
+    resp = with_retry(requests.get, dist_url, timeout=20, max_retries=5, initial_backoff=5)
 
     distributed_at = None
     if resp.status_code == 200:
@@ -254,7 +259,7 @@ def main():
         print(f"   LP Count:             {data.get('total_lp_count')}")
         print(f"   Distributed At:       {format_ts(distributed_at)}")
     elif resp.status_code == 404:
-        print(f"   Not available yet — settlement is async, check back later.")
+        print("   Not available yet — settlement is async, check back later.")
         print(f"   URL: {dist_url}")
     else:
         print(f"   Unexpected response: {resp.status_code}")
@@ -278,7 +283,7 @@ def main():
         if distributed_at:
             params["cursor"] = str(distributed_at)
 
-        resp = with_retry(requests.get, rewards_url, params=params, max_retries=5, initial_backoff=3)
+        resp = with_retry(requests.get, rewards_url, params=params, timeout=20, max_retries=5, initial_backoff=3)
         if resp.status_code == 200:
             data = resp.json().get("data", {})
             rewards = data.get("rewards", [])
@@ -301,7 +306,7 @@ def main():
     print(f"\n7. Buyer Settlement ({BUYER_TAKER_ADDR[:10]}...)...")
 
     settle_url = f"{INDEXER_URL}/v0/prediction-market/participants/{BUYER_TAKER_ADDR}/settlements"
-    resp = with_retry(requests.get, settle_url, max_retries=5, initial_backoff=3)
+    resp = with_retry(requests.get, settle_url, timeout=20, max_retries=5, initial_backoff=3)
     if resp.status_code == 200:
         data = resp.json().get("data", {})
         settlements = data.get("settlements", [])
@@ -327,7 +332,7 @@ def main():
 
     for label, wallet in [("Market Maker", MARKET_MAKER_ADDR), ("Buyer Taker", BUYER_TAKER_ADDR)]:
         pnl_url = f"{INDEXER_URL}/v0/prediction-market/participants/{wallet}/pnl"
-        resp = with_retry(requests.get, pnl_url, max_retries=5, initial_backoff=3)
+        resp = with_retry(requests.get, pnl_url, timeout=20, max_retries=5, initial_backoff=3)
         if resp.status_code == 200:
             data = resp.json().get("data", {})
             print(f"   {label}: Realized={data.get('realized')} Unrealized={data.get('unrealized')} Total={data.get('total')}")
@@ -340,7 +345,7 @@ def main():
     print("\n" + "=" * 60)
     print("Demo complete!")
     print(f"\nMarket {query_id} — run 06_verify_rewards.py to re-check (reads .query_id).")
-    print(f"\nQuick links:")
+    print("\nQuick links:")
     print(f"  Distribution: {INDEXER_URL}/v0/prediction-market/markets/{query_id}/distribution")
     print(f"  MM Rewards:   {INDEXER_URL}/v0/prediction-market/participants/{MARKET_MAKER_ADDR}/rewards")
     print(f"  DP Rewards:   {INDEXER_URL}/v0/prediction-market/participants/{DATA_PROVIDER}/rewards")

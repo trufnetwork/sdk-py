@@ -3165,6 +3165,233 @@ class TNClient:
             raise ValueError("min_order_size must be positive")
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Local stream types + client (tn_local extension, admin port)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class LocalStreamInfo(TypedDict):
+    """A single row from LocalClient.list_streams.
+
+    data_provider is always equal to the node's own Ethereum address —
+    local streams are owned by the node operator and the server derives
+    the provider from its secp256k1 key. Kept on the response for parity
+    with the consensus list_streams shape.
+    """
+    data_provider: str
+    stream_id: str
+    stream_type: Literal["primitive", "composed"]
+    created_at: int
+
+
+class LocalRecord(TypedDict):
+    """A single row from LocalClient.get_record."""
+    event_time: int
+    value: str  # decimal string, NUMERIC(36,18)
+    created_at: int  # block height at which the record was inserted
+
+
+class LocalIndex(TypedDict):
+    """A single row from LocalClient.get_index."""
+    event_time: int
+    value: str  # decimal string, NUMERIC(36,18)
+
+
+class LocalClient:
+    """Client for local (off-chain, node-only) stream operations.
+
+    Local streams are stored on a single node, bypass consensus, incur no
+    transaction fees, and are always owned by the node operator. Unlike
+    TNClient, LocalClient does not require a private key — it uses the
+    node's admin JSON-RPC server (port 8485 by default) with its own
+    auth (basic password, mTLS, or unix socket).
+
+    Ownership model: the server derives data_provider from the node's
+    secp256k1 key. Clients never supply a data_provider — any client with
+    admin-port access automatically acts as the node operator.
+
+    Example:
+
+        from trufnetwork_sdk_py import LocalClient, STREAM_TYPE_PRIMITIVE
+
+        local = LocalClient("http://127.0.0.1:8485", admin_password="secret")
+        local.create_stream("st00000000000000000000000000demo", STREAM_TYPE_PRIMITIVE)
+        local.insert_records("st00000000000000000000000000demo", [
+            {"event_time": 1000, "value": "42.5"},
+            {"event_time": 2000, "value": "43.0"},
+        ])
+        records = local.get_record("st00000000000000000000000000demo")
+        for r in records:
+            print(r["event_time"], r["value"])
+
+    Args:
+        admin_url: Base URL of the Kwil admin JSON-RPC server, e.g.
+            "http://127.0.0.1:8485" for loopback TCP.
+        admin_password: Optional HTTP basic auth password. Pass "" or omit
+            for unix-socket / loopback-only workflows with no password.
+    """
+
+    # Sentinel: mirrors bindings.LocalSentinelUnset. Passed through to the
+    # binding layer to mean "optional parameter not set".
+    _UNSET: int = -1
+
+    def __init__(self, admin_url: str, admin_password: str = ""):
+        self._local = truf_sdk.NewLocalClient(admin_url, admin_password)
+
+    def create_stream(self, stream_id: str, stream_type: str = STREAM_TYPE_PRIMITIVE) -> None:
+        """Create a local stream owned by the node operator.
+
+        Args:
+            stream_id: 32-character stream identifier, must start with "st".
+            stream_type: STREAM_TYPE_PRIMITIVE or STREAM_TYPE_COMPOSED.
+        """
+        truf_sdk.LocalCreateStream(self._local, stream_id, stream_type)
+
+    def insert_records(self, stream_id: str, records: list[dict[str, Any]]) -> None:
+        """Insert records into a single local primitive stream.
+
+        Args:
+            stream_id: Target stream. Must exist and be a primitive stream.
+            records: List of dicts with keys "event_time" (int) and "value"
+                (str or number). Values are stored as decimal strings.
+        """
+        stream_ids: list[str] = []
+        event_times: list[int] = []
+        values: list[str] = []
+        for r in records:
+            stream_ids.append(stream_id)
+            event_times.append(int(r["event_time"]))
+            values.append(str(r["value"]))
+        truf_sdk.LocalInsertRecords(
+            self._local,
+            go.Slice_string(stream_ids),
+            go.Slice_int64(event_times),
+            go.Slice_string(values),
+        )
+
+    def batch_insert_records(self, batches: list[dict[str, Any]]) -> None:
+        """Insert records across multiple local streams in one call.
+
+        Each batch is a dict with keys "stream_id" (str) and "inputs" (list
+        of {"event_time": int, "value": str|number}). All target streams
+        must already exist and be primitive streams owned by this node.
+        """
+        stream_ids: list[str] = []
+        event_times: list[int] = []
+        values: list[str] = []
+        for batch in batches:
+            sid = batch["stream_id"]
+            for r in batch["inputs"]:
+                stream_ids.append(sid)
+                event_times.append(int(r["event_time"]))
+                values.append(str(r["value"]))
+        truf_sdk.LocalInsertRecords(
+            self._local,
+            go.Slice_string(stream_ids),
+            go.Slice_int64(event_times),
+            go.Slice_string(values),
+        )
+
+    def insert_taxonomy(
+            self,
+            stream_id: str,
+            child_stream_ids: list[str],
+            weights: list[str],
+            start_date: int = 0,
+    ) -> None:
+        """Add a taxonomy group to a local composed stream.
+
+        Args:
+            stream_id: Parent composed stream.
+            child_stream_ids: List of local child stream IDs. All children
+                are implicitly owned by this node — no cross-provider
+                taxonomies.
+            weights: Decimal string weights, one per child (NUMERIC(36,18)).
+            start_date: Unix timestamp at which this taxonomy group becomes
+                active. Must be >= 0.
+        """
+        if not child_stream_ids:
+            raise ValueError("child_stream_ids must not be empty")
+        if len(child_stream_ids) != len(weights):
+            raise ValueError(
+                f"child_stream_ids and weights must have the same length "
+                f"(got {len(child_stream_ids)} and {len(weights)})"
+            )
+        if start_date < 0:
+            raise ValueError(f"start_date must be >= 0, got {start_date}")
+        truf_sdk.LocalInsertTaxonomy(
+            self._local,
+            stream_id,
+            go.Slice_string(list(child_stream_ids)),
+            go.Slice_string([str(w) for w in weights]),
+            start_date,
+        )
+
+    def get_record(
+            self,
+            stream_id: str,
+            from_time: int | None = None,
+            to_time: int | None = None,
+    ) -> list[LocalRecord]:
+        """Query records from a local stream.
+
+        Args:
+            stream_id: Stream to query. Can be primitive or composed.
+            from_time: Optional lower bound (inclusive of the anchor record).
+            to_time: Optional upper bound.
+
+        Returns:
+            List of {"event_time", "value", "created_at"} dicts. If both
+            bounds are None, returns only the latest record.
+        """
+        raw = truf_sdk.LocalGetRecord(
+            self._local,
+            stream_id,
+            from_time if from_time is not None else self._UNSET,
+            to_time if to_time is not None else self._UNSET,
+        )
+        return json.loads(raw) if raw else []
+
+    def get_index(
+            self,
+            stream_id: str,
+            from_time: int | None = None,
+            to_time: int | None = None,
+            base_time: int | None = None,
+    ) -> list[LocalIndex]:
+        """Query computed index values (value / base * 100) from a local stream.
+
+        Args:
+            stream_id: Stream to query.
+            from_time: Optional lower bound.
+            to_time: Optional upper bound.
+            base_time: Optional base timestamp. Defaults to the earliest
+                event_time in the stream.
+
+        Returns:
+            List of {"event_time", "value"} dicts.
+        """
+        raw = truf_sdk.LocalGetIndex(
+            self._local,
+            stream_id,
+            from_time if from_time is not None else self._UNSET,
+            to_time if to_time is not None else self._UNSET,
+            base_time if base_time is not None else self._UNSET,
+        )
+        return json.loads(raw) if raw else []
+
+    def list_streams(self) -> list[LocalStreamInfo]:
+        """List all local streams owned by this node.
+
+        Returns:
+            List of {"data_provider", "stream_id", "stream_type",
+            "created_at"} dicts. data_provider is always the node's own
+            address (mirrors the consensus list_streams shape).
+        """
+        raw = truf_sdk.LocalListStreams(self._local)
+        return json.loads(raw) if raw else []
+
+
 def all_is_list_of_strings[T](arg_list: list[T]) -> bool:
     return all(
         isinstance(arg, list) and all(isinstance(item, str) for item in arg)

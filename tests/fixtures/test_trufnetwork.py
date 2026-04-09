@@ -207,12 +207,19 @@ def run_migration_task() -> bool:
             cwd=node_repo_dir,
             capture_output=True,
             text=True,
-            check=True  # Raise CalledProcessError on non-zero exit
+            check=True,  # Raise CalledProcessError on non-zero exit
+            timeout=180,  # 3-minute timeout — migration typically completes in seconds
         )
         logger.info(f"Migration task successful. Output:\n{result.stdout}")
         if result.stderr:
             logger.warning(f"Migration task stderr:\n{result.stderr}")
         return True
+    except subprocess.TimeoutExpired as e:
+        logger.error(
+            f"Migration task timed out after {e.timeout}s in {node_repo_dir}. "
+            f"Stdout: {e.stdout or '(none)'}, Stderr: {e.stderr or '(none)'}"
+        )
+        return False
     except FileNotFoundError:
         logger.error(
             f"Migration task command 'task' not found. Ensure it's in PATH or NODE_REPO_DIR ({node_repo_dir}) is correct and contains the executable."

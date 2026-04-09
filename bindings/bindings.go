@@ -16,6 +16,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/kwil-db/core/crypto"
 	"github.com/trufnetwork/kwil-db/core/crypto/auth"
+	rpcclient "github.com/trufnetwork/kwil-db/core/rpc/client"
 	kwilTypes "github.com/trufnetwork/kwil-db/core/types"
 	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
@@ -2845,5 +2846,153 @@ func GetHistory(client *tnclient.Client, bridgeIdentifier string, wallet string,
 		return "", errors.Wrap(err, "failed to marshal bridge history")
 	}
 
+	return string(jsonBytes), nil
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// LOCAL STREAMS (tn_local extension, admin port)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// These bindings wrap the sdk-go LocalActions interface. Local streams are
+// stored off-chain on a single node, bypass consensus, and are always owned
+// by the node operator (the server derives the data_provider from the node's
+// secp256k1 key). Clients never supply a data_provider on the wire.
+//
+// Transport: local operations talk to the kwil-db admin JSON-RPC server
+// (port 8485 by default), not the gateway. Auth is whatever the admin server
+// requires — typically basic password or mTLS. If adminPassword is empty,
+// no Authorization header is sent (unix-socket / loopback-only workflows).
+//
+// Optional int parameters (fromTime, toTime, baseTime): pass -1 to mean
+// "not set", mirroring the sentinel convention used elsewhere in this file
+// (see NewTaxonomyInput's startDate/groupSequence).
+
+// LocalSentinelUnset is the sentinel int64 value meaning "parameter not set"
+// for optional time parameters on LocalGetRecord / LocalGetIndex. Exposed as
+// a constant so Python callers can reference it by name.
+const LocalSentinelUnset int64 = -1
+
+// optInt64ToPtr converts the sentinel convention to a *int64 suitable for
+// the LocalActions Go API.
+func optInt64ToPtr(v int64) *int64 {
+	if v == LocalSentinelUnset {
+		return nil
+	}
+	return &v
+}
+
+// NewLocalClient constructs a standalone client for local (off-chain)
+// stream operations only. Unlike NewClient, it does not require a private
+// key — the admin API uses its own auth.
+//
+// Parameters:
+//   - adminURL: base URL of the Kwil admin JSON-RPC server, e.g.
+//     "http://127.0.0.1:8485" for loopback TCP.
+//   - adminPassword: HTTP basic auth password, or "" to send no auth
+//     header (unix-socket / loopback-only workflows).
+//
+// Returns the ILocalActions interface directly — call its methods via the
+// per-method binding functions below (LocalCreateStream, LocalInsertRecords,
+// etc.).
+func NewLocalClient(adminURL string, adminPassword string) (types.ILocalActions, error) {
+	if adminPassword != "" {
+		return tnclient.NewLocalClient(adminURL, rpcclient.WithPass(adminPassword))
+	}
+	return tnclient.NewLocalClient(adminURL)
+}
+
+// LocalCreateStream creates a local stream owned by the node operator.
+// streamType must be "primitive" or "composed".
+func LocalCreateStream(local types.ILocalActions, streamId string, streamType string) error {
+	ctx := context.Background()
+	return local.CreateStream(ctx, types.LocalCreateStreamInput{
+		StreamID:   streamId,
+		StreamType: types.StreamType(streamType),
+	})
+}
+
+// LocalInsertRecords appends records to one or more local primitive streams.
+// All three slices must have the same length. Each index i describes a
+// single record: stream streamIds[i] gets (eventTimes[i], values[i]).
+// values are decimal strings (NUMERIC(36,18)).
+func LocalInsertRecords(local types.ILocalActions, streamIds []string, eventTimes []int64, values []string) error {
+	ctx := context.Background()
+	return local.InsertRecords(ctx, types.LocalInsertRecordsInput{
+		StreamID:  streamIds,
+		EventTime: eventTimes,
+		Value:     values,
+	})
+}
+
+// LocalInsertTaxonomy adds a taxonomy group to a local composed stream.
+// childStreamIds and weights must have the same length. weights are decimal
+// strings (NUMERIC(36,18)).
+func LocalInsertTaxonomy(local types.ILocalActions, streamId string, childStreamIds []string, weights []string, startDate int64) error {
+	ctx := context.Background()
+	return local.InsertTaxonomy(ctx, types.LocalInsertTaxonomyInput{
+		StreamID:       streamId,
+		ChildStreamIDs: childStreamIds,
+		Weights:        weights,
+		StartDate:      startDate,
+	})
+}
+
+// LocalGetRecord queries records from a local stream (primitive or composed).
+// Pass LocalSentinelUnset for fromTime / toTime to leave them unbounded;
+// passing the sentinel for both returns the latest record. Returns a JSON
+// string of the record array for consumption by the Python wrapper.
+func LocalGetRecord(local types.ILocalActions, streamId string, fromTime int64, toTime int64) (string, error) {
+	ctx := context.Background()
+	records, err := local.GetRecord(ctx, types.LocalGetRecordInput{
+		StreamID: streamId,
+		FromTime: optInt64ToPtr(fromTime),
+		ToTime:   optInt64ToPtr(toTime),
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "local.get_record")
+	}
+	jsonBytes, err := json.Marshal(records)
+	if err != nil {
+		return "", errors.Wrap(err, "marshal local records")
+	}
+	return string(jsonBytes), nil
+}
+
+// LocalGetIndex queries computed index values from a local stream.
+// Pass LocalSentinelUnset for any of fromTime / toTime / baseTime to leave
+// it unset. Default baseTime is the earliest event_time in the stream.
+// Returns a JSON string of the index array.
+func LocalGetIndex(local types.ILocalActions, streamId string, fromTime int64, toTime int64, baseTime int64) (string, error) {
+	ctx := context.Background()
+	records, err := local.GetIndex(ctx, types.LocalGetIndexInput{
+		StreamID: streamId,
+		FromTime: optInt64ToPtr(fromTime),
+		ToTime:   optInt64ToPtr(toTime),
+		BaseTime: optInt64ToPtr(baseTime),
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "local.get_index")
+	}
+	jsonBytes, err := json.Marshal(records)
+	if err != nil {
+		return "", errors.Wrap(err, "marshal local index")
+	}
+	return string(jsonBytes), nil
+}
+
+// LocalListStreams returns all local streams owned by this node as a JSON
+// array. Each entry includes data_provider (always the node's own address,
+// mirrored from the consensus list_streams shape), stream_id, stream_type,
+// and created_at.
+func LocalListStreams(local types.ILocalActions) (string, error) {
+	ctx := context.Background()
+	streams, err := local.ListStreams(ctx)
+	if err != nil {
+		return "", errors.Wrap(err, "local.list_streams")
+	}
+	jsonBytes, err := json.Marshal(streams)
+	if err != nil {
+		return "", errors.Wrap(err, "marshal local streams")
+	}
 	return string(jsonBytes), nil
 }

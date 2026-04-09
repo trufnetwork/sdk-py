@@ -1,5 +1,9 @@
 from .client import (
     TNClient,
+    LocalClient,
+    LocalStreamInfo,
+    LocalRecord,
+    LocalIndex,
     Record,
     RecordBatch,
     StreamDefinitionInput,
@@ -15,6 +19,10 @@ from .client import (
 
 __all__ = [
     "TNClient",
+    "LocalClient",
+    "LocalStreamInfo",
+    "LocalRecord",
+    "LocalIndex",
     "Record",
     "RecordBatch",
     "StreamDefinitionInput",

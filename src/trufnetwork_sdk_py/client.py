@@ -3202,9 +3202,11 @@ class LocalClient:
 
     Local streams are stored on a single node, bypass consensus, incur no
     transaction fees, and are always owned by the node operator. Unlike
-    TNClient, LocalClient does not require a private key — it uses the
-    node's admin JSON-RPC server (port 8485 by default) with its own
-    auth (basic password, mTLS, or unix socket).
+    TNClient, LocalClient does not require a private key — it connects to
+    the node's admin JSON-RPC server directly. The admin server handles
+    its own transport auth (unix socket by default, mTLS for remote TCP).
+    tn_local itself has no auth concept — if you can reach the admin
+    server, you can operate on local streams.
 
     Ownership model: the server derives data_provider from the node's
     secp256k1 key. Clients never supply a data_provider — any client with
@@ -3214,7 +3216,7 @@ class LocalClient:
 
         from trufnetwork_sdk_py import LocalClient, STREAM_TYPE_PRIMITIVE
 
-        local = LocalClient("http://127.0.0.1:8485", admin_password="secret")
+        local = LocalClient("http://127.0.0.1:8485")
         local.create_stream("st00000000000000000000000000demo", STREAM_TYPE_PRIMITIVE)
         local.insert_records("st00000000000000000000000000demo", [
             {"event_time": 1000, "value": "42.5"},
@@ -3227,16 +3229,14 @@ class LocalClient:
     Args:
         admin_url: Base URL of the Kwil admin JSON-RPC server, e.g.
             "http://127.0.0.1:8485" for loopback TCP.
-        admin_password: Optional HTTP basic auth password. Pass "" or omit
-            for unix-socket / loopback-only workflows with no password.
     """
 
     # Sentinel: mirrors bindings.LocalSentinelUnset. Passed through to the
     # binding layer to mean "optional parameter not set".
     _UNSET: int = -1
 
-    def __init__(self, admin_url: str, admin_password: str = ""):
-        self._local = truf_sdk.NewLocalClient(admin_url, admin_password)
+    def __init__(self, admin_url: str):
+        self._local = truf_sdk.NewLocalClient(admin_url)
 
     def create_stream(self, stream_id: str, stream_type: str = STREAM_TYPE_PRIMITIVE) -> None:
         """Create a local stream owned by the node operator.
@@ -3245,7 +3245,36 @@ class LocalClient:
             stream_id: 32-character stream identifier, must start with "st".
             stream_type: STREAM_TYPE_PRIMITIVE or STREAM_TYPE_COMPOSED.
         """
+        if stream_type not in (STREAM_TYPE_PRIMITIVE, STREAM_TYPE_COMPOSED):
+            raise ValueError(
+                f"stream_type must be STREAM_TYPE_PRIMITIVE or STREAM_TYPE_COMPOSED, got {stream_type!r}"
+            )
         truf_sdk.LocalCreateStream(self._local, stream_id, stream_type)
+
+    def delete_stream(self, stream_id: str) -> None:
+        """Delete a local stream and all associated data (records, taxonomies).
+
+        Mirrors consensus delete_stream — ON DELETE CASCADE removes child rows.
+
+        Args:
+            stream_id: 32-character stream identifier to delete.
+        """
+        truf_sdk.LocalDeleteStream(self._local, stream_id)
+
+    def disable_taxonomy(self, stream_id: str, group_sequence: int) -> None:
+        """Disable a taxonomy group on a local composed stream.
+
+        Mirrors consensus disable_taxonomy — sets disabled_at to current
+        block height. The taxonomy group is soft-deleted and will no longer
+        be used in composed stream calculations.
+
+        Args:
+            stream_id: Parent composed stream.
+            group_sequence: The group sequence number to disable.
+        """
+        if group_sequence < 0:
+            raise ValueError(f"group_sequence must be >= 0, got {group_sequence}")
+        truf_sdk.LocalDisableTaxonomy(self._local, stream_id, group_sequence)
 
     def insert_records(self, stream_id: str, records: list[dict[str, Any]]) -> None:
         """Insert records into a single local primitive stream.

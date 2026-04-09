@@ -37,7 +37,7 @@ class _FakeAdminHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(length)
         try:
             req = json.loads(body)
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             self.send_response(400)
             self.end_headers()
             return
@@ -45,6 +45,7 @@ class _FakeAdminHandler(BaseHTTPRequestHandler):
         state: _State = self.server.state  # type: ignore[attr-defined]
         state.last_method = req.get("method")
         state.last_params = req.get("params")
+        state.last_authorization = self.headers.get("Authorization")
 
         rpc_err = state.errors.get(req["method"])
         if rpc_err is not None:
@@ -73,6 +74,7 @@ class _State:
     def __init__(self):
         self.last_method: Optional[str] = None
         self.last_params: Any = None
+        self.last_authorization: Optional[str] = None
         self.results: dict[str, Any] = {}
         self.errors: dict[str, Any] = {}
 
@@ -129,6 +131,64 @@ def test_create_stream_rpc_error(local_client):
     with pytest.raises(Exception) as excinfo:
         client.create_stream("st00000000000000000000000000demo", STREAM_TYPE_PRIMITIVE)
     assert "stream already exists" in str(excinfo.value)
+
+
+# ═══════════════════════════════════════════════════════════════
+# DELETE STREAM
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_delete_stream(local_client):
+    client, server = local_client
+    client.delete_stream("st00000000000000000000000000demo")
+
+    assert server.state.last_method == "local.delete_stream"
+    assert server.state.last_params["stream_id"] == "st00000000000000000000000000demo"
+    assert "data_provider" not in server.state.last_params
+
+
+def test_delete_stream_rpc_error(local_client):
+    client, server = local_client
+    server.state.errors["local.delete_stream"] = {
+        "code": -32602,
+        "message": "stream not found: st...",
+    }
+    with pytest.raises(Exception) as excinfo:
+        client.delete_stream("st00000000000000000000000000demo")
+    assert "stream not found" in str(excinfo.value)
+
+
+# ═══════════════════════════════════════════════════════════════
+# DISABLE TAXONOMY
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_disable_taxonomy(local_client):
+    client, server = local_client
+    client.disable_taxonomy("st0000000000000000000000composed", group_sequence=1)
+
+    assert server.state.last_method == "local.disable_taxonomy"
+    params = server.state.last_params
+    assert params["stream_id"] == "st0000000000000000000000composed"
+    assert params["group_sequence"] == 1
+    assert "data_provider" not in params
+
+
+def test_disable_taxonomy_rpc_error(local_client):
+    client, server = local_client
+    server.state.errors["local.disable_taxonomy"] = {
+        "code": -32602,
+        "message": "taxonomy group 99 not found or already disabled",
+    }
+    with pytest.raises(Exception) as excinfo:
+        client.disable_taxonomy("st0000000000000000000000composed", group_sequence=99)
+    assert "taxonomy group 99 not found" in str(excinfo.value)
+
+
+def test_disable_taxonomy_negative_group_sequence(local_client):
+    client, _ = local_client
+    with pytest.raises(ValueError, match="group_sequence must be >= 0"):
+        client.disable_taxonomy("st0000000000000000000000composed", group_sequence=-1)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -320,3 +380,23 @@ def test_list_streams_empty(local_client):
     server.state.results["local.list_streams"] = {"streams": []}
     streams = client.list_streams()
     assert streams == []
+
+
+
+# ═══════════════════════════════════════════════════════════════
+# NO AUTH REQUIRED
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_no_authorization_header_sent(admin_server):
+    """Verify that LocalClient sends no Authorization header — tn_local has
+    no auth concept. Transport auth (unix socket / mTLS) is handled by the
+    admin server, not the SDK."""
+    server, base_url = admin_server
+    client = LocalClient(base_url)
+
+    server.state.results["local.list_streams"] = {"streams": []}
+    client.list_streams()
+
+    assert server.state.last_authorization is None, \
+        "LocalClient should NOT send an Authorization header — tn_local has no auth"

@@ -16,7 +16,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/kwil-db/core/crypto"
 	"github.com/trufnetwork/kwil-db/core/crypto/auth"
-	rpcclient "github.com/trufnetwork/kwil-db/core/rpc/client"
 	kwilTypes "github.com/trufnetwork/kwil-db/core/types"
 	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
@@ -2859,9 +2858,10 @@ func GetHistory(client *tnclient.Client, bridgeIdentifier string, wallet string,
 // secp256k1 key). Clients never supply a data_provider on the wire.
 //
 // Transport: local operations talk to the kwil-db admin JSON-RPC server
-// (port 8485 by default), not the gateway. Auth is whatever the admin server
-// requires — typically basic password or mTLS. If adminPassword is empty,
-// no Authorization header is sent (unix-socket / loopback-only workflows).
+// (port 8485 by default), not the gateway. The admin server handles its own
+// transport auth (unix socket by default, mTLS for remote TCP). tn_local
+// itself has no auth concept — if you can reach the admin server, you can
+// operate on local streams.
 //
 // Optional int parameters (fromTime, toTime, baseTime): pass -1 to mean
 // "not set", mirroring the sentinel convention used elsewhere in this file
@@ -2871,6 +2871,15 @@ func GetHistory(client *tnclient.Client, bridgeIdentifier string, wallet string,
 // for optional time parameters on LocalGetRecord / LocalGetIndex. Exposed as
 // a constant so Python callers can reference it by name.
 const LocalSentinelUnset int64 = -1
+
+// localAdminTimeout is the per-call timeout for admin RPC operations.
+// Prevents Python from blocking indefinitely if the admin server is unreachable.
+const localAdminTimeout = 30 * time.Second
+
+// newLocalAdminCtx returns a context with a bounded timeout for admin RPC calls.
+func newLocalAdminCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), localAdminTimeout)
+}
 
 // optInt64ToPtr converts the sentinel convention to a *int64 suitable for
 // the LocalActions Go API.
@@ -2883,28 +2892,25 @@ func optInt64ToPtr(v int64) *int64 {
 
 // NewLocalClient constructs a standalone client for local (off-chain)
 // stream operations only. Unlike NewClient, it does not require a private
-// key — the admin API uses its own auth.
+// key — tn_local has no auth concept. The admin server handles its own
+// transport auth (unix socket by default, mTLS for remote TCP).
 //
 // Parameters:
 //   - adminURL: base URL of the Kwil admin JSON-RPC server, e.g.
 //     "http://127.0.0.1:8485" for loopback TCP.
-//   - adminPassword: HTTP basic auth password, or "" to send no auth
-//     header (unix-socket / loopback-only workflows).
 //
 // Returns the ILocalActions interface directly — call its methods via the
 // per-method binding functions below (LocalCreateStream, LocalInsertRecords,
 // etc.).
-func NewLocalClient(adminURL string, adminPassword string) (types.ILocalActions, error) {
-	if adminPassword != "" {
-		return tnclient.NewLocalClient(adminURL, rpcclient.WithPass(adminPassword))
-	}
+func NewLocalClient(adminURL string) (types.ILocalActions, error) {
 	return tnclient.NewLocalClient(adminURL)
 }
 
 // LocalCreateStream creates a local stream owned by the node operator.
 // streamType must be "primitive" or "composed".
 func LocalCreateStream(local types.ILocalActions, streamId string, streamType string) error {
-	ctx := context.Background()
+	ctx, cancel := newLocalAdminCtx()
+	defer cancel()
 	return local.CreateStream(ctx, types.LocalCreateStreamInput{
 		StreamID:   streamId,
 		StreamType: types.StreamType(streamType),
@@ -2916,7 +2922,8 @@ func LocalCreateStream(local types.ILocalActions, streamId string, streamType st
 // single record: stream streamIds[i] gets (eventTimes[i], values[i]).
 // values are decimal strings (NUMERIC(36,18)).
 func LocalInsertRecords(local types.ILocalActions, streamIds []string, eventTimes []int64, values []string) error {
-	ctx := context.Background()
+	ctx, cancel := newLocalAdminCtx()
+	defer cancel()
 	return local.InsertRecords(ctx, types.LocalInsertRecordsInput{
 		StreamID:  streamIds,
 		EventTime: eventTimes,
@@ -2928,7 +2935,8 @@ func LocalInsertRecords(local types.ILocalActions, streamIds []string, eventTime
 // childStreamIds and weights must have the same length. weights are decimal
 // strings (NUMERIC(36,18)).
 func LocalInsertTaxonomy(local types.ILocalActions, streamId string, childStreamIds []string, weights []string, startDate int64) error {
-	ctx := context.Background()
+	ctx, cancel := newLocalAdminCtx()
+	defer cancel()
 	return local.InsertTaxonomy(ctx, types.LocalInsertTaxonomyInput{
 		StreamID:       streamId,
 		ChildStreamIDs: childStreamIds,
@@ -2937,12 +2945,35 @@ func LocalInsertTaxonomy(local types.ILocalActions, streamId string, childStream
 	})
 }
 
+// LocalDeleteStream removes a local stream and all associated data (records,
+// taxonomies). Mirrors consensus delete_stream — ON DELETE CASCADE removes
+// child rows automatically.
+func LocalDeleteStream(local types.ILocalActions, streamId string) error {
+	ctx, cancel := newLocalAdminCtx()
+	defer cancel()
+	return local.DeleteStream(ctx, types.LocalDeleteStreamInput{
+		StreamID: streamId,
+	})
+}
+
+// LocalDisableTaxonomy disables a taxonomy group on a local composed stream.
+// Mirrors consensus disable_taxonomy — sets disabled_at to current block height.
+func LocalDisableTaxonomy(local types.ILocalActions, streamId string, groupSequence int) error {
+	ctx, cancel := newLocalAdminCtx()
+	defer cancel()
+	return local.DisableTaxonomy(ctx, types.LocalDisableTaxonomyInput{
+		StreamID:      streamId,
+		GroupSequence: groupSequence,
+	})
+}
+
 // LocalGetRecord queries records from a local stream (primitive or composed).
 // Pass LocalSentinelUnset for fromTime / toTime to leave them unbounded;
 // passing the sentinel for both returns the latest record. Returns a JSON
 // string of the record array for consumption by the Python wrapper.
 func LocalGetRecord(local types.ILocalActions, streamId string, fromTime int64, toTime int64) (string, error) {
-	ctx := context.Background()
+	ctx, cancel := newLocalAdminCtx()
+	defer cancel()
 	records, err := local.GetRecord(ctx, types.LocalGetRecordInput{
 		StreamID: streamId,
 		FromTime: optInt64ToPtr(fromTime),
@@ -2963,7 +2994,8 @@ func LocalGetRecord(local types.ILocalActions, streamId string, fromTime int64, 
 // it unset. Default baseTime is the earliest event_time in the stream.
 // Returns a JSON string of the index array.
 func LocalGetIndex(local types.ILocalActions, streamId string, fromTime int64, toTime int64, baseTime int64) (string, error) {
-	ctx := context.Background()
+	ctx, cancel := newLocalAdminCtx()
+	defer cancel()
 	records, err := local.GetIndex(ctx, types.LocalGetIndexInput{
 		StreamID: streamId,
 		FromTime: optInt64ToPtr(fromTime),
@@ -2985,7 +3017,8 @@ func LocalGetIndex(local types.ILocalActions, streamId string, fromTime int64, t
 // mirrored from the consensus list_streams shape), stream_id, stream_type,
 // and created_at.
 func LocalListStreams(local types.ILocalActions) (string, error) {
-	ctx := context.Background()
+	ctx, cancel := newLocalAdminCtx()
+	defer cancel()
 	streams, err := local.ListStreams(ctx)
 	if err != nil {
 		return "", errors.Wrap(err, "local.list_streams")

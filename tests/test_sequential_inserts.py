@@ -52,9 +52,9 @@ def test_batch_small_batches(client):
     stream_id = generate_stream_id("test_batch_small_batch")
 
     _safe_destroy(client, stream_id)
-    client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive)
 
     try:
+        client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive)
         NUM_BATCHES = 50
         RECORDS_PER_BATCH = 5
         assert RECORDS_PER_BATCH <= MAX_RECORDS_PER_TX, \
@@ -100,7 +100,7 @@ def test_batch_small_batches(client):
 def test_batch_single_record_inserts(client):
     """
     Test inserting individual records one-per-transaction.
-    Each insert_records call sends 1 record and waits for confirmation.
+    Each insert_record call sends 1 record and waits for confirmation.
     """
     stream_id = generate_stream_id("test_batch_singles")
 

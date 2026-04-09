@@ -215,10 +215,11 @@ def run_migration_task() -> bool:
             logger.warning(f"Migration task stderr:\n{result.stderr}")
         return True
     except subprocess.TimeoutExpired as e:
-        logger.error(
-            f"Migration task timed out after {e.timeout}s in {node_repo_dir}. "
-            f"Stdout: {e.stdout or '(none)'}, Stderr: {e.stderr or '(none)'}"
-        )
+        logger.error(f"Migration task timed out after {e.timeout}s in {node_repo_dir}")
+        if e.stdout:
+            logger.debug(f"Migration timeout stdout (truncated): {str(e.stdout)[:500]}")
+        if e.stderr:
+            logger.debug(f"Migration timeout stderr (truncated): {str(e.stderr)[:500]}")
         return False
     except FileNotFoundError:
         logger.error(

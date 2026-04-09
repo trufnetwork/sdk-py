@@ -86,6 +86,8 @@ github.com/trufnetwork/sdk-go v0.6.4-0.20260224122406-a741343e2f37 h1:VD/GWxLTsh
 github.com/trufnetwork/sdk-go v0.6.4-0.20260224122406-a741343e2f37/go.mod h1:f7IjKRZi4VufWM01b3rODFot1LqopiKw5YR23TL/3dg=
 github.com/trufnetwork/sdk-go v0.6.4-0.20260409120224-f626306694ec h1:PUKJJ7MAak5cHw+ns24gpAkjll7fE9HUC7KQlUCb7c4=
 github.com/trufnetwork/sdk-go v0.6.4-0.20260409120224-f626306694ec/go.mod h1:f7IjKRZi4VufWM01b3rODFot1LqopiKw5YR23TL/3dg=
+github.com/trufnetwork/sdk-go v0.6.4-0.20260409133033-e38300939ecd h1:rMrn7FBS2ZcXVqGVm2mWlFcf7u2UDXo27T2vPewW/N8=
+github.com/trufnetwork/sdk-go v0.6.4-0.20260409133033-e38300939ecd/go.mod h1:f7IjKRZi4VufWM01b3rODFot1LqopiKw5YR23TL/3dg=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=

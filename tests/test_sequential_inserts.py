@@ -5,7 +5,7 @@ from trufnetwork_sdk_py.utils import generate_stream_id
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 from typing import List
 from tests.fixtures.test_trufnetwork import DEFAULT_TN_PRIVATE_KEY, tn_node
-from datetime import datetime, timedelta, timezone  # Import datetime and timedelta
+from datetime import datetime, timedelta, timezone
 
 
 @pytest.fixture(scope="module")
@@ -18,6 +18,7 @@ def client(tn_node, grant_network_writer):
     grant_network_writer(client)
     return client
 
+
 @pytest.fixture(scope="module")
 def current_account(client):
     """
@@ -25,62 +26,64 @@ def current_account(client):
     """
     return client.get_current_account()
 
-def test_batch_small_batches(client):
-    """
-    Test inserting 20 small batches of records (5 records each) in a single batch call.
-    """
-    stream_id = generate_stream_id("test_batch_small_batch")
 
+# Maximum records per insert_records call enforced by the node.
+# See node/internal/migrations/003-primitive-insertion.sql:42-44.
+MAX_RECORDS_PER_TX = 10
+
+
+def _safe_destroy(client, stream_id):
+    """Best-effort stream cleanup — never raises."""
+    if stream_id is None:
+        return
     try:
         client.destroy_stream(stream_id)
     except Exception:
-        pass
+        pass  # cleanup failure must not mask the original test error
 
-    client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive)
+
+def test_batch_small_batches(client):
+    """
+    Test inserting small batches of records, each within the per-tx cap.
+    Each batch_insert_records call sends ≤ MAX_RECORDS_PER_TX records
+    and waits for confirmation before the next — matching the post-deadlock
+    "many small sequential transactions" design.
+    """
+    stream_id = generate_stream_id("test_batch_small_batch")
+
+    _safe_destroy(client, stream_id)
 
     try:
-        NUM_BATCHES = 500
+        client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive)
+        NUM_BATCHES = 50
         RECORDS_PER_BATCH = 5
+        assert RECORDS_PER_BATCH <= MAX_RECORDS_PER_TX, \
+            f"RECORDS_PER_BATCH ({RECORDS_PER_BATCH}) exceeds MAX_RECORDS_PER_TX ({MAX_RECORDS_PER_TX})"
 
-        # Time the insertions
-        insert_start = time.time()
+        start_time = time.time()
+        start_date = datetime(2023, 1, 1)
 
-        # Prepare all batches
-        batches: List[RecordBatch] = []
-        start_date = datetime(2023, 1, 1)  # Start date
         for batch in range(NUM_BATCHES):
             records = []
             for i in range(RECORDS_PER_BATCH):
-                # Use timedelta to increment the date correctly
                 record_date = start_date + timedelta(days=batch * RECORDS_PER_BATCH + i)
                 records.append(
                     Record(
-                        date=date_string_to_unix(record_date.strftime("%Y-%m-%d")),  # Format the date
-                        value=float(batch * 100 + i + 1)  # prevent 0 values
+                        date=date_string_to_unix(record_date.strftime("%Y-%m-%d")),
+                        value=float(batch * 100 + i + 1)  # +1 to avoid zero (filtered by consensus)
                     )
                 )
-            batches.append(RecordBatch(
+            batches: List[RecordBatch] = [RecordBatch(
                 stream_id=stream_id,
                 inputs=records
-            ))
+            )]
+            # Each call sends ≤5 records (under the 10-record cap) and waits.
+            tx_hash = client.batch_insert_records(batches, wait=True)
+            assert tx_hash
 
-        # Insert all batches at once
-        tx_hash = client.batch_insert_records(batches, wait=False)
-        assert tx_hash
-
-        insert_duration = time.time() - insert_start
-        print(f"[Small Batches] All insertions completed in {insert_duration:.2f}s "
-              f"(avg {(insert_duration/NUM_BATCHES)*1000:.2f}ms per batch, "
-              f"{(insert_duration/(NUM_BATCHES*RECORDS_PER_BATCH))*1000:.2f}ms per record)")
-
-        # Time the confirmations
-        confirm_start = time.time()
-        
-        # Wait for the single transaction after sending all records
-        client.wait_for_tx(tx_hash)
-
-        confirm_duration = time.time() - confirm_start
-        print(f"[Small Batches] Transaction confirmed in {confirm_duration:.2f}s")
+        duration = time.time() - start_time
+        print(f"[Small Batches] {NUM_BATCHES} batches of {RECORDS_PER_BATCH} inserted in {duration:.2f}s "
+              f"(avg {(duration/NUM_BATCHES)*1000:.1f}ms per batch)")
 
         # Verify total number of records
         total_records = NUM_BATCHES * RECORDS_PER_BATCH
@@ -91,51 +94,32 @@ def test_batch_small_batches(client):
         assert len(retrieved_records) == total_records
 
     finally:
-        client.destroy_stream(stream_id)
+        _safe_destroy(client, stream_id)
+
 
 def test_batch_single_record_inserts(client):
     """
-    Test inserting individual records in a single batch call.
+    Test inserting individual records one-per-transaction.
+    Each insert_record call sends 1 record and waits for confirmation.
     """
     stream_id = generate_stream_id("test_batch_singles")
 
     try:
         client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive)
-        NUM_RECORDS = 500
+        NUM_RECORDS = 50
 
-        # Time the insertions
-        insert_start = time.time()
+        start_time = time.time()
+        start_date = datetime(2023, 1, 1)
 
-        # Prepare all records as individual batches
-        batches: List[RecordBatch] = []
-        start_date = datetime(2023, 1, 1)  # Start date
         for i in range(NUM_RECORDS):
-            # Use timedelta to increment the date
             record_date = start_date + timedelta(days=i)
-            batches.append(RecordBatch(
-                stream_id=stream_id,
-                inputs=[Record(
-                    date=date_string_to_unix(record_date.strftime("%Y-%m-%d")),  # Format the date
-                    value=float(i+1) # prevent 0 values
-                )]
-            ))
+            record = {"date": date_string_to_unix(record_date.strftime("%Y-%m-%d")),
+                      "value": float(i + 1)}  # +1 to avoid zero
+            client.insert_record(stream_id, record, wait=True)
 
-        # Insert all records at once
-        tx_hash = client.batch_insert_records(batches, wait=False)
-        assert tx_hash
-
-        insert_duration = time.time() - insert_start
-        print(f"[Single Records] All insertions completed in {insert_duration:.2f}s "
-              f"(avg {(insert_duration/NUM_RECORDS)*1000:.2f}ms per record)")
-
-        # Time the confirmations
-        confirm_start = time.time()
-        
-        # Wait for the single transaction after sending all records
-        client.wait_for_tx(tx_hash)
-
-        confirm_duration = time.time() - confirm_start
-        print(f"[Single Records] Transaction confirmed in {confirm_duration:.2f}s")
+        duration = time.time() - start_time
+        print(f"[Single Records] {NUM_RECORDS} records inserted in {duration:.2f}s "
+              f"(avg {(duration/NUM_RECORDS)*1000:.1f}ms per record)")
 
         # Verify all records were inserted
         retrieved_records = client.get_records(
@@ -145,7 +129,8 @@ def test_batch_single_record_inserts(client):
         assert len(retrieved_records) == NUM_RECORDS
 
     finally:
-        client.destroy_stream(stream_id) 
+        _safe_destroy(client, stream_id)
+
 
 def date_string_to_unix(date_str, date_format="%Y-%m-%d"):
     """Convert a date string to a Unix timestamp (integer)."""

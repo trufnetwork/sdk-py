@@ -58,7 +58,7 @@ python examples/bulk_insert_example/main.py
 
 ## Expected output
 
-```
+```text
 connected as 0x7e5f4552091a69125d5dfcb7b8c2659029395bdf
 stream id: stbulkinsertxxxxxxxxxxxxxxxxxxxxx
    (no existing stream to drop: ...)

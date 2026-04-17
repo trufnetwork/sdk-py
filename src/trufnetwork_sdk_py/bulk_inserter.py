@@ -40,15 +40,35 @@ from .client import RecordBatch, TNClient
 
 
 class BulkInsertError(Exception):
-    """Raised when BulkInserter fails to broadcast a chunk after exhausting
-    retries.
+    """Raised when BulkInserter fails to broadcast a chunk or drain inflight
+    transactions after exhausting retries.
 
-    The underlying error message includes the failing chunk index in the
-    format "bulk insert failed at chunk N: <reason>", e.g. so callers can
-    parse it if they want to resume from that chunk.
+    Attributes
+    ----------
+    tx_hashes : list[str]
+        Tx hashes broadcast successfully before the failure. Use this to
+        recover: when ``drain_failure`` is False, resume the workload from
+        ``records[failed_chunk_index * batch_size:]``.
+    drain_failure : bool
+        True when all chunks were broadcast successfully but the final
+        ``WaitTx`` drain failed. In that case ``tx_hashes`` is the full set
+        of submitted hashes — investigate inclusion separately.
+    failed_chunk_index : int
+        Index of the failing chunk (when ``drain_failure`` is False) or the
+        total number of chunks broadcast (when ``drain_failure`` is True).
     """
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        tx_hashes: Optional[List[str]] = None,
+        drain_failure: bool = False,
+        failed_chunk_index: int = 0,
+    ):
+        super().__init__(message)
+        self.tx_hashes: List[str] = list(tx_hashes) if tx_hashes else []
+        self.drain_failure = drain_failure
+        self.failed_chunk_index = failed_chunk_index
 
 
 class BulkInserter:
@@ -92,21 +112,37 @@ class BulkInserter:
         Each chunk becomes one insert_records transaction.
 
         On chunk failure after retries, raises BulkInsertError. The
-        message includes the failing chunk index.
+        exception carries the partial tx hashes (``tx_hashes`` attribute),
+        the failing chunk index (``failed_chunk_index``), and a flag
+        indicating whether the failure was during broadcast or during the
+        final drain (``drain_failure``).
         """
         if not batches:
             return []
 
-        # Flatten batches into a single list of InsertRecordInput Go
-        # structs (one per record). Each input carries its own stream_id +
-        # data_provider, so chunks may mix streams.
+        # Resolve the data provider ONCE, not per record. NewInsertRecordInput
+        # in the Go binding calls GetCurrentAccount on every invocation —
+        # cheap individually, but for thousands of records that's thousands
+        # of redundant lookups, and a transient failure would silently
+        # produce zero-valued inputs.
+        data_provider = self._client.get_current_account()
+        if not data_provider:
+            raise BulkInsertError(
+                "could not resolve data provider for the current signer"
+            )
+
+        # Flatten batches into a single list of InsertRecordInput Go structs
+        # (one per record). Each input carries its own stream_id + data
+        # provider, so chunks may mix streams.
         go_inputs = []
         for batch in batches:
             stream_id = batch["stream_id"]
+            if not stream_id:
+                raise BulkInsertError("batch is missing stream_id")
             for record in batch["inputs"]:
                 go_inputs.append(
-                    truf_sdk.NewInsertRecordInput(
-                        self._client.client,
+                    truf_sdk.NewInsertRecordInputForProvider(
+                        data_provider,
                         stream_id,
                         record["date"],
                         record["value"],
@@ -117,10 +153,18 @@ class BulkInserter:
             return []
 
         go_input_slice = truf_sdk.Slice_s1_types_InsertRecordInput(go_inputs)
-        try:
-            hashes = truf_sdk.BulkInsertAll(self._inner, go_input_slice)
-        except Exception as e:
-            raise BulkInsertError(str(e)) from e
+        result = truf_sdk.BulkInsertAll(self._inner, go_input_slice)
 
-        # gopy returns a Go slice; convert to plain Python list of strings.
-        return list(hashes)
+        # Always materialize hashes — gopy gives us a Go slice; copy to a
+        # plain Python list for safe handling regardless of success/failure.
+        tx_hashes = list(result.TxHashes) if result.TxHashes else []
+
+        if result.ErrorMsg:
+            raise BulkInsertError(
+                result.ErrorMsg,
+                tx_hashes=tx_hashes,
+                drain_failure=result.DrainFailure,
+                failed_chunk_index=result.FailedChunkIndex,
+            )
+
+        return tx_hashes

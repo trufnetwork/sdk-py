@@ -252,9 +252,16 @@ count, not by stream.
 
 #### Raises
 
-- `BulkInsertError` — chunk failed after exhausting retries. The message format is one of:
-  - `"bulk insert failed at chunk N: <reason>"` — broadcast for chunk N failed; resume from `inputs[N*batch_size:]`.
-  - `"bulk insert drain failed after N chunks broadcast: <reason>"` — all chunks broadcast successfully but `WaitTx` failed; the network is congested or the node is unreachable.
+`BulkInsertError` — chunk failed after exhausting retries. The exception carries:
+
+- `tx_hashes: List[str]` — tx hashes broadcast successfully before the failure
+- `drain_failure: bool` — `True` when all chunks broadcast but the final `WaitTx` failed
+- `failed_chunk_index: int` — index of the failing chunk (broadcast failure) or total chunks broadcast (drain failure)
+
+Use these to recover: when `drain_failure` is `False`, resume from
+`records[failed_chunk_index * batch_size:]` after fixing the underlying issue.
+When `drain_failure` is `True`, all hashes are in `tx_hashes` — investigate
+inclusion separately (the broadcast itself succeeded).
 
 #### Example
 
@@ -279,6 +286,10 @@ try:
     print(f"broadcast {len(tx_hashes)} transactions")
 except BulkInsertError as e:
     print(f"bulk insert failed: {e}")
+    print(f"  partial hashes: {len(e.tx_hashes)}")
+    print(f"  failed at chunk: {e.failed_chunk_index}")
+    print(f"  drain failure: {e.drain_failure}")
+    # If !e.drain_failure, resume from records[e.failed_chunk_index * 10:]
 ```
 
 #### Constraints

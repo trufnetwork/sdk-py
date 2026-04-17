@@ -149,9 +149,10 @@ try:
     tx_hashes = inserter.insert_all(batches)
     print(f"broadcast {len(tx_hashes)} transactions")
 except BulkInsertError as e:
-    # Error message format: "bulk insert failed at chunk N: <reason>" or
-    # "bulk insert drain failed after N chunks broadcast: <reason>"
-    print(f"bulk insert failed: {e}")
+    # e.tx_hashes — list of hashes broadcast before failure
+    # e.failed_chunk_index — chunk that failed (or total chunks if drain_failure)
+    # e.drain_failure — True if WaitTx failed after all broadcasts succeeded
+    print(f"bulk insert failed: {e}; recovered {len(e.tx_hashes)} partial hashes")
 ```
 
 **Constraints:**

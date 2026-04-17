@@ -82,9 +82,10 @@ def main() -> None:
             return
         duration = time.time() - start
 
+        chunks = max(len(tx_hashes), 1)
         print(
             f"done: {len(tx_hashes)} chunks broadcast + drained in {duration:.2f}s "
-            f"({duration / len(tx_hashes) * 1000:.0f}ms/chunk avg)"
+            f"({duration / chunks * 1000:.0f}ms/chunk avg)"
         )
 
         # 5. Read back and confirm

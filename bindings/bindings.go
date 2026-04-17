@@ -237,25 +237,53 @@ func NewBulkInserter(client *tnclient.Client, batchSize int, maxInflight int, ma
 	return client.LoadBulkInserter(opts...)
 }
 
-// BulkInsertAll runs InsertAll against the given inserter and returns the
-// resulting tx hashes as hex strings (for Python consumption).
+// BulkInsertResult is the gopy-friendly return shape for BulkInsertAll.
 //
-// On failure, returns the partial hashes plus an error. Callers can extract
-// the failing chunk index by checking the error message format
-// "bulk insert failed at chunk N: ...".
-func BulkInsertAll(b *contractsapi.BulkInserter, inputs []types.InsertRecordInput) ([]string, error) {
-	if b == nil {
-		return nil, fmt.Errorf("inserter is required")
-	}
-	hashes, err := b.InsertAll(context.Background(), inputs)
-	out := make([]string, len(hashes))
-	for i, h := range hashes {
-		out[i] = h.String()
-	}
-	return out, err
+// It always carries TxHashes (the partial hashes broadcast so far) so that
+// Python callers can recover from a failure — gopy discards a (result, error)
+// tuple's result when the error is non-nil, hence the explicit struct.
+//
+// On success: ErrorMsg is "" and the other fields are zero.
+// On failure: ErrorMsg is the formatted error string, FailedChunkIndex is
+// either the index of the failing broadcast chunk (when DrainFailure is false)
+// or the total chunks broadcast (when DrainFailure is true).
+type BulkInsertResult struct {
+	TxHashes         []string
+	ErrorMsg         string
+	DrainFailure     bool
+	FailedChunkIndex int
 }
 
-// NewInsertRecordInput creates a new InsertRecordInput struct
+// BulkInsertAll runs InsertAll against the given inserter and returns a
+// BulkInsertResult that always carries the partial tx hashes (for recovery)
+// alongside any error info.
+func BulkInsertAll(b *contractsapi.BulkInserter, inputs []types.InsertRecordInput) *BulkInsertResult {
+	res := &BulkInsertResult{}
+	if b == nil {
+		res.ErrorMsg = "inserter is required"
+		return res
+	}
+	hashes, err := b.InsertAll(context.Background(), inputs)
+	res.TxHashes = make([]string, len(hashes))
+	for i, h := range hashes {
+		res.TxHashes[i] = h.String()
+	}
+	if err != nil {
+		res.ErrorMsg = err.Error()
+		var bie *contractsapi.BulkInsertError
+		if errors.As(err, &bie) {
+			res.DrainFailure = bie.DrainFailure
+			res.FailedChunkIndex = bie.FailedChunkIndex
+		}
+	}
+	return res
+}
+
+// NewInsertRecordInput creates a new InsertRecordInput struct.
+//
+// Resolves the data provider via GetCurrentAccount on every call. Suitable
+// for one-off inserts; for bulk paths, prefer NewInsertRecordInputForProvider
+// to avoid the per-record account lookup.
 func NewInsertRecordInput(client *tnclient.Client, streamId string, date int, val float64) types.InsertRecordInput {
 	dataProvider, err := GetCurrentAccount(client)
 	if err != nil {
@@ -263,6 +291,22 @@ func NewInsertRecordInput(client *tnclient.Client, streamId string, date int, va
 		return types.InsertRecordInput{}
 	}
 
+	return types.InsertRecordInput{
+		StreamId:     streamId,
+		DataProvider: dataProvider,
+		EventTime:    date,
+		Value:        val,
+	}
+}
+
+// NewInsertRecordInputForProvider creates an InsertRecordInput with an
+// explicit data provider, skipping the per-call GetCurrentAccount lookup.
+//
+// Use this when building many inputs for a single signer (the bulk insertion
+// path): resolve the data provider once via GetCurrentAccount, then call this
+// helper for each record. Avoids redundant account RPC roundtrips and makes
+// errors loud (the caller controls validation).
+func NewInsertRecordInputForProvider(dataProvider string, streamId string, date int, val float64) types.InsertRecordInput {
 	return types.InsertRecordInput{
 		StreamId:     streamId,
 		DataProvider: dataProvider,

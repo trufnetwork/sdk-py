@@ -16,10 +16,9 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 
 import pytest
-import trufnetwork_sdk_c_bindings.exports as truf_sdk
 
 from tests.fixtures.test_trufnetwork import DEFAULT_TN_PRIVATE_KEY, tn_node
-from trufnetwork_sdk_py import BulkInserter, BulkInsertError
+from trufnetwork_sdk_py import BulkInserter, BulkInsertError, STREAM_TYPE_PRIMITIVE
 from trufnetwork_sdk_py.client import Record, RecordBatch, TNClient
 from trufnetwork_sdk_py.utils import generate_stream_id
 
@@ -72,7 +71,7 @@ def test_insert_all_inserts_and_reads_back(client):
     _safe_destroy(client, stream_id)
 
     try:
-        client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive)
+        client.deploy_stream(stream_id, stream_type=STREAM_TYPE_PRIMITIVE)
 
         NUM_RECORDS = 25
         start_date = datetime(2024, 1, 1)
@@ -120,7 +119,7 @@ def test_insert_all_single_chunk_under_batch_size(client):
     _safe_destroy(client, stream_id)
 
     try:
-        client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive)
+        client.deploy_stream(stream_id, stream_type=STREAM_TYPE_PRIMITIVE)
 
         records = [Record(date=_date_to_unix(datetime(2024, 6, i + 1)), value=float(i + 1)) for i in range(3)]
         batches = [RecordBatch(stream_id=stream_id, inputs=records)]
@@ -145,7 +144,7 @@ def test_insert_all_custom_batch_size(client):
     _safe_destroy(client, stream_id)
 
     try:
-        client.deploy_stream(stream_id, stream_type=truf_sdk.StreamTypePrimitive)
+        client.deploy_stream(stream_id, stream_type=STREAM_TYPE_PRIMITIVE)
 
         # 14 records, batch_size=5 → 5+5+4 = 3 chunks
         records = [Record(date=_date_to_unix(datetime(2024, 7, i + 1)), value=float(i + 1)) for i in range(14)]

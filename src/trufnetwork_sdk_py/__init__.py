@@ -1,3 +1,4 @@
+from .bulk_inserter import BulkInserter, BulkInsertError
 from .client import (
     TNClient,
     LocalClient,
@@ -34,4 +35,6 @@ __all__ = [
     "STREAM_TYPE_COMPOSED",
     "VISIBILITY_PUBLIC",
     "VISIBILITY_PRIVATE",
+    "BulkInserter",
+    "BulkInsertError",
 ]

@@ -220,6 +220,83 @@ batches = [
 tx_hash = client.batch_insert_records(batches)
 ```
 
+### `BulkInserter` — high-throughput pipelined insertion
+
+When you need to push hundreds or thousands of records from a single signer,
+use `BulkInserter` instead of looping `batch_insert_records`. It caches the
+nonce locally and broadcasts each chunk fire-and-forget — admission (~50ms)
+becomes the rate limit instead of inclusion (~1–2s per block).
+
+#### `BulkInserter(client, batch_size=10, max_inflight=200, max_attempts=5)`
+
+Wraps the sdk-go `BulkInserter` (see
+[`sdk-go/core/contractsapi/bulk_inserter.go`](https://github.com/trufnetwork/sdk-go/blob/main/core/contractsapi/bulk_inserter.go)).
+Mirrors the cached-nonce pattern from `node/extensions/tn_attestation/extension.go`
+(PR `kwilteam/node#1356`) which solves the same problem on the node side.
+
+#### Parameters
+
+- `client: TNClient` — must use HTTP transport (the default).
+- `batch_size: int = 10` — records per `insert_records` transaction. Must be ≤ the protocol cap (currently 10).
+- `max_inflight: int = 200` — broadcasts queued before draining via `WaitTx`.
+- `max_attempts: int = 5` — initial attempt + retries per chunk on transient errors (`invalid nonce`, `mempool full`).
+
+#### `inserter.insert_all(batches: List[RecordBatch]) -> List[str]`
+
+Flattens `batches` into a single record list, chunks by `batch_size`,
+broadcasts each chunk pipelined, and drains every `max_inflight` plus once at
+the end. Returns the tx hashes in submission order.
+
+Records may mix stream IDs within a chunk — the inserter chunks by total record
+count, not by stream.
+
+#### Raises
+
+- `BulkInsertError` — chunk failed after exhausting retries. The message format is one of:
+  - `"bulk insert failed at chunk N: <reason>"` — broadcast for chunk N failed; resume from `inputs[N*batch_size:]`.
+  - `"bulk insert drain failed after N chunks broadcast: <reason>"` — all chunks broadcast successfully but `WaitTx` failed; the network is congested or the node is unreachable.
+
+#### Example
+
+```python
+from trufnetwork_sdk_py import TNClient, BulkInserter, BulkInsertError
+
+client = TNClient("https://gateway.testnet.truf.network", "YOUR_PRIVATE_KEY")
+inserter = BulkInserter(client)
+
+batches = [
+    {
+        "stream_id": "st...",
+        "inputs": [
+            {"date": 1700000000, "value": 1.5},
+            # ... thousands more
+        ],
+    },
+]
+
+try:
+    tx_hashes = inserter.insert_all(batches)
+    print(f"broadcast {len(tx_hashes)} transactions")
+except BulkInsertError as e:
+    print(f"bulk insert failed: {e}")
+```
+
+#### Constraints
+
+- **One BulkInserter per signer key.** The cache is per-instance; concurrent
+  inserters from the same signer collide on nonces because the mempool admits
+  transactions strictly in nonce order.
+- **Sequential per signer, not concurrent.** Out-of-order HTTP arrival from
+  one signer triggers `invalid nonce` rejections; the helper is single-threaded
+  by design.
+- **Different signers run in parallel.** Per-signer nonces are independent.
+
+#### Working example
+
+See [`examples/bulk_insert_example`](../examples/bulk_insert_example) for a
+full lifecycle demo: connect → drop existing → deploy → bulk-insert → fetch +
+verify → drop.
+
 ## Stream Querying
 
 ### `client.get_records(stream_id: str, **kwargs) -> List[Dict]`

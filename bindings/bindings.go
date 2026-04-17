@@ -212,6 +212,49 @@ func InsertRecords(client *tnclient.Client, inputs []types.InsertRecordInput) (s
 	return txHash.String(), nil
 }
 
+// NewBulkInserter constructs a BulkInserter wired to the given TNClient.
+// Wraps tnclient.Client.LoadBulkInserter for gopy export to Python.
+//
+// batchSize: records per insert_records tx (must be <= protocol cap of 10).
+// maxInflight: how many broadcasts may queue before draining via WaitTx.
+// maxAttempts: max attempts per chunk (initial + retries) on transient
+// errors (invalid nonce, mempool full).
+// Pass 0 for any of these to use defaults (10, 200, 5).
+func NewBulkInserter(client *tnclient.Client, batchSize int, maxInflight int, maxAttempts int) (*contractsapi.BulkInserter, error) {
+	if client == nil {
+		return nil, fmt.Errorf("client is required")
+	}
+	var opts []contractsapi.BulkInserterOption
+	if batchSize > 0 {
+		opts = append(opts, contractsapi.WithBatchSize(batchSize))
+	}
+	if maxInflight > 0 {
+		opts = append(opts, contractsapi.WithMaxInflight(maxInflight))
+	}
+	if maxAttempts > 0 {
+		opts = append(opts, contractsapi.WithMaxAttempts(maxAttempts))
+	}
+	return client.LoadBulkInserter(opts...)
+}
+
+// BulkInsertAll runs InsertAll against the given inserter and returns the
+// resulting tx hashes as hex strings (for Python consumption).
+//
+// On failure, returns the partial hashes plus an error. Callers can extract
+// the failing chunk index by checking the error message format
+// "bulk insert failed at chunk N: ...".
+func BulkInsertAll(b *contractsapi.BulkInserter, inputs []types.InsertRecordInput) ([]string, error) {
+	if b == nil {
+		return nil, fmt.Errorf("inserter is required")
+	}
+	hashes, err := b.InsertAll(context.Background(), inputs)
+	out := make([]string, len(hashes))
+	for i, h := range hashes {
+		out[i] = h.String()
+	}
+	return out, err
+}
+
 // NewInsertRecordInput creates a new InsertRecordInput struct
 func NewInsertRecordInput(client *tnclient.Client, streamId string, date int, val float64) types.InsertRecordInput {
 	dataProvider, err := GetCurrentAccount(client)

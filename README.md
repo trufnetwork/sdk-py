@@ -117,6 +117,64 @@ for record in records:
     print(f"Date: {date.strftime('%Y-%m-%d')}, Value: {record['Value']}")
 ```
 
+### High-Throughput Insertion with `BulkInserter`
+
+When inserting more than a few hundred records from a single signer, looping
+`client.batch_insert_records(...)` is dramatically slower than it needs to be:
+each call forces a wait-for-inclusion (~1–2s per block) before the next
+broadcast, so 1,000 records can take 25+ minutes.
+
+`BulkInserter` instead caches the nonce locally and broadcasts each chunk
+fire-and-forget, draining inflight transactions in batches via `WaitTx`. It
+handles `invalid nonce` (resets cache, retries) and `mempool full` (backs off,
+keeps cache) automatically.
+
+```python
+from trufnetwork_sdk_py import TNClient, BulkInserter, BulkInsertError
+
+client = TNClient("https://gateway.testnet.truf.network", "YOUR_PRIVATE_KEY")
+inserter = BulkInserter(client)
+
+batches = [
+    {
+        "stream_id": "st...",
+        "inputs": [
+            {"date": 1700000000, "value": 1.5},
+            # ... thousands more
+        ],
+    },
+]
+
+try:
+    tx_hashes = inserter.insert_all(batches)
+    print(f"broadcast {len(tx_hashes)} transactions")
+except BulkInsertError as e:
+    # e.tx_hashes — list of hashes broadcast before failure
+    # e.failed_chunk_index — chunk that failed (or total chunks if drain_failure)
+    # e.drain_failure — True if WaitTx failed after all broadcasts succeeded
+    print(f"bulk insert failed: {e}; recovered {len(e.tx_hashes)} partial hashes")
+```
+
+**Constraints:**
+
+- One `BulkInserter` per signer key — concurrent inserters from the same
+  signer collide on nonces (the mempool admits transactions in strict nonce
+  order).
+- Different signers run safely in parallel (independent nonce sequences).
+- Records may mix stream IDs within a chunk — the inserter flattens batches
+  and chunks by total record count.
+
+**Tunables** (defaults shown):
+
+```python
+BulkInserter(
+    client,
+    batch_size=10,      # records per insert_records tx; protocol cap is 10
+    max_inflight=200,   # broadcasts queued before forced drain via WaitTx
+    max_attempts=5,     # initial + retries on transient errors
+)
+```
+
 ## Understanding Transaction Lifecycle
 
 **IMPORTANT:** All transaction operations return success when transactions enter the mempool, NOT when they are executed on-chain. This async behavior can cause race conditions if not handled properly.

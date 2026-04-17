@@ -212,7 +212,78 @@ func InsertRecords(client *tnclient.Client, inputs []types.InsertRecordInput) (s
 	return txHash.String(), nil
 }
 
-// NewInsertRecordInput creates a new InsertRecordInput struct
+// NewBulkInserter constructs a BulkInserter wired to the given TNClient.
+// Wraps tnclient.Client.LoadBulkInserter for gopy export to Python.
+//
+// batchSize: records per insert_records tx (must be <= protocol cap of 10).
+// maxInflight: how many broadcasts may queue before draining via WaitTx.
+// maxAttempts: max attempts per chunk (initial + retries) on transient
+// errors (invalid nonce, mempool full).
+// Pass 0 for any of these to use defaults (10, 200, 5).
+func NewBulkInserter(client *tnclient.Client, batchSize int, maxInflight int, maxAttempts int) (*contractsapi.BulkInserter, error) {
+	if client == nil {
+		return nil, fmt.Errorf("client is required")
+	}
+	var opts []contractsapi.BulkInserterOption
+	if batchSize > 0 {
+		opts = append(opts, contractsapi.WithBatchSize(batchSize))
+	}
+	if maxInflight > 0 {
+		opts = append(opts, contractsapi.WithMaxInflight(maxInflight))
+	}
+	if maxAttempts > 0 {
+		opts = append(opts, contractsapi.WithMaxAttempts(maxAttempts))
+	}
+	return client.LoadBulkInserter(opts...)
+}
+
+// BulkInsertResult is the gopy-friendly return shape for BulkInsertAll.
+//
+// It always carries TxHashes (the partial hashes broadcast so far) so that
+// Python callers can recover from a failure — gopy discards a (result, error)
+// tuple's result when the error is non-nil, hence the explicit struct.
+//
+// On success: ErrorMsg is "" and the other fields are zero.
+// On failure: ErrorMsg is the formatted error string, FailedChunkIndex is
+// either the index of the failing broadcast chunk (when DrainFailure is false)
+// or the total chunks broadcast (when DrainFailure is true).
+type BulkInsertResult struct {
+	TxHashes         []string
+	ErrorMsg         string
+	DrainFailure     bool
+	FailedChunkIndex int
+}
+
+// BulkInsertAll runs InsertAll against the given inserter and returns a
+// BulkInsertResult that always carries the partial tx hashes (for recovery)
+// alongside any error info.
+func BulkInsertAll(b *contractsapi.BulkInserter, inputs []types.InsertRecordInput) *BulkInsertResult {
+	res := &BulkInsertResult{}
+	if b == nil {
+		res.ErrorMsg = "inserter is required"
+		return res
+	}
+	hashes, err := b.InsertAll(context.Background(), inputs)
+	res.TxHashes = make([]string, len(hashes))
+	for i, h := range hashes {
+		res.TxHashes[i] = h.String()
+	}
+	if err != nil {
+		res.ErrorMsg = err.Error()
+		var bie *contractsapi.BulkInsertError
+		if errors.As(err, &bie) {
+			res.DrainFailure = bie.DrainFailure
+			res.FailedChunkIndex = bie.FailedChunkIndex
+		}
+	}
+	return res
+}
+
+// NewInsertRecordInput creates a new InsertRecordInput struct.
+//
+// Resolves the data provider via GetCurrentAccount on every call. Suitable
+// for one-off inserts; for bulk paths, prefer NewInsertRecordInputForProvider
+// to avoid the per-record account lookup.
 func NewInsertRecordInput(client *tnclient.Client, streamId string, date int, val float64) types.InsertRecordInput {
 	dataProvider, err := GetCurrentAccount(client)
 	if err != nil {
@@ -220,6 +291,22 @@ func NewInsertRecordInput(client *tnclient.Client, streamId string, date int, va
 		return types.InsertRecordInput{}
 	}
 
+	return types.InsertRecordInput{
+		StreamId:     streamId,
+		DataProvider: dataProvider,
+		EventTime:    date,
+		Value:        val,
+	}
+}
+
+// NewInsertRecordInputForProvider creates an InsertRecordInput with an
+// explicit data provider, skipping the per-call GetCurrentAccount lookup.
+//
+// Use this when building many inputs for a single signer (the bulk insertion
+// path): resolve the data provider once via GetCurrentAccount, then call this
+// helper for each record. Avoids redundant account RPC roundtrips and makes
+// errors loud (the caller controls validation).
+func NewInsertRecordInputForProvider(dataProvider string, streamId string, date int, val float64) types.InsertRecordInput {
 	return types.InsertRecordInput{
 		StreamId:     streamId,
 		DataProvider: dataProvider,

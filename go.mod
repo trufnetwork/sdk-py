@@ -4,11 +4,12 @@ go 1.25.3
 
 require (
 	github.com/cockroachdb/apd/v3 v3.2.1
+	github.com/ethereum/go-ethereum v1.16.9
 	github.com/go-python/gopy v0.4.10
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9
 	github.com/pkg/errors v0.9.1
-	github.com/trufnetwork/kwil-db/core v0.4.3-0.20260216231327-01b863886682
-	github.com/trufnetwork/sdk-go v0.6.5-0.20260417151855-69dbc4701dec
+	github.com/trufnetwork/kwil-db/core v0.4.3-0.20260414113323-696cc38f53b8
+	github.com/trufnetwork/sdk-go v0.6.5-0.20260421115245-8b1861ca8642
 	google.golang.org/genproto v0.0.0-20251111163417-95abcf5c77ba
 )
 
@@ -16,7 +17,6 @@ require (
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251110112254-48a6e677648f // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/decred/slog v1.2.0 // indirect
-	github.com/ethereum/go-ethereum v1.16.7 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.11 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect

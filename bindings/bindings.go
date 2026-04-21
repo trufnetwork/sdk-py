@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/apd/v3"
+	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/golang-sql/civil"
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/kwil-db/core/crypto"
@@ -2978,19 +2979,30 @@ func optInt64ToPtr(v int64) *int64 {
 }
 
 // NewLocalClient constructs a standalone client for local (off-chain)
-// stream operations only. Unlike NewClient, it does not require a private
-// key — tn_local has no auth concept. The admin server handles its own
-// transport auth (unix socket by default, mTLS for remote TCP).
+// stream operations only.
 //
 // Parameters:
 //   - adminURL: base URL of the Kwil admin JSON-RPC server, e.g.
 //     "http://127.0.0.1:8485" for loopback TCP.
+//   - privateKey: operator's secp256k1 private key in hex (with or without
+//     the "0x" prefix). Pass an empty string to skip application-level
+//     signing — only nodes with [extensions.tn_local] require_signature=
+//     false will accept the call in that mode. When set, every request
+//     carries a `_auth` envelope recoverable to the signing address; the
+//     server rejects calls that don't match its operator address.
 //
 // Returns the ILocalActions interface directly — call its methods via the
 // per-method binding functions below (LocalCreateStream, LocalInsertRecords,
 // etc.).
-func NewLocalClient(adminURL string) (types.ILocalActions, error) {
-	return tnclient.NewLocalClient(adminURL)
+func NewLocalClient(adminURL string, privateKey string) (types.ILocalActions, error) {
+	if privateKey == "" {
+		return tnclient.NewLocalClient(adminURL)
+	}
+	priv, err := ethcrypto.HexToECDSA(strings.TrimPrefix(privateKey, "0x"))
+	if err != nil {
+		return nil, errors.Wrap(err, "invalid operator private key")
+	}
+	return tnclient.NewLocalClientWithSigner(adminURL, priv)
 }
 
 // LocalCreateStream creates a local stream owned by the node operator.

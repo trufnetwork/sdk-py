@@ -49,6 +49,7 @@ trufnetwork_sdk_c_bindings
 .cursorrules
 
 GEMINI.md
+CLAUDE.md
 
 # Temporary test files
 .query_id

@@ -3201,42 +3201,48 @@ class LocalClient:
     """Client for local (off-chain, node-only) stream operations.
 
     Local streams are stored on a single node, bypass consensus, incur no
-    transaction fees, and are always owned by the node operator. Unlike
-    TNClient, LocalClient does not require a private key — it connects to
-    the node's admin JSON-RPC server directly. The admin server handles
-    its own transport auth (unix socket by default, mTLS for remote TCP).
-    tn_local itself has no auth concept — if you can reach the admin
-    server, you can operate on local streams.
+    transaction fees, and are always owned by the node operator. The
+    client connects to the node's admin JSON-RPC server directly; the
+    admin server handles its own transport auth (unix socket by default,
+    mTLS for remote TCP).
+
+    Application-level auth (opt-in): when the node has
+    [extensions.tn_local] require_signature=true, every admin call must
+    be signed by the node operator's secp256k1 key. Pass the operator
+    key as ``private_key`` and the SDK attaches a ``_auth`` envelope to
+    every request transparently. Leave it unset (default) to work
+    against nodes with the flag off.
 
     Ownership model: the server derives data_provider from the node's
-    secp256k1 key. Clients never supply a data_provider — any client with
-    admin-port access automatically acts as the node operator.
+    secp256k1 key. Clients never supply a data_provider — any signed
+    request (or any request on a flag-off node) is attributed to the
+    node operator.
 
-    Example:
+    Example (unsigned, flag-off node):
 
         from trufnetwork_sdk_py import LocalClient, STREAM_TYPE_PRIMITIVE
 
         local = LocalClient("http://127.0.0.1:8485")
         local.create_stream("st00000000000000000000000000demo", STREAM_TYPE_PRIMITIVE)
-        local.insert_records("st00000000000000000000000000demo", [
-            {"event_time": 1000, "value": "42.5"},
-            {"event_time": 2000, "value": "43.0"},
-        ])
-        records = local.get_record("st00000000000000000000000000demo")
-        for r in records:
-            print(r["event_time"], r["value"])
+
+    Example (signed, flag-on node):
+
+        local = LocalClient("http://127.0.0.1:8485", private_key=operator_hex)
 
     Args:
         admin_url: Base URL of the Kwil admin JSON-RPC server, e.g.
             "http://127.0.0.1:8485" for loopback TCP.
+        private_key: Optional operator secp256k1 key (hex, with or
+            without the 0x prefix). Required when the target node has
+            require_signature=true; ignored otherwise.
     """
 
     # Sentinel: mirrors bindings.LocalSentinelUnset. Passed through to the
     # binding layer to mean "optional parameter not set".
     _UNSET: int = -1
 
-    def __init__(self, admin_url: str):
-        self._local = truf_sdk.NewLocalClient(admin_url)
+    def __init__(self, admin_url: str, private_key: Optional[str] = None):
+        self._local = truf_sdk.NewLocalClient(admin_url, private_key or "")
 
     def create_stream(self, stream_id: str, stream_type: str = STREAM_TYPE_PRIMITIVE) -> None:
         """Create a local stream owned by the node operator.

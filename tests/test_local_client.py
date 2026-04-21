@@ -400,3 +400,82 @@ def test_no_authorization_header_sent(admin_server):
 
     assert server.state.last_authorization is None, \
         "LocalClient should NOT send an Authorization header — tn_local has no auth"
+
+
+# ═══════════════════════════════════════════════════════════════
+# OPERATOR-KEY SIGNING (_auth envelope)
+# ═══════════════════════════════════════════════════════════════
+
+# 32-byte hex (secp256k1 priv). Deterministic for test assertions; value
+# itself doesn't matter since the fake server doesn't verify the signature —
+# we only check that the SDK attached a well-formed envelope.
+_TEST_PRIV_HEX = "0x" + "11" * 32
+
+
+def test_no_auth_envelope_when_private_key_absent(admin_server):
+    """Without private_key, the SDK must not attach `_auth` to requests.
+    Flag-off nodes accept bare requests; this is the zero-config default."""
+    server, base_url = admin_server
+    client = LocalClient(base_url)
+
+    server.state.results["local.list_streams"] = {"streams": []}
+    client.list_streams()
+
+    assert "_auth" not in server.state.last_params, \
+        "unsigned LocalClient should never attach _auth"
+
+
+def test_auth_envelope_attached_when_private_key_set(admin_server):
+    """With private_key, every request carries `_auth = {sig, ts, ver}`.
+    Shape mirrors node/extensions/tn_local/auth.go AuthHeader."""
+    server, base_url = admin_server
+    client = LocalClient(base_url, private_key=_TEST_PRIV_HEX)
+
+    client.create_stream("st00000000000000000000000000demo", STREAM_TYPE_PRIMITIVE)
+
+    params = server.state.last_params
+    assert "_auth" in params, "signed LocalClient must attach _auth on every call"
+    auth = params["_auth"]
+    assert set(auth.keys()) == {"sig", "ts", "ver"}, f"unexpected _auth keys: {list(auth.keys())}"
+    assert auth["ver"] == "tn_local.auth.v1", "version must match server const"
+    assert isinstance(auth["ts"], int) and auth["ts"] > 0, "ts must be positive unix-ms"
+    # secp256k1 sig: 65 bytes = 130 hex chars + "0x" prefix = 132.
+    assert isinstance(auth["sig"], str) and auth["sig"].startswith("0x")
+    assert len(auth["sig"]) == 132, f"expected 132-char hex sig, got {len(auth['sig'])}"
+
+
+def test_auth_envelope_varies_per_call(admin_server):
+    """Two calls must produce two different signatures (ts moves forward,
+    and even at the same ms the payload digest covers the method name)."""
+    server, base_url = admin_server
+    client = LocalClient(base_url, private_key=_TEST_PRIV_HEX)
+
+    client.create_stream("st00000000000000000000000000aaaa", STREAM_TYPE_PRIMITIVE)
+    first_sig = server.state.last_params["_auth"]["sig"]
+
+    server.state.results["local.list_streams"] = {"streams": []}
+    client.list_streams()
+    second_sig = server.state.last_params["_auth"]["sig"]
+
+    assert first_sig != second_sig, \
+        "signatures must differ per call (different method / ts)"
+
+
+def test_private_key_accepts_no_0x_prefix(admin_server):
+    """Operator keys extracted from nodekey.json lack the 0x prefix.
+    Both forms must produce a usable client."""
+    _, base_url = admin_server
+    bare_hex = "22" * 32
+
+    client = LocalClient(base_url, private_key=bare_hex)
+    client.create_stream("st00000000000000000000000000demo", STREAM_TYPE_PRIMITIVE)
+    # If we got here without error, the key was accepted and the call was
+    # signed (the fake server ignores sig contents).
+
+
+def test_private_key_invalid_hex_raises():
+    """Invalid hex must raise early, not at first RPC."""
+    with pytest.raises(Exception) as excinfo:
+        LocalClient("http://127.0.0.1:1", private_key="not-hex-at-all")
+    assert "invalid operator private key" in str(excinfo.value) or \
+        "invalid hex" in str(excinfo.value).lower()

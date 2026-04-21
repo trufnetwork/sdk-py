@@ -4,7 +4,7 @@ go 1.25.3
 
 require (
 	github.com/cockroachdb/apd/v3 v3.2.1
-	github.com/ethereum/go-ethereum v1.16.7
+	github.com/ethereum/go-ethereum v1.16.9
 	github.com/go-python/gopy v0.4.10
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9
 	github.com/pkg/errors v0.9.1

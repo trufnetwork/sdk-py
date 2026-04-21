@@ -463,14 +463,23 @@ def test_auth_envelope_varies_per_call(admin_server):
 
 def test_private_key_accepts_no_0x_prefix(admin_server):
     """Operator keys extracted from nodekey.json lack the 0x prefix.
-    Both forms must produce a usable client."""
-    _, base_url = admin_server
+    Both prefixed and bare hex must produce a *signed* client — not silently
+    fall back to an unsigned one."""
+    server, base_url = admin_server
     bare_hex = "22" * 32
 
     client = LocalClient(base_url, private_key=bare_hex)
     client.create_stream("st00000000000000000000000000demo", STREAM_TYPE_PRIMITIVE)
-    # If we got here without error, the key was accepted and the call was
-    # signed (the fake server ignores sig contents).
+
+    # Verify the call was actually signed: the fake server records the last
+    # request's params, which must include a well-formed _auth envelope.
+    params = server.state.last_params
+    assert params is not None, "no request reached the fake server"
+    assert "_auth" in params, \
+        "bare-hex key must produce a signed request, not silently fall back to unsigned"
+    auth = params["_auth"]
+    assert auth.get("ver") == "tn_local.auth.v1"
+    assert isinstance(auth.get("sig"), str) and auth["sig"].startswith("0x")
 
 
 def test_private_key_invalid_hex_raises():

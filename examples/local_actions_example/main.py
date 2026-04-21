@@ -101,6 +101,12 @@ def _demonstrate_wrong_key_rejection() -> None:
             STREAM_TYPE_PRIMITIVE,
         )
     except Exception as rejected:
+        # Only treat the server-side auth envelope as the expected outcome.
+        # Anything else (network error, gopy crash, malformed payload) is a
+        # real failure that should surface, not be swallowed as "expected".
+        msg = str(rejected)
+        if "tn_local: unauthenticated" not in msg:
+            raise
         print(f"  rejected (expected): {rejected}")
         return
     print("  unexpected: server ACCEPTED a wrong-key signed request — auth is broken")

@@ -86,7 +86,13 @@ class BulkInserter:
         How many broadcasts may queue before draining via WaitTx.
     max_attempts : int, default 5
         Max attempts per chunk (initial + retries) on transient errors
-        (invalid nonce, mempool full).
+        (invalid nonce, mempool full, "node is catching up").
+    catchup_backoff_seconds : int, default 5
+        Base backoff in seconds when the broadcast backend rejects with
+        "node is catching up". Actual delay per attempt is base * (attempt + 1)
+        — defaults give a worst-case wait of ~50s across 5 attempts. Bump
+        this and/or ``max_attempts`` if the backend you're hitting is prone
+        to longer catch-up events.
     """
 
     def __init__(
@@ -95,12 +101,13 @@ class BulkInserter:
         batch_size: int = 10,
         max_inflight: int = 200,
         max_attempts: int = 5,
+        catchup_backoff_seconds: int = 5,
     ):
         if client is None:
             raise ValueError("client is required")
         # Pass 0 for any value to use the Go-side defaults.
         self._inner = truf_sdk.NewBulkInserter(
-            client.client, batch_size, max_inflight, max_attempts
+            client.client, batch_size, max_inflight, max_attempts, catchup_backoff_seconds
         )
         self._client = client
 

@@ -126,8 +126,9 @@ broadcast, so 1,000 records can take 25+ minutes.
 
 `BulkInserter` instead caches the nonce locally and broadcasts each chunk
 fire-and-forget, draining inflight transactions in batches via `WaitTx`. It
-handles `invalid nonce` (resets cache, retries) and `mempool full` (backs off,
-keeps cache) automatically.
+handles `invalid nonce` (resets cache, retries), `mempool full` (backs off,
+keeps cache), and `node is catching up` (backs off with a longer base, keeps
+cache) automatically.
 
 ```python
 from trufnetwork_sdk_py import TNClient, BulkInserter, BulkInsertError
@@ -169,9 +170,13 @@ except BulkInsertError as e:
 ```python
 BulkInserter(
     client,
-    batch_size=10,      # records per insert_records tx; protocol cap is 10
-    max_inflight=200,   # broadcasts queued before forced drain via WaitTx
-    max_attempts=5,     # initial + retries on transient errors
+    batch_size=10,                # records per insert_records tx; protocol cap is 10
+    max_inflight=200,             # broadcasts queued before forced drain via WaitTx
+    max_attempts=5,               # initial + retries on transient errors
+                                  # (invalid nonce, mempool full, "node is catching up")
+    catchup_backoff_seconds=5,    # base backoff (sec) for "node is catching up";
+                                  # actual delay = base * (attempt + 1); default totals ~50s
+                                  # across 5 attempts. Bump for backends prone to longer lag.
 )
 ```
 

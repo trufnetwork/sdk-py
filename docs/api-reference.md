@@ -227,7 +227,7 @@ use `BulkInserter` instead of looping `batch_insert_records`. It caches the
 nonce locally and broadcasts each chunk fire-and-forget — admission (~50ms)
 becomes the rate limit instead of inclusion (~1–2s per block).
 
-#### `BulkInserter(client, batch_size=10, max_inflight=200, max_attempts=5)`
+#### `BulkInserter(client, batch_size=10, max_inflight=200, max_attempts=5, catchup_backoff_seconds=5)`
 
 Wraps the sdk-go `BulkInserter` (see
 [`sdk-go/core/contractsapi/bulk_inserter.go`](https://github.com/trufnetwork/sdk-go/blob/main/core/contractsapi/bulk_inserter.go)).
@@ -239,7 +239,8 @@ Mirrors the cached-nonce pattern from `node/extensions/tn_attestation/extension.
 - `client: TNClient` — must use HTTP transport (the default).
 - `batch_size: int = 10` — records per `insert_records` transaction. Must be ≤ the protocol cap (currently 10).
 - `max_inflight: int = 200` — broadcasts queued before draining via `WaitTx`.
-- `max_attempts: int = 5` — initial attempt + retries per chunk on transient errors (`invalid nonce`, `mempool full`).
+- `max_attempts: int = 5` — initial attempt + retries per chunk on transient errors (`invalid nonce`, `mempool full`, `node is catching up`).
+- `catchup_backoff_seconds: int = 5` — base backoff in seconds when the broadcast backend rejects with `node is catching up`. Actual delay per attempt is `base * (attempt + 1)`, so the default totals ~50 s across 5 attempts. Bump this and/or `max_attempts` if the backend you're hitting is prone to longer catch-up events.
 
 #### `inserter.insert_all(batches: List[RecordBatch]) -> List[str]`
 

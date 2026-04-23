@@ -219,9 +219,11 @@ func InsertRecords(client *tnclient.Client, inputs []types.InsertRecordInput) (s
 // batchSize: records per insert_records tx (must be <= protocol cap of 10).
 // maxInflight: how many broadcasts may queue before draining via WaitTx.
 // maxAttempts: max attempts per chunk (initial + retries) on transient
-// errors (invalid nonce, mempool full).
-// Pass 0 for any of these to use defaults (10, 200, 5).
-func NewBulkInserter(client *tnclient.Client, batchSize int, maxInflight int, maxAttempts int) (*contractsapi.BulkInserter, error) {
+// errors (invalid nonce, mempool full, "node is catching up").
+// catchupBackoffSeconds: base backoff in seconds for "node is catching up"
+// rejections. Actual delay is base * (attempt + 1).
+// Pass 0 for any of these to use defaults (10, 200, 5, 5s).
+func NewBulkInserter(client *tnclient.Client, batchSize int, maxInflight int, maxAttempts int, catchupBackoffSeconds int) (*contractsapi.BulkInserter, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
 	}
@@ -234,6 +236,9 @@ func NewBulkInserter(client *tnclient.Client, batchSize int, maxInflight int, ma
 	}
 	if maxAttempts > 0 {
 		opts = append(opts, contractsapi.WithMaxAttempts(maxAttempts))
+	}
+	if catchupBackoffSeconds > 0 {
+		opts = append(opts, contractsapi.WithCatchupBackoff(time.Duration(catchupBackoffSeconds)*time.Second))
 	}
 	return client.LoadBulkInserter(opts...)
 }

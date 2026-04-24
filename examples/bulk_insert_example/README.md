@@ -26,8 +26,9 @@ CPI ingestor's ~17,000-record runs, it's 4–5 hours.
 - Broadcasts each chunk fire-and-forget (`wait=False` underneath) — admission
   takes ~50ms versus inclusion's 1–2s
 - Drains inflight hashes in batches via `wait_for_tx`
-- Retries automatically on `invalid nonce` (resets the cache and refetches)
-  and `mempool full` (backs off, keeps the cache)
+- Retries automatically on `invalid nonce` (resets the cache and refetches),
+  `mempool full` (backs off, keeps the cache), and `node is catching up` (backs
+  off with a longer base — typical catch-up events resolve in tens of seconds)
 
 Result: 1,000 records land in roughly one minute on a typical node, instead of
 half an hour.
@@ -84,9 +85,12 @@ Total verified: 25 records
   ```python
   inserter = BulkInserter(
       client,
-      batch_size=10,      # records per insert_records tx; protocol cap is 10
-      max_inflight=500,   # broadcasts queued before forced drain
-      max_attempts=5,     # initial + retries on transient errors
+      batch_size=10,                # records per insert_records tx; protocol cap is 10
+      max_inflight=500,             # broadcasts queued before forced drain
+      max_attempts=5,               # initial + retries on transient errors
+                                    # (invalid nonce, mempool full, "node is catching up")
+      catchup_backoff_seconds=5,    # base backoff (sec) for "node is catching up";
+                                    # bump for backends prone to longer lag events
   )
   ```
 - **Testnet/mainnet**: change `TEST_PROVIDER_URL` and the private key. Note

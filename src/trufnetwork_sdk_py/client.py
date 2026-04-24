@@ -380,8 +380,18 @@ VALID_ATTESTATION_ACTIONS = list(ACTION_REGISTRY.keys())
 # Binary action names
 BINARY_ACTION_NAMES = [name for name, info in ACTION_REGISTRY.items() if info["is_binary"]]
 
-# Valid bridge namespaces
-VALID_BRIDGES = ["hoodi_tt", "hoodi_tt2", "sepolia_bridge", "ethereum_bridge"]
+# Valid bridge namespaces.
+# eth_truf / eth_usdc are the production mainnet bridges (TRUF fees, USDC
+# collateral). hoodi_tt / hoodi_tt2 / sepolia_bridge / ethereum_bridge are
+# testnet / legacy aliases retained for local-node and integration test use.
+VALID_BRIDGES = [
+    "eth_truf",
+    "eth_usdc",
+    "hoodi_tt",
+    "hoodi_tt2",
+    "sepolia_bridge",
+    "ethereum_bridge",
+]
 
 
 def is_binary_action(name: str) -> bool:

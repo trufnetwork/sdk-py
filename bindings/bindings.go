@@ -1704,14 +1704,19 @@ func CreateMarket(
 		return "", errors.Wrap(err, "failed to load order book")
 	}
 
-	// Validate bridge
+	// Validate bridge.
+	// eth_usdc (USDC) and eth_truf (TRUF) are the production mainnet bridges;
+	// the others are testnet / legacy aliases retained for local-node and
+	// integration test use. ethereum_bridge was the legacy mainnet TRUF bridge.
 	validBridges := map[string]bool{
+		"eth_usdc":        true,
+		"eth_truf":        true,
 		"hoodi_tt2":       true,
 		"sepolia_bridge":  true,
 		"ethereum_bridge": true,
 	}
 	if !validBridges[bridge] {
-		return "", errors.New("bridge must be one of: hoodi_tt2, sepolia_bridge, ethereum_bridge")
+		return "", errors.New("bridge must be one of: eth_usdc, eth_truf, hoodi_tt2, sepolia_bridge, ethereum_bridge")
 	}
 
 	// Validate query components (minimum ABI-encoded tuple size)

@@ -1449,7 +1449,9 @@ A YES price of 60 cents implies:
 - Each share pair requires $1.00 collateral
 - Winners receive $1.00 per winning share
 - Collateral from losing positions funds winner payouts
-- Supported bridges: `hoodi_tt2` (testnet)
+- Supported bridges:
+  - Mainnet: `eth_usdc` (USDC, 6 decimals), `eth_truf` (TRUF, 18 decimals)
+  - Testnet: `hoodi_tt2` (USDC test token)
 
 ## Attestation Helpers
 
@@ -1474,6 +1476,19 @@ Parses a canonical attestation payload (without signature) into structured data.
 ## Bridge Actions
 
 The Bridge Actions interface enables programmatic interaction with the TRUF.NETWORK bridge system. It allows bots and applications to manage token balances, initiate withdrawals to external chains, and retrieve cryptographic proofs for claiming assets.
+
+### Bridge identifiers — mainnet vs testnet
+
+| Identifier | Network | Token | Decimals | Notes |
+|---|---|---|---|---|
+| `eth_truf` | mainnet | TRUF | 18 | Used for protocol fees (stream write, attestation, market creation) |
+| `eth_usdc` | mainnet | USDC | 6 | Used for prediction-market collateral |
+| `ethereum_bridge` | mainnet | TRUF | 18 | Legacy — replaced by `eth_truf` |
+| `hoodi_tt` | testnet | TRUF (test) | 18 | Hoodi testnet |
+| `hoodi_tt2` | testnet | USDC (test) | 18 | Hoodi testnet — prediction-market collateral |
+| `sepolia_bridge` | testnet | TRUF (test) | 18 | Sepolia testnet, deprecated |
+
+Examples below use testnet identifiers; substitute the mainnet equivalent for production. Order-book actions (`create_market`, `place_buy_order`, etc.) accept `eth_usdc` or `eth_truf` as the `bridge` argument on mainnet.
 
 ### `client.get_wallet_balance(bridge_identifier: str, wallet_address: str) -> str`
 

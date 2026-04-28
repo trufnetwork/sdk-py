@@ -187,7 +187,7 @@ class MarketInfo(TypedDict):
     id: int
     hash: bytes
     query_components: bytes  # ABI-encoded (address, bytes32, string, bytes)
-    bridge: str  # Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+    bridge: str  # Bridge namespace (mainnet: eth_usdc, eth_truf)
     settle_time: int
     settled: bool
     winning_outcome: bool | None
@@ -2139,7 +2139,9 @@ class TNClient:
         Create a new prediction market.
 
         Args:
-            bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+            bridge: Bridge namespace. Mainnet: "eth_usdc" (collateral) or
+                "eth_truf". Server-side validate_bridge rejects all other
+                values. Legacy testnet aliases are not accepted on mainnet.
             query_components: ABI-encoded tuple (address, bytes32, string, bytes)
                               Use encode_query_components() to create this
             settle_time: Unix timestamp when market can be settled
@@ -2163,7 +2165,7 @@ class TNClient:
             ...     "0x1234...", "stbtcusd...", "price_above_threshold", args
             ... )
             >>> tx_hash = client.create_market(
-            ...     "ethereum_bridge", query_components,
+            ...     "eth_usdc", query_components,
             ...     int(time.time()) + 3600, 5, 100
             ... )
         """
@@ -2766,7 +2768,7 @@ class TNClient:
         Get the wallet balance for a specific bridge instance.
 
         Args:
-            bridge_identifier: The bridge instance identifier (e.g., "hoodi_tt", "sepolia")
+            bridge_identifier: The bridge instance identifier (e.g., "eth_usdc", "eth_truf")
             wallet_address: The wallet address to check
 
         Returns:
@@ -2781,7 +2783,7 @@ class TNClient:
         Initiate a withdrawal by burning tokens on the Kwil network.
 
         Args:
-            bridge_identifier: The bridge instance identifier (e.g., "hoodi_tt", "sepolia")
+            bridge_identifier: The bridge instance identifier (e.g., "eth_usdc", "eth_truf")
             amount: The amount to withdraw in wei (as a string)
             recipient: The EVM address to receive the funds
             wait: If True, wait for the transaction to be confirmed on-chain
@@ -2803,7 +2805,7 @@ class TNClient:
         Get withdrawal proofs for claiming funds on the destination chain.
 
         Args:
-            bridge_identifier: The bridge instance identifier (e.g., "hoodi_tt")
+            bridge_identifier: The bridge instance identifier (e.g., "eth_usdc")
             wallet: The wallet address that initiated the withdrawal
 
         Returns:
@@ -2874,7 +2876,9 @@ class TNClient:
             stream_id: 32-character stream ID
             timestamp: Unix timestamp to check the value at
             threshold: Threshold value as decimal string (e.g., "100000")
-            bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+            bridge: Bridge namespace. Mainnet: "eth_usdc" (collateral) or
+                "eth_truf". Server-side validate_bridge rejects all other
+                values. Legacy testnet aliases are not accepted on mainnet.
             settle_time: Unix timestamp when market can be settled
             max_spread: Maximum spread for LP rewards (1-50 cents)
             min_order_size: Minimum order size for LP rewards
@@ -2933,7 +2937,9 @@ class TNClient:
             stream_id: 32-character stream ID
             timestamp: Unix timestamp to check the value at
             threshold: Threshold value as decimal string (e.g., "4.0")
-            bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+            bridge: Bridge namespace. Mainnet: "eth_usdc" (collateral) or
+                "eth_truf". Server-side validate_bridge rejects all other
+                values. Legacy testnet aliases are not accepted on mainnet.
             settle_time: Unix timestamp when market can be settled
             max_spread: Maximum spread for LP rewards (1-50 cents)
             min_order_size: Minimum order size for LP rewards
@@ -2994,7 +3000,9 @@ class TNClient:
             timestamp: Unix timestamp to check the value at
             min_value: Minimum value (inclusive) as decimal string
             max_value: Maximum value (inclusive) as decimal string
-            bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+            bridge: Bridge namespace. Mainnet: "eth_usdc" (collateral) or
+                "eth_truf". Server-side validate_bridge rejects all other
+                values. Legacy testnet aliases are not accepted on mainnet.
             settle_time: Unix timestamp when market can be settled
             max_spread: Maximum spread for LP rewards (1-50 cents)
             min_order_size: Minimum order size for LP rewards
@@ -3056,7 +3064,9 @@ class TNClient:
             timestamp: Unix timestamp to check the value at
             target_value: Target value as decimal string (e.g., "5.25")
             tolerance: Tolerance for equality check (e.g., "0.01")
-            bridge: Bridge namespace (hoodi_tt2, sepolia_bridge, ethereum_bridge)
+            bridge: Bridge namespace. Mainnet: "eth_usdc" (collateral) or
+                "eth_truf". Server-side validate_bridge rejects all other
+                values. Legacy testnet aliases are not accepted on mainnet.
             settle_time: Unix timestamp when market can be settled
             max_spread: Maximum spread for LP rewards (1-50 cents)
             min_order_size: Minimum order size for LP rewards
@@ -3103,7 +3113,7 @@ class TNClient:
         Retrieves the unified transaction history for a wallet on a specific bridge.
 
         Args:
-            bridge_identifier: The name of the bridge instance (e.g., "hoodi_tt2", "sepolia_bridge")
+            bridge_identifier: The name of the bridge instance (e.g., "eth_usdc", "eth_truf")
             wallet_address: The wallet address to query
             limit: Max number of records to return (default 20)
             offset: Number of records to skip (default 0)

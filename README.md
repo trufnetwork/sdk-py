@@ -172,11 +172,29 @@ BulkInserter(
     client,
     batch_size=10,                # records per insert_records tx; protocol cap is 10
     max_inflight=200,             # broadcasts queued before forced drain via WaitTx
-    max_attempts=5,               # initial + retries on transient errors
-                                  # (invalid nonce, mempool full, "node is catching up")
-    catchup_backoff_seconds=5,    # base backoff (sec) for "node is catching up";
-                                  # actual delay = base * (attempt + 1); default totals ~50s
-                                  # across 5 attempts. Bump for backends prone to longer lag.
+    max_attempts=15,              # initial + retries per chunk on non-catchup transient
+                                  # errors (invalid nonce, mempool full); ~3.5 min wait
+                                  # per chunk before bubbling up
+    catchup_backoff_seconds=15,   # base backoff (sec) for "node is catching up";
+                                  # actual delay = base * (attempt + 1)
+    catchup_max_attempts=20,      # separate budget for catch-up errors; with the 15s base
+                                  # gives a worst-case ~47.5 min wait per chunk (20 attempts,
+                                  # 19 backoffs at 15s..285s) before bubbling up. Catch-up
+                                  # events on a public RPC routinely run minutes long;
+                                  # sharing the transient budget aborted multi-hour bulk
+                                  # loads in earlier versions.
+    infra_max_attempts=10,        # pre-broadcast infra errors only (KGW "no available
+                                  # backend", TCP "connection refused", DNS "no such host").
+                                  # Safe to retry because the request never reached kwild.
+                                  # Mid-request errors (EOF, connection reset, context
+                                  # deadline) stay fatal at the SDK layer — retrying could
+                                  # double-broadcast and duplicate inserts; the caller's
+                                  # resume layer recovers them safely via partial-progress
+                                  # slicing instead.
+    progress_log_every_n=500,     # emit INFO progress line every N chunks (chunks done /
+                                  # total, rows done, elapsed, chunks/sec, ETA);
+                                  # 0 disables. Logged via the Go-side stderr logger,
+                                  # captured by Prefect's task-log subprocess wrapper.
 )
 ```
 

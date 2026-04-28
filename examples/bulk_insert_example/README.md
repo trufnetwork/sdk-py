@@ -87,10 +87,17 @@ Total verified: 25 records
       client,
       batch_size=10,                # records per insert_records tx; protocol cap is 10
       max_inflight=500,             # broadcasts queued before forced drain
-      max_attempts=5,               # initial + retries on transient errors
-                                    # (invalid nonce, mempool full, "node is catching up")
-      catchup_backoff_seconds=5,    # base backoff (sec) for "node is catching up";
-                                    # bump for backends prone to longer lag events
+      max_attempts=15,              # initial + retries per chunk on non-catchup transient
+                                    # errors (invalid nonce, mempool full); ~3.5 min wait
+                                    # per chunk before bubbling up
+      catchup_backoff_seconds=15,   # base backoff (sec) for "node is catching up";
+                                    # actual delay = base * (attempt + 1)
+      catchup_max_attempts=20,      # separate budget for catch-up; with 15s base gives
+                                    # ~47.5 min worst-case wait per chunk
+                                    # (20 attempts, 19 backoffs at 15s..285s)
+      infra_max_attempts=10,        # pre-broadcast infra errors only (KGW no-backend,
+                                    # connection refused, DNS); ~90s wait per chunk
+      progress_log_every_n=500,     # emit INFO line every N chunks; 0 disables
   )
   ```
 - **Testnet/mainnet**: change `TEST_PROVIDER_URL` and the private key. Note

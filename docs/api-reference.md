@@ -227,7 +227,7 @@ use `BulkInserter` instead of looping `batch_insert_records`. It caches the
 nonce locally and broadcasts each chunk fire-and-forget — admission (~50ms)
 becomes the rate limit instead of inclusion (~1–2s per block).
 
-#### `BulkInserter(client, batch_size=10, max_inflight=200, max_attempts=5, catchup_backoff_seconds=5)`
+#### `BulkInserter(client, batch_size=10, max_inflight=200, max_attempts=15, catchup_backoff_seconds=15, catchup_max_attempts=20, infra_max_attempts=10, progress_log_every_n=500)`
 
 Wraps the sdk-go `BulkInserter` (see
 [`sdk-go/core/contractsapi/bulk_inserter.go`](https://github.com/trufnetwork/sdk-go/blob/main/core/contractsapi/bulk_inserter.go)).
@@ -239,8 +239,11 @@ Mirrors the cached-nonce pattern from `node/extensions/tn_attestation/extension.
 - `client: TNClient` — must use HTTP transport (the default).
 - `batch_size: int = 10` — records per `insert_records` transaction. Must be ≤ the protocol cap (currently 10).
 - `max_inflight: int = 200` — broadcasts queued before draining via `WaitTx`.
-- `max_attempts: int = 5` — initial attempt + retries per chunk on transient errors (`invalid nonce`, `mempool full`, `node is catching up`).
-- `catchup_backoff_seconds: int = 5` — base backoff in seconds when the broadcast backend rejects with `node is catching up`. Actual delay per attempt is `base * (attempt + 1)`, so the default totals ~50 s across 5 attempts. Bump this and/or `max_attempts` if the backend you're hitting is prone to longer catch-up events.
+- `max_attempts: int = 15` — initial attempt + retries per chunk on **non-catchup** transient errors (`invalid nonce`, `mempool full`). With the default 2 s linear backoff, this totals ~3.5 min of wait time per chunk before bubbling up. Sized so a thousand-chunk insert can ride out brief mempool congestion without bottlenecking on outer retry layers.
+- `catchup_backoff_seconds: int = 15` — base backoff in seconds when the broadcast backend rejects with `node is catching up`. Actual delay per attempt is `base * (attempt + 1)`. Combined with `catchup_max_attempts=20`, the loop runs 20 attempts with 19 backoffs (the 20th attempt's failure exits without sleeping), so worst-case wait per chunk is `15+30+...+285s = 2850s ≈ 47.5 min` — comfortably long enough to ride out every catch-up event seen in production.
+- `catchup_max_attempts: int = 20` — initial attempt + retries per chunk on `node is catching up` rejections. **Separate budget from `max_attempts`** because real catch-up events on a public RPC backend (sentry replaying blocks after a peer flap) routinely run minutes long; sharing one budget previously aborted multi-hour bulk loads after just 75 seconds.
+- `infra_max_attempts: int = 10` — initial attempt + retries per chunk on **pre-broadcast** infra errors (KGW `no available backend`, TCP `connection refused`, DNS `no such host`). Safe to retry because the request demonstrably never reached kwild — no risk of duplicate inserts. Reuses the 2 s base linear backoff, so default totals ~90 s wait per chunk before bubbling up. Mid-request errors (EOF, connection reset, context deadline) deliberately stay fatal at the SDK layer to avoid double-broadcast at a bumped nonce; they bubble up to the caller's resume layer instead.
+- `progress_log_every_n: int = 500` — emit an `INFO` log line every N chunks reporting `chunks_done / chunks_total / rows_done / elapsed_sec / chunks_per_sec / eta_sec`. Set to `0` to disable. Logs go to stderr via the Go-side logger (the gopy binding wires a `kwillog` writer to `os.Stderr` at `INFO` level), which subprocess wrappers like Prefect's `prefect.engine` capture into task logs.
 
 #### `inserter.insert_all(batches: List[RecordBatch]) -> List[str]`
 

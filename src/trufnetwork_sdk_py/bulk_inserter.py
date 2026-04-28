@@ -84,15 +84,49 @@ class BulkInserter:
         (currently 10).
     max_inflight : int, default 200
         How many broadcasts may queue before draining via WaitTx.
-    max_attempts : int, default 5
-        Max attempts per chunk (initial + retries) on transient errors
-        (invalid nonce, mempool full, "node is catching up").
-    catchup_backoff_seconds : int, default 5
+    max_attempts : int, default 15
+        Max attempts per chunk on non-catchup transient errors (invalid
+        nonce, mempool full). Catch-up errors have their own larger budget
+        — see ``catchup_max_attempts``. Default of 15 is sized so a
+        thousand-chunk insert can ride out brief mempool congestion without
+        bottlenecking on the adapter resume layer above (which only gets 5
+        partial-progress passes); with the default 2s linear backoff that's
+        ~4 minutes of waiting per chunk before bubbling up.
+    catchup_backoff_seconds : int, default 15
         Base backoff in seconds when the broadcast backend rejects with
-        "node is catching up". Actual delay per attempt is base * (attempt + 1)
-        — defaults give a worst-case wait of ~50s across 5 attempts. Bump
-        this and/or ``max_attempts`` if the backend you're hitting is prone
-        to longer catch-up events.
+        "node is catching up". Actual delay per attempt is
+        base * (attempt + 1). With the default of 15s and
+        ``catchup_max_attempts=20`` the loop runs 20 attempts with 19
+        backoffs in between (the 20th attempt's failure exits without
+        sleeping), so the worst-case wait per chunk is
+        ``15 + 30 + … + 285s = 2850s ≈ 47.5 minutes`` — comfortably long
+        enough to ride out every catch-up event seen in production so far
+        without abandoning the whole batch.
+    catchup_max_attempts : int, default 20
+        Max attempts per chunk on "node is catching up" rejections
+        specifically. Separate from ``max_attempts`` because real catch-up
+        events on the public RPC backend (sentry replaying blocks) routinely
+        run minutes long; sharing one budget aborted multi-hour bulk loads
+        after just 75 seconds in the 2026-04-25 incident.
+    infra_max_attempts : int, default 10
+        Max attempts per chunk on **pre-broadcast** infrastructure errors
+        — KGW returning "no available backend", TCP "connection refused",
+        DNS "no such host". These are unambiguously safe to retry because
+        the request demonstrably never reached kwild. Errors that may fire
+        post-admit (EOF, connection reset, context deadline exceeded) stay
+        fatal at the SDK layer and bubble up to the caller's resume layer,
+        which can recover via partial-progress slicing without risking
+        duplicate inserts. Reuses the 2s base linear backoff, so default
+        gives ~90s wait per chunk before bubbling up.
+    progress_log_every_n : int, default 500
+        Emit an INFO log line every N chunks reporting chunks done / total,
+        rows done, elapsed time, current chunks/sec rate, and ETA. Pass 0
+        to disable. Defaults to 500 here (the underlying Go default is 0)
+        because the Python wrapper is primarily used for hours-long Prefect
+        bulk loads, where without progress logs the only output between
+        "Submitting N records" and the final result is hours of silence.
+        Logs go to stderr via the Go-side logger, which the prefect.engine
+        subprocess captures into Prefect task logs.
     """
 
     def __init__(
@@ -100,14 +134,24 @@ class BulkInserter:
         client: TNClient,
         batch_size: int = 10,
         max_inflight: int = 200,
-        max_attempts: int = 5,
-        catchup_backoff_seconds: int = 5,
+        max_attempts: int = 15,
+        catchup_backoff_seconds: int = 15,
+        catchup_max_attempts: int = 20,
+        infra_max_attempts: int = 10,
+        progress_log_every_n: int = 500,
     ):
         if client is None:
             raise ValueError("client is required")
         # Pass 0 for any value to use the Go-side defaults.
         self._inner = truf_sdk.NewBulkInserter(
-            client.client, batch_size, max_inflight, max_attempts, catchup_backoff_seconds
+            client.client,
+            batch_size,
+            max_inflight,
+            max_attempts,
+            catchup_backoff_seconds,
+            catchup_max_attempts,
+            infra_max_attempts,
+            progress_log_every_n,
         )
         self._client = client
 

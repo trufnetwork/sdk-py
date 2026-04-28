@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/kwil-db/core/crypto"
 	"github.com/trufnetwork/kwil-db/core/crypto/auth"
+	kwillog "github.com/trufnetwork/kwil-db/core/log"
 	kwilTypes "github.com/trufnetwork/kwil-db/core/types"
 	"github.com/trufnetwork/sdk-go/core/contractsapi"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
@@ -216,18 +218,53 @@ func InsertRecords(client *tnclient.Client, inputs []types.InsertRecordInput) (s
 // NewBulkInserter constructs a BulkInserter wired to the given TNClient.
 // Wraps tnclient.Client.LoadBulkInserter for gopy export to Python.
 //
-// batchSize: records per insert_records tx (must be <= protocol cap of 10).
-// maxInflight: how many broadcasts may queue before draining via WaitTx.
-// maxAttempts: max attempts per chunk (initial + retries) on transient
-// errors (invalid nonce, mempool full, "node is catching up").
-// catchupBackoffSeconds: base backoff in seconds for "node is catching up"
-// rejections. Actual delay is base * (attempt + 1).
-// Pass 0 for any of these to use defaults (10, 200, 5, 5s).
-func NewBulkInserter(client *tnclient.Client, batchSize int, maxInflight int, maxAttempts int, catchupBackoffSeconds int) (*contractsapi.BulkInserter, error) {
+// Tuning args (pass 0 for any to use defaults shown):
+//
+//	batchSize             records per insert_records tx (cap=10)              default 10
+//	maxInflight           broadcasts queued before WaitTx drain               default 200
+//	maxAttempts           retries per chunk on invalid-nonce/mempool          default 15
+//	catchupBackoffSeconds base linear backoff for "node is catching up"       default 15
+//	catchupMaxAttempts    retries per chunk on "catching up" specifically     default 20
+//	infraMaxAttempts      retries per chunk on pre-broadcast infra errors     default 10
+//	                      ("no available backend", "connection refused",
+//	                      "no such host"); reuses retryBackoff for sleep
+//	progressLogEveryN     emit INFO progress line every N chunks (0=off)      default 0
+//	                      (overridden to 500 in Python bulk_inserter.py so
+//	                      Prefect bulk loads aren't silent; this layer keeps
+//	                      the conservative Go default)
+//
+// The logger is wired to stderr at INFO level so the prefect.engine
+// subprocess captures BulkInserter WARN lines (catchup/nonce/mempool retries)
+// and progress logs in its task logs — without this, the Python wrapper sees
+// only "Submitting N records" at the start and either success or
+// BulkInsertError at the end, with hours of silence in between.
+func NewBulkInserter(
+	client *tnclient.Client,
+	batchSize int,
+	maxInflight int,
+	maxAttempts int,
+	catchupBackoffSeconds int,
+	catchupMaxAttempts int,
+	infraMaxAttempts int,
+	progressLogEveryN int,
+) (*contractsapi.BulkInserter, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
 	}
-	var opts []contractsapi.BulkInserterOption
+	opts := []contractsapi.BulkInserterOption{
+		// Default to a stderr-bound INFO logger. The prefect.engine subprocess
+		// pipes its stderr into the Prefect task logs, so this surfaces the
+		// Go-side WARN/INFO lines without any Python plumbing. Callers that
+		// want silence can wrap with WithLogger(log.DiscardLogger) post-hoc,
+		// but the in-binding default is to be loud, since the original
+		// silent default cost us ~4 hours of "is it stuck or is it working?"
+		// debugging on 2026-04-25.
+		contractsapi.WithLogger(kwillog.New(
+			kwillog.WithWriter(os.Stderr),
+			kwillog.WithLevel(kwillog.LevelInfo),
+			kwillog.WithName("bulk_inserter"),
+		)),
+	}
 	if batchSize > 0 {
 		opts = append(opts, contractsapi.WithBatchSize(batchSize))
 	}
@@ -239,6 +276,15 @@ func NewBulkInserter(client *tnclient.Client, batchSize int, maxInflight int, ma
 	}
 	if catchupBackoffSeconds > 0 {
 		opts = append(opts, contractsapi.WithCatchupBackoff(time.Duration(catchupBackoffSeconds)*time.Second))
+	}
+	if catchupMaxAttempts > 0 {
+		opts = append(opts, contractsapi.WithCatchupMaxAttempts(catchupMaxAttempts))
+	}
+	if infraMaxAttempts > 0 {
+		opts = append(opts, contractsapi.WithInfraMaxAttempts(infraMaxAttempts))
+	}
+	if progressLogEveryN > 0 {
+		opts = append(opts, contractsapi.WithProgressLogEveryN(progressLogEveryN))
 	}
 	return client.LoadBulkInserter(opts...)
 }

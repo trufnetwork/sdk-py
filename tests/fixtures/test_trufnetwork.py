@@ -59,7 +59,22 @@ POSTGRES_CONTAINER = ContainerSpec(
     image=os.environ.get("POSTGRES_IMAGE", "kwildb/postgres:latest"),
     tmpfs_path="/var/lib/postgresql/data",
     env_vars=["POSTGRES_HOST_AUTH_METHOD=trust"],
-    ports={"5432": "5432"}
+    ports={"5432": "5432"},
+    # kwild validates a set of postgres settings at startup
+    # (kwil-db/node/pg/system.go: settingValidations) and exits before the
+    # tn-db container becomes healthy if any are off. We override every
+    # non-default it requires here so we can keep the floating :latest tag
+    # without re-pinning around image regressions. Mirror of the sdk-go
+    # fixture (sdk-go/tests/integration/server_fixture.go); update both
+    # together when kwild's validator changes.
+    args=[
+        "postgres",
+        "-c", "wal_level=logical",
+        "-c", "max_wal_senders=10",
+        "-c", "max_replication_slots=10",
+        "-c", "max_prepared_transactions=200",
+        "-c", "wal_sender_timeout=0",
+    ],
 )
 
 TN_DB_CONTAINER = ContainerSpec(

@@ -118,14 +118,15 @@ class BulkInserter:
         which can recover via partial-progress slicing without risking
         duplicate inserts. Reuses the 2s base linear backoff, so default
         gives ~90s wait per chunk before bubbling up.
-    progress_log_every_n : int, default 0 (disabled)
+    progress_log_every_n : int, default 500
         Emit an INFO log line every N chunks reporting chunks done / total,
-        rows done, elapsed time, current chunks/sec rate, and ETA. Highly
-        recommended for any load over ~1000 chunks (~10k rows): without
-        progress logs, the only output between "Submitting N records" and
-        the final result is hours of silence. Logs go to stderr via the
-        Go-side logger, which the prefect.engine subprocess captures into
-        Prefect task logs.
+        rows done, elapsed time, current chunks/sec rate, and ETA. Pass 0
+        to disable. Defaults to 500 here (the underlying Go default is 0)
+        because the Python wrapper is primarily used for hours-long Prefect
+        bulk loads, where without progress logs the only output between
+        "Submitting N records" and the final result is hours of silence.
+        Logs go to stderr via the Go-side logger, which the prefect.engine
+        subprocess captures into Prefect task logs.
     """
 
     def __init__(

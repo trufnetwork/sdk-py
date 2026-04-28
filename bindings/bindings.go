@@ -229,6 +229,9 @@ func InsertRecords(client *tnclient.Client, inputs []types.InsertRecordInput) (s
 //	                      ("no available backend", "connection refused",
 //	                      "no such host"); reuses retryBackoff for sleep
 //	progressLogEveryN     emit INFO progress line every N chunks (0=off)      default 0
+//	                      (overridden to 500 in Python bulk_inserter.py so
+//	                      Prefect bulk loads aren't silent; this layer keeps
+//	                      the conservative Go default)
 //
 // The logger is wired to stderr at INFO level so the prefect.engine
 // subprocess captures BulkInserter WARN lines (catchup/nonce/mempool retries)

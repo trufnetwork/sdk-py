@@ -29,7 +29,7 @@ import warnings
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
-from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Optional
+from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Optional, Required
 
 from pydantic import BaseModel
 
@@ -55,9 +55,13 @@ class RecordBatch(TypedDict):
     inputs: list[Record]
 
 
-class StreamDefinitionInput(TypedDict):
-    stream_id: str
-    stream_type: Literal["primitive", "composed"]
+class StreamDefinitionInput(TypedDict, total=False):
+    stream_id: Required[str]
+    stream_type: Required[Literal["primitive", "composed"]]
+    # allow_zeros (default False) toggles per-stream persistence of
+    # value=0 inserts. Marked optional via total=False so existing
+    # callers that only set stream_id/stream_type continue to work.
+    allow_zeros: bool
 
 
 class StreamLocatorInput(TypedDict):
@@ -624,16 +628,56 @@ class TNClient:
             stream_id: str,
             stream_type: str = truf_sdk.StreamTypePrimitive,
             wait: bool = True,
+            allow_zeros: bool = False,
     ) -> str:
         """
         Deploy a stream with the given stream ID and stream type.
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash.
+
+        Parameters:
+            stream_id: 32-character stream identifier (use generate_stream_id).
+            stream_type: STREAM_TYPE_PRIMITIVE or STREAM_TYPE_COMPOSED.
+            wait: Block until the deploy transaction is confirmed.
+            allow_zeros: Default False (preserves the historical behavior
+                of dropping value=0 inserts). Set True for streams where
+                zero is a meaningful measurement (e.g., a "ships in transit"
+                count that can legitimately be zero). Can be toggled later
+                with `set_allow_zeros`.
         """
-        deploy_tx_hash = truf_sdk.DeployStream(self.client, stream_id, stream_type)
+        deploy_tx_hash = truf_sdk.DeployStream(self.client, stream_id, stream_type, allow_zeros)
         if wait:
             self.wait_for_tx(deploy_tx_hash)
         return deploy_tx_hash
+
+    def set_allow_zeros(
+            self,
+            stream_id: str,
+            value: bool,
+            wait: bool = True,
+    ) -> str:
+        """
+        Toggle the per-stream allow_zeros flag for an existing stream.
+
+        Owner-gated. The toggle is forward-only — historical inserts are
+        not rewritten. Zeros that were dropped before the flip stay
+        dropped; zeros that arrive after the flip persist.
+
+        Returns the transaction hash.
+        """
+        tx_hash = truf_sdk.SetAllowZeros(self.client, stream_id, value)
+        if wait:
+            self.wait_for_tx(tx_hash)
+        return tx_hash
+
+    def get_allow_zeros(self, stream_id: str) -> bool:
+        """
+        Returns the current allow_zeros setting for the given stream.
+
+        Returns False if the stream has no explicit metadata row, which
+        matches the implicit default applied at insert time.
+        """
+        return truf_sdk.GetAllowZeros(self.client, stream_id)
 
     def insert_record(
             self, stream_id: str, record: dict[str, float | int], wait: bool = True
@@ -1274,11 +1318,14 @@ class TNClient:
         If wait is True, it will wait for the transaction to be confirmed.
         Returns the transaction hash of the batch operation.
         """
-        # Build a list of Go StreamDefinition objects
+        # Build a list of Go StreamDefinition objects.
+        # allow_zeros defaults to False (today's drop-zeros behavior).
         go_definitions = []
         for def_input in definitions:
             go_def = truf_sdk.NewStreamDefinitionForBinding(
-                def_input["stream_id"], def_input["stream_type"]
+                def_input["stream_id"],
+                def_input["stream_type"],
+                bool(def_input.get("allow_zeros", False)),
             )
             go_definitions.append(go_def)
 

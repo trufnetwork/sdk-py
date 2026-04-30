@@ -49,12 +49,14 @@ market_index_stream_id = generate_stream_id('market_index')
 >
 > If you're interested in deploying streams, please contact the TRUF.NETWORK team for assistance.
 
-### `client.deploy_stream(stream_id: str, stream_type: str) -> str`
+### `client.deploy_stream(stream_id: str, stream_type: str, wait: bool = True, allow_zeros: bool = False) -> str`
 Deploys a new stream to the TRUF.NETWORK.
 
 #### Parameters
 - `stream_id: str` - Unique stream identifier
 - `stream_type: str` - Stream type (STREAM_TYPE_PRIMITIVE or STREAM_TYPE_COMPOSED)
+- `wait: bool` - Whether to block until the deploy transaction is confirmed (default `True`).
+- `allow_zeros: bool` - Per-stream toggle controlling whether `value=0` inserts are persisted. Default `False` preserves the historical behavior (zeros are silently dropped on insert and excluded from `get_record` results). Set `True` for streams where zero is a meaningful measurement (e.g., a "ships in transit" count that can legitimately be zero). Can be toggled later via `set_allow_zeros`.
 
 #### Returns
 - `str` - Transaction hash of the deployment
@@ -64,7 +66,25 @@ Deploys a new stream to the TRUF.NETWORK.
 from trufnetwork_sdk_py.client import STREAM_TYPE_PRIMITIVE
 
 tx_hash = client.deploy_stream(market_index_stream_id, STREAM_TYPE_PRIMITIVE)
+
+# Stream where zero is a valid value:
+hormuz_stream_id = generate_stream_id("hormuz_ship_count")
+client.deploy_stream(hormuz_stream_id, STREAM_TYPE_PRIMITIVE, allow_zeros=True)
 ```
+
+### `client.set_allow_zeros(stream_id: str, value: bool, wait: bool = True) -> str`
+Toggle the per-stream `allow_zeros` flag for an existing stream. Owner-gated.
+
+The flip is forward-only — historical inserts are not rewritten. Zero records that were dropped before the flip stay dropped; zeros that arrive after the flip persist.
+
+#### Example
+```python
+client.set_allow_zeros(stream_id, True)  # opt in
+client.set_allow_zeros(stream_id, False) # opt back out
+```
+
+### `client.get_allow_zeros(stream_id: str) -> bool`
+Returns the current `allow_zeros` setting for the given stream. Returns `False` when the stream has no explicit metadata row, matching the implicit default applied at insert time.
 
 ## Stream Destruction
 

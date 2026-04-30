@@ -152,7 +152,11 @@ func GenerateStreamId(name string) string {
 }
 
 // DeployStream deploys a stream with the given stream ID and stream type.
-func DeployStream(client *tnclient.Client, streamId string, streamType types.StreamType) (string, error) {
+//
+// The optional allow_zeros flag (default false) controls whether
+// value=0 inserts are persisted on the new stream. Default false
+// preserves the historical behavior — zeros are dropped on insert.
+func DeployStream(client *tnclient.Client, streamId string, streamType types.StreamType, allowZeros bool) (string, error) {
 	ctx := context.Background()
 
 	streamIdTyped, err := util.NewStreamId(streamId)
@@ -160,7 +164,9 @@ func DeployStream(client *tnclient.Client, streamId string, streamType types.Str
 		return "", errors.Wrap(err, "error creating stream id")
 	}
 
-	deployTxHash, err := client.DeployStream(ctx, *streamIdTyped, streamType)
+	deployTxHash, err := client.DeployStreamWithOptions(ctx, *streamIdTyped, streamType, tnclient.DeployStreamOptions{
+		AllowZeros: allowZeros,
+	})
 	if err != nil {
 		return "", errors.Wrap(err, "error deploying stream")
 	}
@@ -842,6 +848,44 @@ func NewVisibilityInput(client *tnclient.Client, streamId string, visibility int
 	return result
 }
 
+// SetAllowZeros toggles whether value=0 inserts are persisted on the
+// stream. Owner-gated. Forward-only — historical state is not rewritten.
+func SetAllowZeros(client *tnclient.Client, streamId string, value bool) (string, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return "", err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return "", err
+	}
+
+	txHash, err := stream.SetAllowZeros(ctx, client.OwnStreamLocator(*streamIdObj), value)
+	if err != nil {
+		return "", err
+	}
+	return txHash.String(), nil
+}
+
+// GetAllowZeros returns the latest allow_zeros setting for the stream.
+// Returns false when no explicit metadata row exists.
+func GetAllowZeros(client *tnclient.Client, streamId string) (bool, error) {
+	ctx := context.Background()
+	stream, err := client.LoadActions()
+	if err != nil {
+		return false, err
+	}
+
+	streamIdObj, err := util.NewStreamId(streamId)
+	if err != nil {
+		return false, err
+	}
+
+	return stream.GetAllowZeros(ctx, client.OwnStreamLocator(*streamIdObj))
+}
+
 // SetReadVisibility sets the read visibility of the stream -- Private or Public
 func SetReadVisibility(client *tnclient.Client, input types.VisibilityInput) (string, error) {
 	ctx := context.Background()
@@ -1095,7 +1139,10 @@ func convertBytesToHex(data []byte) string {
 
 // NewStreamDefinitionForBinding creates a new types.StreamDefinition for binding purposes.
 // It takes string representations of streamId and streamType and converts them.
-func NewStreamDefinitionForBinding(streamIdStr string, streamTypeStr string) (*types.StreamDefinition, error) {
+//
+// allowZeros toggles per-stream persistence of value=0 inserts. Pass
+// false to preserve the historical default (zeros are dropped on insert).
+func NewStreamDefinitionForBinding(streamIdStr string, streamTypeStr string, allowZeros bool) (*types.StreamDefinition, error) {
 	sid, err := util.NewStreamId(streamIdStr)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error creating stream id from string: %s", streamIdStr)
@@ -1113,6 +1160,7 @@ func NewStreamDefinitionForBinding(streamIdStr string, streamTypeStr string) (*t
 	return &types.StreamDefinition{
 		StreamId:   *sid,
 		StreamType: st,
+		AllowZeros: allowZeros,
 	}, nil
 }
 

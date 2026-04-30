@@ -56,7 +56,7 @@ Deploys a new stream to the TRUF.NETWORK.
 - `stream_id: str` - Unique stream identifier
 - `stream_type: str` - Stream type (STREAM_TYPE_PRIMITIVE or STREAM_TYPE_COMPOSED)
 - `wait: bool` - Whether to block until the deploy transaction is confirmed (default `True`).
-- `allow_zeros: bool` - Per-stream toggle controlling whether `value=0` inserts are persisted. Default `False` preserves the historical behavior (zeros are silently dropped on insert and excluded from `get_record` results). Set `True` for streams where zero is a meaningful measurement (e.g., a "ships in transit" count that can legitimately be zero). Can be toggled later via `set_allow_zeros`.
+- `allow_zeros: bool` - Per-stream toggle controlling whether `value=0` inserts are persisted. Default `False` preserves the historical behavior (zeros are silently dropped on insert and excluded from `get_records` results). Set `True` for streams where zero is a meaningful measurement (e.g., a "ships in transit" count that can legitimately be zero). Can be toggled later via `set_allow_zeros`.
 
 #### Returns
 - `str` - Transaction hash of the deployment

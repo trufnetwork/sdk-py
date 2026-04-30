@@ -1320,12 +1320,22 @@ class TNClient:
         """
         # Build a list of Go StreamDefinition objects.
         # allow_zeros defaults to False (today's drop-zeros behavior).
+        # The TypedDict declares allow_zeros: bool, but TypedDicts are not
+        # enforced at runtime — Python's bool("false") returns True, so a
+        # plain bool() coercion would silently invert the user's intent.
+        # Reject non-bool values up front to surface the bug instead.
         go_definitions = []
-        for def_input in definitions:
+        for idx, def_input in enumerate(definitions):
+            allow_zeros = def_input.get("allow_zeros", False)
+            if not isinstance(allow_zeros, bool):
+                raise TypeError(
+                    f"definitions[{idx}].allow_zeros must be bool, "
+                    f"got {type(allow_zeros).__name__}={allow_zeros!r}"
+                )
             go_def = truf_sdk.NewStreamDefinitionForBinding(
                 def_input["stream_id"],
                 def_input["stream_type"],
-                bool(def_input.get("allow_zeros", False)),
+                allow_zeros,
             )
             go_definitions.append(go_def)
 

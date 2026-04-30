@@ -42,10 +42,23 @@ def _ts(date_str: str) -> int:
 
 
 def _safe_destroy(client: TNClient, stream_id: str) -> None:
+    """Best-effort cleanup that tolerates a missing stream but re-raises
+    anything else so genuine destroy failures don't quietly mask test bugs.
+
+    The Go binding raises a generic exception with a message like
+    "stream does not exist" when the row isn't there. Match the message
+    rather than the type because the C-extension exception class isn't
+    stable across builds.
+    """
     try:
         client.destroy_stream(stream_id)
-    except Exception:
-        pass
+    except Exception as e:
+        msg = str(e).lower()
+        if "does not exist" in msg or "not found" in msg or "stream not exist" in msg:
+            return
+        raise AssertionError(
+            f"_safe_destroy({stream_id!r}) failed unexpectedly: {e!r}"
+        ) from e
 
 
 def test_default_drops_zero_inserts(owner_client: TNClient):
@@ -158,7 +171,17 @@ def test_non_owner_cannot_toggle_allow_zeros(
 
     owner_client.deploy_stream(stream_id)
     try:
-        with pytest.raises(Exception):
+        # The SDK's set_allow_zeros always sends the caller's address as
+        # the data_provider (OwnStreamLocator in the binding). When a
+        # non-owner calls it, the lookup `(data_provider=non_owner, stream_id)`
+        # finds nothing and `is_stream_owner` raises "Stream does not exist"
+        # before set_allow_zeros's own owner-gate ERROR fires. Either error
+        # is a correct rejection, so match on both phrases — the test fails
+        # only if the toggle actually succeeds or a different failure occurs.
+        with pytest.raises(
+            Exception,
+            match="(?:Stream does not exist|Only stream owner can set allow_zeros)",
+        ):
             non_owner_client.set_allow_zeros(stream_id, True)
 
         # Owner-side state unchanged.

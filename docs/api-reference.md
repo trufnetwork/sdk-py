@@ -49,12 +49,12 @@ market_index_stream_id = generate_stream_id('market_index')
 >
 > If you're interested in deploying streams, please contact the TRUF.NETWORK team for assistance.
 
-### `client.deploy_stream(stream_id: str, stream_type: str, wait: bool = True, allow_zeros: bool = False) -> str`
+### `client.deploy_stream(stream_id: str, stream_type: str = truf_sdk.StreamTypePrimitive, wait: bool = True, allow_zeros: bool = False) -> str`
 Deploys a new stream to the TRUF.NETWORK.
 
 #### Parameters
 - `stream_id: str` - Unique stream identifier
-- `stream_type: str` - Stream type (STREAM_TYPE_PRIMITIVE or STREAM_TYPE_COMPOSED)
+- `stream_type: str` - Stream type (`STREAM_TYPE_PRIMITIVE` or `STREAM_TYPE_COMPOSED`). Defaults to `truf_sdk.StreamTypePrimitive`, so primitive-stream callers can omit it (e.g., `client.deploy_stream(stream_id)`).
 - `wait: bool` - Whether to block until the deploy transaction is confirmed (default `True`).
 - `allow_zeros: bool` - Per-stream toggle controlling whether `value=0` inserts are persisted. Default `False` preserves the historical behavior (zeros are silently dropped on insert and excluded from `get_records` results). Set `True` for streams where zero is a meaningful measurement (e.g., a "ships in transit" count that can legitimately be zero). Can be toggled later via `set_allow_zeros`.
 

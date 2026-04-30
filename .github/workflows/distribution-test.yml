@@ -21,14 +21,11 @@ jobs:
             -e TN_ENDPOINT="https://gateway.mainnet.truf.network" \
             sdk-py-dist-test
 
-  test-native-build:
-    name: Test Native Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-
+  # Linux dev-install path: builds via setup.py + setup-python, mirrors
+  # what a contributor would run locally with `uv pip install -e .`.
+  test-native-build-linux:
+    name: Test Native Build (Linux)
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,10 +40,8 @@ jobs:
           go install github.com/go-python/gopy@v0.4.10
           go install golang.org/x/tools/cmd/goimports@latest
           echo "$HOME/go/bin" >> $GITHUB_PATH
-        shell: bash
 
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential patchelf
@@ -55,11 +50,11 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
-      
+
       - name: Install uv
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
-      - name: Build and Test Natively
+      - name: Build and test natively
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           uv pip install setuptools wheel pybindgen build --system
@@ -67,4 +62,45 @@ jobs:
           python -m build --wheel --outdir /tmp/wheelhouse
           uv pip install /tmp/wheelhouse/*.whl --system
           python tests/distribution/get_account_test.py
-        shell: bash
+
+  # macOS PR check uses the same cibuildwheel pipeline as the release
+  # workflow so the wheel under test is structurally identical to what
+  # ships, then loads it under a Homebrew Python to assert
+  # cross-interpreter portability — the property the v0.6.6 SIGSEGV
+  # report showed was missing.
+  test-native-build-macos:
+    name: Test Native Build (macOS arm64)
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24.1'
+
+      - name: Build wheels with cibuildwheel
+        uses: pypa/cibuildwheel@v2.21.3
+        env:
+          CIBW_BUILD: cp312-macosx_arm64
+          CIBW_ARCHS_MACOS: arm64
+          CIBW_ENVIRONMENT: >
+            CGO_ENABLED=1
+            GOARCH=arm64
+            PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
+            MACOSX_DEPLOYMENT_TARGET=11.0
+          CIBW_BEFORE_ALL_MACOS: |
+            go install github.com/go-python/gopy@v0.4.10
+            go install golang.org/x/tools/cmd/goimports@latest
+          CIBW_BEFORE_BUILD_MACOS: |
+            pip install pybindgen setuptools wheel setuptools-scm
+
+      - name: Verify wheel under Homebrew Python
+        run: |
+          brew install python@3.12
+          BREW_PY=$(brew --prefix python@3.12)/bin/python3.12
+          "$BREW_PY" --version
+          "$BREW_PY" -m venv /tmp/brew-venv
+          /tmp/brew-venv/bin/pip install wheelhouse/*.whl
+          /tmp/brew-venv/bin/python tests/distribution/get_account_test.py

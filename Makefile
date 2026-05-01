@@ -1,6 +1,19 @@
+UNAME_S := $(shell uname)
+
+# On macOS, link the Go .so dynamically against libpython so Python symbols
+# resolve at load time against whatever interpreter imports the module
+# (Homebrew/conda/uv/python.org), instead of baking in an absolute path to
+# the build-time libpython. The resulting #cgo LDFLAGS contain
+# `-undefined dynamic_lookup`, which cgo blocks by default, so widen the
+# allow regex for this build.
+ifeq ($(UNAME_S),Darwin)
+DYNAMIC_LINK_FLAG := -dynamic-link=true
+export CGO_LDFLAGS_ALLOW := .*
+endif
+
 gopy_build:
 	rm -f src/trufnetwork_sdk_c_bindings/*.so
-	gopy gen -output=src/trufnetwork_sdk_c_bindings -vm=python3 -name=trufnetwork_sdk_c_bindings -dynamic-link=true ./bindings
+	gopy gen -output=src/trufnetwork_sdk_c_bindings -vm=python3 -name=trufnetwork_sdk_c_bindings $(DYNAMIC_LINK_FLAG) ./bindings
 	cd src/trufnetwork_sdk_c_bindings && \
 	make build
 	if [ `uname` = "Linux" ]; then \

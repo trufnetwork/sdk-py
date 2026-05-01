@@ -16,7 +16,12 @@ UNAME_S := $(shell uname)
 ifeq ($(UNAME_S),Darwin)
 DYNAMIC_LINK_FLAG := -dynamic-link=true
 export CGO_LDFLAGS_ALLOW := .*
-SUBMAKE_BUILD := LDFLAGS="-undefined dynamic_lookup -Wl,-flat_namespace" make build
+# IMPORTANT: pass LDFLAGS as a make command-line argument, not as an env
+# var prefix. The gopy-emitted Makefile defines `LDFLAGS = ...` itself,
+# and Make precedence gives Makefile assignments priority over env vars
+# (command-line args win over both). `LDFLAGS=... make build` would be
+# silently ignored.
+SUBMAKE_BUILD := make build LDFLAGS="-undefined dynamic_lookup -Wl,-flat_namespace"
 else
 SUBMAKE_BUILD := make build
 endif

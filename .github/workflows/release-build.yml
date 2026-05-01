@@ -104,6 +104,21 @@ jobs:
           CIBW_BEFORE_BUILD_MACOS: |
             pip install pybindgen setuptools wheel setuptools-scm
 
+      # Smoke-test the wheel before publishing: install it into a fresh
+      # interpreter and load the C bindings. Catches packaging breakage
+      # and the SIGSEGV-class regression the PR fixes (the import alone
+      # triggers loading both gopy .so files).
+      - name: Set up Python for wheel smoke test
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Smoke-test built wheel
+        run: |
+          python -m venv /tmp/smoke-venv
+          /tmp/smoke-venv/bin/pip install wheelhouse/*.whl
+          /tmp/smoke-venv/bin/python -c "from trufnetwork_sdk_py.client import TNClient; print('wheel import ok')"
+
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:

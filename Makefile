@@ -1,21 +1,31 @@
 UNAME_S := $(shell uname)
 
-# On macOS, link the Go .so dynamically against libpython so Python symbols
-# resolve at load time against whatever interpreter imports the module
-# (Homebrew/conda/uv/python.org), instead of baking in an absolute path to
-# the build-time libpython. The resulting #cgo LDFLAGS contain
-# `-undefined dynamic_lookup`, which cgo blocks by default, so widen the
-# allow regex for this build.
+# On macOS, decouple both gopy artifacts from a specific libpython:
+#   * `-dynamic-link=true` switches the #cgo LDFLAGS in the generated .go
+#     file from `-L... -lpython3.12` to LDSHARED-derived flags
+#     (`-undefined dynamic_lookup`), so the Go .so defers Python symbols
+#     to whoever loads it.
+#   * Overriding LDFLAGS for the gopy-emitted sub-make does the same for
+#     the gcc step that links the Python C extension wrapper
+#     (`_trufnetwork_sdk_c_bindings.so`); otherwise gopy hard-codes
+#     `pycfg.LdFlags` regardless of `-dynamic-link`, leaving the wrapper
+#     bound to the build-time libpython and triggering the Homebrew
+#     SIGSEGV the PR is meant to prevent.
+# `-undefined dynamic_lookup` is on cgo's denylist, so widen the allow
+# regex too.
 ifeq ($(UNAME_S),Darwin)
 DYNAMIC_LINK_FLAG := -dynamic-link=true
 export CGO_LDFLAGS_ALLOW := .*
+SUBMAKE_BUILD := LDFLAGS="-undefined dynamic_lookup -Wl,-flat_namespace" make build
+else
+SUBMAKE_BUILD := make build
 endif
 
 gopy_build:
 	rm -f src/trufnetwork_sdk_c_bindings/*.so
 	gopy gen -output=src/trufnetwork_sdk_c_bindings -vm=python3 -name=trufnetwork_sdk_c_bindings $(DYNAMIC_LINK_FLAG) ./bindings
 	cd src/trufnetwork_sdk_c_bindings && \
-	make build
+	$(SUBMAKE_BUILD)
 	if [ `uname` = "Linux" ]; then \
 		patchelf --set-rpath '$$ORIGIN' src/trufnetwork_sdk_c_bindings/_trufnetwork_sdk_c_bindings.so; \
 	elif [ `uname` = "Darwin" ]; then \

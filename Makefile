@@ -47,4 +47,11 @@ gopy_build:
 		echo "=== otool -L (post-fix) ==="; \
 		otool -L src/trufnetwork_sdk_c_bindings/_trufnetwork_sdk_c_bindings.so; \
 		otool -L src/trufnetwork_sdk_c_bindings/trufnetwork_sdk_c_bindings_go.so; \
+		for f in src/trufnetwork_sdk_c_bindings/_trufnetwork_sdk_c_bindings.so \
+		         src/trufnetwork_sdk_c_bindings/trufnetwork_sdk_c_bindings_go.so; do \
+			if otool -L "$$f" | grep -E 'Python\.framework|libpython' >/dev/null; then \
+				echo "FATAL: $$f still references Python (Python.framework or libpython). This will SIGSEGV under non-build-time Python interpreters (Homebrew/conda/uv). Verify -dynamic-link=true and the LDFLAGS sub-make override are taking effect."; \
+				exit 1; \
+			fi; \
+		done; \
 	fi

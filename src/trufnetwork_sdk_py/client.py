@@ -384,11 +384,40 @@ VALID_ATTESTATION_ACTIONS = list(ACTION_REGISTRY.keys())
 # Binary action names
 BINARY_ACTION_NAMES = [name for name, info in ACTION_REGISTRY.items() if info["is_binary"]]
 
-# Valid bridge namespaces.
-# eth_truf / eth_usdc are the production mainnet bridges (TRUF fees, USDC
-# collateral). hoodi_tt / hoodi_tt2 / sepolia_bridge / ethereum_bridge are
-# testnet / legacy aliases retained for local-node and integration test use.
+# Bridge identifiers come in two flavours that look similar but are NOT
+# interchangeable:
+#
+# 1. Action prefixes — the SDK builds action names as ``<prefix>_<verb>``
+#    (e.g. ``eth_truf_wallet_balance``, ``sepolia_transfer``). Methods that
+#    fall in this group: get_wallet_balance, withdraw, get_withdrawal_proof,
+#    transfer, get_history.
+#
+# 2. Extension namespaces — the order-book SQL routes on a ``$bridge``
+#    literal (e.g. ``if $bridge = 'sepolia_bridge' { sepolia_bridge.lock(...) }``).
+#    Methods that fall in this group: create_market and the binary-market
+#    helpers.
+#
+# These two namespaces overlap on ``eth_truf`` / ``eth_usdc`` /
+# ``hoodi_tt`` / ``hoodi_tt2`` (where the extension name and action prefix
+# coincide) but diverge on ``sepolia`` (action prefix) vs ``sepolia_bridge``
+# (extension), and ``ethereum`` vs ``ethereum_bridge``. Validating both
+# against a single union list silently accepted nonsense (e.g.
+# ``withdraw(bridge_identifier="sepolia_bridge")`` would build
+# ``sepolia_bridge_bridge_tokens``, which does not exist).
+
+# Action-prefix allowlist — methods that build ``<prefix>_<verb>`` action names.
 VALID_BRIDGES = [
+    "eth_truf",
+    "eth_usdc",
+    "hoodi_tt",
+    "hoodi_tt2",
+    "sepolia",
+    "ethereum",
+]
+
+# Extension-namespace allowlist — methods that pass the value to on-chain
+# routing logic that compares against ``$bridge`` literals.
+VALID_BRIDGE_EXTENSIONS = [
     "eth_truf",
     "eth_usdc",
     "hoodi_tt",
@@ -396,6 +425,28 @@ VALID_BRIDGES = [
     "sepolia_bridge",
     "ethereum_bridge",
 ]
+
+# Permissive aliases: accept the "other side" of the same logical bridge
+# and normalize before validation/dispatch.
+_ACTION_PREFIX_ALIASES = {
+    "sepolia_bridge": "sepolia",
+    "ethereum_bridge": "ethereum",
+}
+
+_EXTENSION_NAMESPACE_ALIASES = {
+    "sepolia": "sepolia_bridge",
+    "ethereum": "ethereum_bridge",
+}
+
+
+def _normalize_bridge_for_action(bridge_identifier: str) -> str:
+    """Map ``sepolia_bridge`` / ``ethereum_bridge`` to their action-prefix form."""
+    return _ACTION_PREFIX_ALIASES.get(bridge_identifier, bridge_identifier)
+
+
+def _normalize_bridge_for_extension(bridge: str) -> str:
+    """Map ``sepolia`` / ``ethereum`` to their kwil-db extension-namespace form."""
+    return _EXTENSION_NAMESPACE_ALIASES.get(bridge, bridge)
 
 
 def is_binary_action(name: str) -> bool:
@@ -2226,8 +2277,9 @@ class TNClient:
             ...     int(time.time()) + 3600, 5, 100
             ... )
         """
-        if bridge not in VALID_BRIDGES:
-            raise ValueError(f"bridge must be one of: {', '.join(VALID_BRIDGES)}")
+        bridge = _normalize_bridge_for_extension(bridge)
+        if bridge not in VALID_BRIDGE_EXTENSIONS:
+            raise ValueError(f"bridge must be one of: {', '.join(VALID_BRIDGE_EXTENSIONS)}")
         if len(query_components) < 128:
             raise ValueError("query_components too short for ABI-encoded tuple")
         if max_spread < 1 or max_spread > 50:
@@ -2831,6 +2883,7 @@ class TNClient:
         Returns:
             str: The balance in wei (as a string to preserve precision)
         """
+        bridge_identifier = _normalize_bridge_for_action(bridge_identifier)
         if bridge_identifier not in VALID_BRIDGES:
             raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
         return truf_sdk.GetWalletBalance(self.client, bridge_identifier, wallet_address)
@@ -2839,8 +2892,19 @@ class TNClient:
         """
         Initiate a withdrawal by burning tokens on the Kwil network.
 
+        .. warning::
+           Argument order differs from :py:meth:`transfer`. ``withdraw`` takes
+           ``(bridge_identifier, amount, recipient)``; ``transfer`` takes
+           ``(bridge_identifier, recipient, amount)``. Prefer keyword arguments
+           when calling either method.
+
         Args:
-            bridge_identifier: The bridge instance identifier (e.g., "eth_usdc", "eth_truf")
+            bridge_identifier: Action-prefix identifier — one of
+                ``"eth_truf"``, ``"eth_usdc"``, ``"hoodi_tt"``, ``"hoodi_tt2"``,
+                ``"sepolia"``, ``"ethereum"``. The extension-namespace aliases
+                ``"sepolia_bridge"`` / ``"ethereum_bridge"`` are also accepted
+                and normalized to ``"sepolia"`` / ``"ethereum"`` before
+                dispatch (see ``_normalize_bridge_for_action``).
             amount: The amount to withdraw in wei (as a string)
             recipient: The EVM address to receive the funds
             wait: If True, wait for the transaction to be confirmed on-chain
@@ -2848,13 +2912,69 @@ class TNClient:
         Returns:
             str: The transaction hash of the burn operation
         """
+        bridge_identifier = _normalize_bridge_for_action(bridge_identifier)
         if bridge_identifier not in VALID_BRIDGES:
             raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
         tx_hash = truf_sdk.Withdraw(self.client, bridge_identifier, amount, recipient)
-        
+
         if wait:
             self.wait_for_tx(tx_hash)
-            
+
+        return tx_hash
+
+    def transfer(
+        self,
+        bridge_identifier: str,
+        recipient: str,
+        amount: str,
+        wait: bool = True,
+    ) -> str:
+        """
+        Send tokens from the caller to another in-network wallet.
+
+        Binds to the on-chain action ``<bridge_identifier>_transfer`` —
+        ``eth_truf_transfer`` / ``eth_usdc_transfer`` (mainnet),
+        ``hoodi_tt_transfer`` / ``hoodi_tt2_transfer`` /
+        ``sepolia_transfer`` / ``ethereum_transfer`` (dev/test).
+
+        The caller pays a 1-token action fee on top of ``amount``, denominated
+        in the same token as the bridge (e.g. 1 TRUF for ``eth_truf``,
+        1 USDC for ``eth_usdc``). The action reverts if the caller balance is
+        below ``amount + 1 token``.
+
+        .. warning::
+           Argument order differs from :py:meth:`withdraw`. ``transfer`` takes
+           ``(bridge_identifier, recipient, amount)``; ``withdraw`` takes
+           ``(bridge_identifier, amount, recipient)``. Prefer keyword arguments
+           when calling either method.
+
+        Args:
+            bridge_identifier: Action-prefix identifier — one of
+                ``"eth_truf"``, ``"eth_usdc"``, ``"hoodi_tt"``, ``"hoodi_tt2"``,
+                ``"sepolia"``, ``"ethereum"``. The extension-namespace aliases
+                ``"sepolia_bridge"`` / ``"ethereum_bridge"`` are also accepted
+                and normalized to ``"sepolia"`` / ``"ethereum"`` before
+                dispatch (see ``_normalize_bridge_for_action``).
+            recipient: The destination wallet address (Ethereum 0x… format).
+                Must already exist as an in-network address.
+            amount: The transfer amount in wei (as a string to preserve
+                precision).
+            wait: If True, wait for the transaction to be confirmed on-chain.
+
+        Returns:
+            str: The transaction hash of the transfer.
+
+        Example:
+            >>> client.transfer("eth_truf", "0x7E5F...Bdf", "1000000000000000000")
+        """
+        bridge_identifier = _normalize_bridge_for_action(bridge_identifier)
+        if bridge_identifier not in VALID_BRIDGES:
+            raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
+        tx_hash = truf_sdk.Transfer(self.client, bridge_identifier, recipient, amount)
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
         return tx_hash
 
     def get_withdrawal_proof(self, bridge_identifier: str, wallet: str) -> list[dict]:
@@ -2868,6 +2988,7 @@ class TNClient:
         Returns:
             list[dict]: A list of withdrawal proof objects containing signatures and merkle data
         """
+        bridge_identifier = _normalize_bridge_for_action(bridge_identifier)
         if bridge_identifier not in VALID_BRIDGES:
             raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
         json_str = truf_sdk.GetWithdrawalProof(self.client, bridge_identifier, wallet)
@@ -2945,7 +3066,7 @@ class TNClient:
         Returns:
             Transaction hash
         """
-        self._validate_binary_market_inputs(
+        bridge = self._validate_binary_market_inputs(
             data_provider, stream_id, bridge, max_spread, min_order_size
         )
 
@@ -3006,7 +3127,7 @@ class TNClient:
         Returns:
             Transaction hash
         """
-        self._validate_binary_market_inputs(
+        bridge = self._validate_binary_market_inputs(
             data_provider, stream_id, bridge, max_spread, min_order_size
         )
 
@@ -3069,7 +3190,7 @@ class TNClient:
         Returns:
             Transaction hash
         """
-        self._validate_binary_market_inputs(
+        bridge = self._validate_binary_market_inputs(
             data_provider, stream_id, bridge, max_spread, min_order_size
         )
 
@@ -3133,7 +3254,7 @@ class TNClient:
         Returns:
             Transaction hash
         """
-        self._validate_binary_market_inputs(
+        bridge = self._validate_binary_market_inputs(
             data_provider, stream_id, bridge, max_spread, min_order_size
         )
 
@@ -3180,6 +3301,7 @@ class TNClient:
         """
         if not bridge_identifier:
             raise ValueError("bridge_identifier is required")
+        bridge_identifier = _normalize_bridge_for_action(bridge_identifier)
         if bridge_identifier not in VALID_BRIDGES:
             raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
 
@@ -3228,18 +3350,26 @@ class TNClient:
         bridge: str,
         max_spread: int,
         min_order_size: int,
-    ) -> None:
-        """Validate common inputs for binary market creation."""
+    ) -> str:
+        """Validate common inputs for binary market creation.
+
+        Returns the bridge value normalized to its on-chain extension namespace
+        (e.g. ``"sepolia"`` → ``"sepolia_bridge"``); callers should forward this
+        return value to the underlying ``truf_sdk.CreateXxxMarket`` call so the
+        on-chain ``$bridge`` literal matches one of the routing branches.
+        """
         if not data_provider.startswith("0x") or len(data_provider) != 42:
             raise ValueError("data_provider must be 0x-prefixed 40-character hex string")
         if len(stream_id) != 32:
             raise ValueError("stream_id must be exactly 32 characters")
-        if bridge not in VALID_BRIDGES:
-            raise ValueError(f"bridge must be one of: {', '.join(VALID_BRIDGES)}")
+        bridge = _normalize_bridge_for_extension(bridge)
+        if bridge not in VALID_BRIDGE_EXTENSIONS:
+            raise ValueError(f"bridge must be one of: {', '.join(VALID_BRIDGE_EXTENSIONS)}")
         if max_spread < 1 or max_spread > 50:
             raise ValueError("max_spread must be between 1 and 50")
         if min_order_size <= 0:
             raise ValueError("min_order_size must be positive")
+        return bridge
 
 
 # ═══════════════════════════════════════════════════════════════════════

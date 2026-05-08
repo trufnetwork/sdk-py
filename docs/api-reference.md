@@ -1553,6 +1553,32 @@ tx_hash = client.withdraw(
 print(f"Burn TX Hash: {tx_hash}")
 ```
 
+### `client.transfer(bridge_identifier: str, recipient: str, amount: str, wait: bool = True) -> str`
+
+Sends tokens from the caller to another in-network wallet via the bridge's public transfer action. Binds to the on-chain action `<bridge_identifier>_transfer` — `eth_truf_transfer` / `eth_usdc_transfer` on mainnet, `ethereum_transfer` / `sepolia_transfer` on dev/test.
+
+The caller pays a **1-token action fee** on top of `amount`, denominated in the same token as the bridge (1 TRUF for `eth_truf`, 1 USDC for `eth_usdc`). The action reverts if the caller balance is below `amount + 1 token`.
+
+**Parameters:**
+- `bridge_identifier: str` — Bridge / action namespace prefix (e.g. `"eth_truf"`, `"eth_usdc"`, `"sepolia"`).
+- `recipient: str` — Destination wallet address (Ethereum 0x… format).
+- `amount: str` — Transfer amount in wei (as a string to preserve precision).
+- `wait: bool` — If True (default), wait for the transaction to be mined before returning.
+
+**Returns:**
+- `str` — Transaction hash of the transfer.
+
+**Example — Refill bot pattern:**
+```python
+# Top up an adapter wallet; budget an extra 1 TRUF for the action fee.
+tx_hash = client.transfer(
+    bridge_identifier="eth_truf",
+    recipient="0xAdapterWallet...",
+    amount="100000000000000000000",  # 100 TRUF
+)
+print(f"Refill TX Hash: {tx_hash}")
+```
+
 ### `client.get_withdrawal_proof(bridge_identifier: str, wallet: str) -> List[Dict]`
 
 Retrieves the cryptographic proofs required to claim a withdrawal on the destination chain.

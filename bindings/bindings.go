@@ -2984,6 +2984,18 @@ func Withdraw(client *tnclient.Client, bridgeIdentifier string, amount string, r
 	return txHash, nil
 }
 
+// Transfer performs an in-network transfer of tokens from the caller to another wallet.
+// Binds to the on-chain action "<bridgeIdentifier>_transfer". Costs a 1-token action
+// fee in the same token as the bridge.
+func Transfer(client *tnclient.Client, bridgeIdentifier string, recipient string, amount string) (string, error) {
+	ctx := context.Background()
+	txHash, err := client.Transfer(ctx, bridgeIdentifier, recipient, amount)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to transfer tokens")
+	}
+	return txHash, nil
+}
+
 // GetWithdrawalProof retrieves the proofs and signatures needed to claim a withdrawal on EVM.
 func GetWithdrawalProof(client *tnclient.Client, bridgeIdentifier string, wallet string) (string, error) {
 	ctx := context.Background()

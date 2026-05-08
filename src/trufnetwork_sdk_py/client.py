@@ -386,13 +386,18 @@ BINARY_ACTION_NAMES = [name for name, info in ACTION_REGISTRY.items() if info["i
 
 # Valid bridge namespaces.
 # eth_truf / eth_usdc are the production mainnet bridges (TRUF fees, USDC
-# collateral). hoodi_tt / hoodi_tt2 / sepolia_bridge / ethereum_bridge are
-# testnet / legacy aliases retained for local-node and integration test use.
+# collateral). hoodi_tt / hoodi_tt2 are testnet aliases.
+# sepolia / ethereum match the on-chain action prefixes used by local-node
+# and devnet builds (e.g. sepolia_transfer, ethereum_wallet_balance).
+# sepolia_bridge / ethereum_bridge are the kwil-db extension instance names —
+# accepted as legacy aliases used elsewhere in the SDK (e.g. create_market).
 VALID_BRIDGES = [
     "eth_truf",
     "eth_usdc",
     "hoodi_tt",
     "hoodi_tt2",
+    "sepolia",
+    "ethereum",
     "sepolia_bridge",
     "ethereum_bridge",
 ]
@@ -2851,10 +2856,53 @@ class TNClient:
         if bridge_identifier not in VALID_BRIDGES:
             raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
         tx_hash = truf_sdk.Withdraw(self.client, bridge_identifier, amount, recipient)
-        
+
         if wait:
             self.wait_for_tx(tx_hash)
-            
+
+        return tx_hash
+
+    def transfer(
+        self,
+        bridge_identifier: str,
+        recipient: str,
+        amount: str,
+        wait: bool = True,
+    ) -> str:
+        """
+        Send tokens from the caller to another in-network wallet.
+
+        Binds to the on-chain action ``<bridge_identifier>_transfer`` —
+        ``eth_truf_transfer`` / ``eth_usdc_transfer`` (mainnet),
+        ``ethereum_transfer`` / ``sepolia_transfer`` (dev/test).
+
+        The caller pays a 1-token action fee on top of ``amount``, denominated
+        in the same token as the bridge (e.g. 1 TRUF for ``eth_truf``,
+        1 USDC for ``eth_usdc``). The action reverts if the caller balance is
+        below ``amount + 1 token``.
+
+        Args:
+            bridge_identifier: Bridge / action namespace prefix
+                (e.g. ``"eth_truf"``, ``"eth_usdc"``, ``"sepolia"``).
+            recipient: The destination wallet address (Ethereum 0x… format).
+                Must already exist as an in-network address.
+            amount: The transfer amount in wei (as a string to preserve
+                precision).
+            wait: If True, wait for the transaction to be confirmed on-chain.
+
+        Returns:
+            str: The transaction hash of the transfer.
+
+        Example:
+            >>> client.transfer("eth_truf", "0x7E5F...Bdf", "1000000000000000000")
+        """
+        if bridge_identifier not in VALID_BRIDGES:
+            raise ValueError(f"bridge_identifier must be one of: {', '.join(VALID_BRIDGES)}")
+        tx_hash = truf_sdk.Transfer(self.client, bridge_identifier, recipient, amount)
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
         return tx_hash
 
     def get_withdrawal_proof(self, bridge_identifier: str, wallet: str) -> list[dict]:

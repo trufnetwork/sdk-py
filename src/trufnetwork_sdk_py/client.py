@@ -2892,8 +2892,19 @@ class TNClient:
         """
         Initiate a withdrawal by burning tokens on the Kwil network.
 
+        .. warning::
+           Argument order differs from :py:meth:`transfer`. ``withdraw`` takes
+           ``(bridge_identifier, amount, recipient)``; ``transfer`` takes
+           ``(bridge_identifier, recipient, amount)``. Prefer keyword arguments
+           when calling either method.
+
         Args:
-            bridge_identifier: The bridge instance identifier (e.g., "eth_usdc", "eth_truf")
+            bridge_identifier: Action-prefix identifier — one of
+                ``"eth_truf"``, ``"eth_usdc"``, ``"hoodi_tt"``, ``"hoodi_tt2"``,
+                ``"sepolia"``, ``"ethereum"``. The extension-namespace aliases
+                ``"sepolia_bridge"`` / ``"ethereum_bridge"`` are also accepted
+                and normalized to ``"sepolia"`` / ``"ethereum"`` before
+                dispatch (see ``_normalize_bridge_for_action``).
             amount: The amount to withdraw in wei (as a string)
             recipient: The EVM address to receive the funds
             wait: If True, wait for the transaction to be confirmed on-chain
@@ -2923,16 +2934,27 @@ class TNClient:
 
         Binds to the on-chain action ``<bridge_identifier>_transfer`` —
         ``eth_truf_transfer`` / ``eth_usdc_transfer`` (mainnet),
-        ``ethereum_transfer`` / ``sepolia_transfer`` (dev/test).
+        ``hoodi_tt_transfer`` / ``hoodi_tt2_transfer`` /
+        ``sepolia_transfer`` / ``ethereum_transfer`` (dev/test).
 
         The caller pays a 1-token action fee on top of ``amount``, denominated
         in the same token as the bridge (e.g. 1 TRUF for ``eth_truf``,
         1 USDC for ``eth_usdc``). The action reverts if the caller balance is
         below ``amount + 1 token``.
 
+        .. warning::
+           Argument order differs from :py:meth:`withdraw`. ``transfer`` takes
+           ``(bridge_identifier, recipient, amount)``; ``withdraw`` takes
+           ``(bridge_identifier, amount, recipient)``. Prefer keyword arguments
+           when calling either method.
+
         Args:
-            bridge_identifier: Bridge / action namespace prefix
-                (e.g. ``"eth_truf"``, ``"eth_usdc"``, ``"sepolia"``).
+            bridge_identifier: Action-prefix identifier — one of
+                ``"eth_truf"``, ``"eth_usdc"``, ``"hoodi_tt"``, ``"hoodi_tt2"``,
+                ``"sepolia"``, ``"ethereum"``. The extension-namespace aliases
+                ``"sepolia_bridge"`` / ``"ethereum_bridge"`` are also accepted
+                and normalized to ``"sepolia"`` / ``"ethereum"`` before
+                dispatch (see ``_normalize_bridge_for_action``).
             recipient: The destination wallet address (Ethereum 0x… format).
                 Must already exist as an in-network address.
             amount: The transfer amount in wei (as a string to preserve

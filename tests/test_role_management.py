@@ -3,6 +3,7 @@ from trufnetwork_sdk_py import TNClient
 from trufnetwork_sdk_py.utils import generate_stream_id
 
 from tests.fixtures.test_trufnetwork import manager_client 
+from tests.helpers.skips import skip_until_stream_creation_fee_funded
 
 # A new key for a standard user.
 USER_PRIVATE_KEY = "2222222222222222222222222222222222222222222222222222222222222222"
@@ -63,6 +64,7 @@ class TestRoleManagement:
         assert not revoke_status[0]["is_member"], "User should not be a member after revoke_role"
 
 
+    @skip_until_stream_creation_fee_funded
     def test_network_writer_role_permission_gate(self, manager_client: TNClient, user_client: TNClient):
         """
         Tests that the `system:network_writer` role correctly gates stream deployment.

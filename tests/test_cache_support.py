@@ -2,6 +2,7 @@ import pytest
 import warnings
 from trufnetwork_sdk_py.client import CacheMetadata, StreamRecord, TNClient, CacheAwareResponse
 from trufnetwork_sdk_py.utils import generate_stream_id
+from tests.helpers.skips import skip_until_stream_creation_fee_funded
 
 # Test configuration
 TEST_PRIVATE_KEY = (
@@ -18,6 +19,7 @@ def client(tn_node, grant_network_writer):
     grant_network_writer(client)
     return client
 
+@skip_until_stream_creation_fee_funded
 def test_cache_ovld_dispatch_legacy_signature(client: TNClient):
     """Test that legacy signature emits warning and works correctly"""
     stream_id = generate_stream_id("test_cache_legacy")
@@ -56,6 +58,7 @@ def test_cache_ovld_dispatch_legacy_signature(client: TNClient):
     # Clean up
     client.destroy_stream(stream_id)
 
+@skip_until_stream_creation_fee_funded
 def test_cache_aware_signature_false(client):
     """Test cache-aware signature with use_cache=False"""
     stream_id = generate_stream_id("test_cache_false")
@@ -86,6 +89,7 @@ def test_cache_aware_signature_false(client):
     # Clean up
     client.destroy_stream(stream_id)
 
+@skip_until_stream_creation_fee_funded
 def test_cache_aware_signature_true(client: TNClient):
     """Test cache-aware signature with use_cache=True"""
     stream_id = generate_stream_id("test_cache_true")
@@ -125,6 +129,7 @@ def test_cache_aware_signature_true(client: TNClient):
     # Clean up
     client.destroy_stream(stream_id)
 
+@skip_until_stream_creation_fee_funded
 def test_get_first_record_cache_support(client):
     """Test get_first_record with cache support"""
     stream_id = generate_stream_id("test_first_record_cache")
@@ -169,6 +174,7 @@ def test_get_first_record_cache_support(client):
     # Clean up
     client.destroy_stream(stream_id)
 
+@skip_until_stream_creation_fee_funded
 def test_get_index_cache_support(client):
     """Test get_index with cache support"""
     stream_id = generate_stream_id("test_index_cache")

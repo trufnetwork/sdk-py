@@ -3,6 +3,7 @@ import pytest
 from trufnetwork_sdk_py.client import TNClient, TaxonomyDefinition
 from trufnetwork_sdk_py.utils import generate_stream_id
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
+from tests.helpers.skips import skip_until_stream_creation_fee_funded
 
 # Test configuration
 TEST_PRIVATE_KEY = "0121234567890123456789012345678901234567890123456789012345178901"
@@ -26,6 +27,7 @@ def test_client_initialization(client):
     assert client.client is not None
 
 
+@skip_until_stream_creation_fee_funded
 def test_deploy_stream(client):
     """
     Test deploying and initializing a stream.
@@ -45,6 +47,7 @@ def test_deploy_stream(client):
     client.destroy_stream(stream_id)
 
 
+@skip_until_stream_creation_fee_funded
 def test_insert_single_record(client):
     """
     Test inserting single record.
@@ -78,6 +81,7 @@ def test_insert_single_record(client):
     client.destroy_stream(stream_id)
 
 
+@skip_until_stream_creation_fee_funded
 def test_insert_and_retrieve_records(client):
     """
     Test inserting and retrieving records.
@@ -117,6 +121,7 @@ def test_insert_and_retrieve_records(client):
     client.destroy_stream(stream_id)
 
 
+@skip_until_stream_creation_fee_funded
 def test_get_first_record(client: TNClient):
     """Test getting the first record from a stream."""
     stream_id = generate_stream_id("test_get_first_record")
@@ -165,6 +170,7 @@ def test_get_first_record(client: TNClient):
     assert destroy_tx is not None
 
 
+@skip_until_stream_creation_fee_funded
 def test_get_index(client):
     """
     Test getting index from a stream.
@@ -209,6 +215,7 @@ def test_get_index(client):
     client.destroy_stream(stream_id)
 
 
+@skip_until_stream_creation_fee_funded
 def test_get_type(client):
     """
     Test that gets the type of the stream.
@@ -240,6 +247,7 @@ def test_get_type(client):
     client.destroy_stream(composed_stream_id)
 
 
+@skip_until_stream_creation_fee_funded
 def test_taxonomy(client: TNClient):
     """
     Test set and retrieve taxonomy of composed stream

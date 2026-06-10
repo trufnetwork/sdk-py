@@ -7,6 +7,7 @@ These tests verify that transaction events are correctly queried from the ledger
 import pytest
 from trufnetwork_sdk_py.client import TNClient, STREAM_TYPE_PRIMITIVE
 from trufnetwork_sdk_py.utils import generate_stream_id
+from tests.helpers.skips import skip_until_stream_creation_fee_funded
 
 # Test configuration
 TEST_PRIVATE_KEY = "0121234567890123456789012345678901234567890123456789012345178901"
@@ -47,6 +48,7 @@ def deployed_stream(client):
 class TestTransactionLedger:
     """Test transaction ledger query functionality"""
 
+    @skip_until_stream_creation_fee_funded
     def test_get_transaction_event_success(self, client, deployed_stream):
         """Test fetching transaction event for a deployStream transaction"""
         stream_id, tx_hash = deployed_stream
@@ -89,6 +91,7 @@ class TestTransactionLedger:
         print(f"   Fee: {tx_event['fee_amount']} wei")
         print(f"   Block: {tx_event['block_height']}")
 
+    @skip_until_stream_creation_fee_funded
     def test_get_transaction_event_without_prefix(self, client, deployed_stream):
         """Test that transaction query works without 0x prefix"""
         stream_id, tx_hash = deployed_stream
@@ -126,6 +129,7 @@ class TestTransactionLedger:
 
         print(f"✅ Correctly validated empty tx_id")
 
+    @skip_until_stream_creation_fee_funded
     def test_list_transaction_fees_paid_mode(self, client, deployed_stream):
         """Test listing fees paid by wallet"""
         stream_id, tx_hash = deployed_stream
@@ -224,6 +228,7 @@ class TestTransactionLedger:
 
         print(f"✅ Correctly validated empty wallet")
 
+    @skip_until_stream_creation_fee_funded
     def test_multiple_transactions(self, client):
         """Test fetching events for multiple transactions"""
         # Create multiple streams

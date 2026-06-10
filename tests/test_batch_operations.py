@@ -1,6 +1,7 @@
 import pytest
 from trufnetwork_sdk_py import TNClient, STREAM_TYPE_PRIMITIVE, STREAM_TYPE_COMPOSED, StreamDefinitionInput, StreamLocatorInput, StreamExistsResult
 from trufnetwork_sdk_py.utils import generate_stream_id as sdk_generate_stream_id
+from tests.helpers.skips import skip_until_stream_creation_fee_funded
 import uuid
 
 # Define a standard private key for test client initialization
@@ -26,6 +27,7 @@ def client(tn_node, grant_network_writer) -> TNClient:
 
 class TestBatchOperations:
 
+    @skip_until_stream_creation_fee_funded
     def test_batch_deploy_streams_success(self, client: TNClient):
         print("Starting test_batch_deploy_streams_success")
         dp_address = client.get_current_account()
@@ -97,6 +99,7 @@ class TestBatchOperations:
         print(f"Caught expected exception: {exc_info.value}")
         print("Finished test_batch_deploy_streams_empty_input")
 
+    @skip_until_stream_creation_fee_funded
     def test_batch_deploy_streams_duplicate_in_batch(self, client: TNClient):
         print("Starting test_batch_deploy_streams_duplicate_in_batch")
         dp_address = client.get_current_account()
@@ -162,6 +165,7 @@ class TestBatchOperations:
                 print(f"Error during cleanup check for new stream {new_stream_id}: {e}")
         print("Finished test_batch_deploy_streams_duplicate_in_batch")
 
+    @skip_until_stream_creation_fee_funded
     def test_batch_stream_exists_mixed(self, client: TNClient):
         print("Starting test_batch_stream_exists_mixed")
         dp_address = client.get_current_account()
@@ -228,6 +232,7 @@ class TestBatchOperations:
         assert results == [], "batch_stream_exists with empty list should return empty list"
         print("Finished test_batch_stream_exists_empty_input")
 
+    @skip_until_stream_creation_fee_funded
     def test_batch_filter_streams_by_existence_return_existing(self, client: TNClient):
         print("Starting test_batch_filter_streams_by_existence_return_existing")
         dp_address = client.get_current_account()
@@ -276,6 +281,7 @@ class TestBatchOperations:
                     print(f"Error destroying stream {stream_id_to_clean}: {e}")
         print("Finished test_batch_filter_streams_by_existence_return_existing")
 
+    @skip_until_stream_creation_fee_funded
     def test_batch_filter_streams_by_existence_return_non_existing(self, client: TNClient):
         print("Starting test_batch_filter_streams_by_existence_return_non_existing")
         dp_address = client.get_current_account()

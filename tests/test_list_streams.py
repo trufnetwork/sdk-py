@@ -2,6 +2,10 @@ import pytest
 from trufnetwork_sdk_py.client import TNClient
 from trufnetwork_sdk_py.utils import generate_stream_id
 from tests.fixtures.test_trufnetwork import tn_node
+from tests.helpers.skips import skip_until_stream_creation_fee_funded
+
+# Every test here deploys a stream; see the marker for the node #1384 context.
+pytestmark = skip_until_stream_creation_fee_funded
 
 # Test configuration
 TEST_PRIVATE_KEY = (

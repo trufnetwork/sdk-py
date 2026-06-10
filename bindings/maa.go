@@ -41,7 +41,8 @@ func MAACreateRule(
 			bodyHashes[i] = nil // unpinned -> NULL
 			continue
 		}
-		decoded, derr := hex.DecodeString(strings.TrimPrefix(h, "0x"))
+		h = strings.TrimPrefix(strings.TrimPrefix(h, "0x"), "0X")
+		decoded, derr := hex.DecodeString(h)
 		if derr != nil {
 			return "", errors.Wrapf(derr, "body_hash[%d]", i)
 		}

@@ -3660,7 +3660,7 @@ class TNClient:
         data = json.loads(json_str)
         cols = data.get("column_names") or []
         vals = data.get("values") or []
-        return [dict(zip(cols, row)) for row in vals]
+        return [dict(zip(cols, row, strict=True)) for row in vals]
 
 
 # ═══════════════════════════════════════════════════════════════════════

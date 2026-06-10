@@ -161,11 +161,16 @@ class TestRoleManagement:
             page_one = manager_client.list_role_members(SYSTEM_OWNER, NETWORK_WRITER_ROLE, limit=1, offset=0)
             assert len(page_one) == 1
 
-            # Pagination: limit 1, offset 1 should return next item (if available)
+            # Pagination: limit 1, offset 1 should return the next item (>=2 members exist — we granted 2).
             page_two = manager_client.list_role_members(SYSTEM_OWNER, NETWORK_WRITER_ROLE, limit=1, offset=1)
-            # The pagination behavior depends on DB ordering; ensure combined unique wallets cover expected ones.
+            assert len(page_two) == 1
+
+            # Different offsets must return different rows. Which wallets land on the first
+            # pages depends on DB ordering and on grants left behind by other modules'
+            # fixtures, so don't assert specific wallets here — membership of the two
+            # granted wallets is already asserted on the full list above.
             paged_wallets = {m["wallet"].lower() for m in page_one + page_two}
-            assert user_wallet.lower() in paged_wallets or another_wallet.lower() in paged_wallets
+            assert len(paged_wallets) == 2
 
         finally:
             # Clean up – revoke roles granted in this test

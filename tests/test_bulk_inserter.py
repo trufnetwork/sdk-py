@@ -21,6 +21,7 @@ from tests.fixtures.test_trufnetwork import DEFAULT_TN_PRIVATE_KEY, tn_node
 from trufnetwork_sdk_py import BulkInserter, BulkInsertError, STREAM_TYPE_PRIMITIVE
 from trufnetwork_sdk_py.client import Record, RecordBatch, TNClient
 from trufnetwork_sdk_py.utils import generate_stream_id
+from tests.helpers.skips import skip_until_stream_creation_fee_funded
 
 
 @pytest.fixture(scope="module")
@@ -65,6 +66,7 @@ def test_insert_all_empty_inputs_returns_empty(client):
     assert inserter.insert_all([{"stream_id": "x", "inputs": []}]) == []
 
 
+@skip_until_stream_creation_fee_funded
 def test_insert_all_inserts_and_reads_back(client):
     """End-to-end: BulkInserter → insert 25 records → read back → verify."""
     stream_id = generate_stream_id("test_bulk_inserter_e2e")
@@ -113,6 +115,7 @@ def test_insert_all_inserts_and_reads_back(client):
         _safe_destroy(client, stream_id)
 
 
+@skip_until_stream_creation_fee_funded
 def test_insert_all_single_chunk_under_batch_size(client):
     """A single chunk under the batch_size still goes through the pipeline."""
     stream_id = generate_stream_id("test_bulk_inserter_small")
@@ -138,6 +141,7 @@ def test_insert_all_single_chunk_under_batch_size(client):
         _safe_destroy(client, stream_id)
 
 
+@skip_until_stream_creation_fee_funded
 def test_insert_all_custom_batch_size(client):
     """Verify batch_size override produces the expected number of chunks."""
     stream_id = generate_stream_id("test_bulk_inserter_bsize")

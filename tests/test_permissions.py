@@ -4,6 +4,10 @@ from trufnetwork_sdk_py.client import StreamLocatorInput, TNClient, TaxonomyDefi
 from trufnetwork_sdk_py.utils import generate_stream_id
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 from tests.fixtures.test_trufnetwork import tn_node, DB_PRIVATE_KEY
+from tests.helpers.skips import skip_until_stream_creation_fee_funded
+
+# Every test here deploys a stream; see the marker for the node #1384 context.
+pytestmark = skip_until_stream_creation_fee_funded
 
 # Test configuration
 TEST_OWNER_PRIVATE_KEY = (

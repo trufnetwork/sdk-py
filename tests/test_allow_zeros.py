@@ -13,6 +13,10 @@ import pytest
 from trufnetwork_sdk_py.client import TNClient
 from trufnetwork_sdk_py.utils import generate_stream_id
 from tests.fixtures.test_trufnetwork import tn_node, DB_PRIVATE_KEY
+from tests.helpers.skips import skip_until_stream_creation_fee_funded
+
+# Every test here deploys a stream; see the marker for the node #1384 context.
+pytestmark = skip_until_stream_creation_fee_funded
 
 
 OWNER_PRIVATE_KEY = "0121234567890123456789012345678901234567890123456789012345178901"

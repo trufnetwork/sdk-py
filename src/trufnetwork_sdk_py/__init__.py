@@ -12,10 +12,22 @@ from .client import (
     StreamExistsResult,
     ParsedAttestationPayload,
     AttestationSignatureVerification,
+    MAACreateRuleResult,
+    MAAJoinResult,
+    MAARule,
+    MAAAllowedAction,
+    MAAInstance,
+    MAAEvent,
     STREAM_TYPE_PRIMITIVE,
     STREAM_TYPE_COMPOSED,
     VISIBILITY_PUBLIC,
     VISIBILITY_PRIVATE
+)
+from .utils import (
+    compute_rules_hash,
+    derive_rule_id,
+    derive_maa_address,
+    derive_maa_address_hex,
 )
 
 __all__ = [
@@ -31,6 +43,16 @@ __all__ = [
     "StreamExistsResult",
     "ParsedAttestationPayload",
     "AttestationSignatureVerification",
+    "MAACreateRuleResult",
+    "MAAJoinResult",
+    "MAARule",
+    "MAAAllowedAction",
+    "MAAInstance",
+    "MAAEvent",
+    "compute_rules_hash",
+    "derive_rule_id",
+    "derive_maa_address",
+    "derive_maa_address_hex",
     "STREAM_TYPE_PRIMITIVE",
     "STREAM_TYPE_COMPOSED",
     "VISIBILITY_PUBLIC",

@@ -6,6 +6,10 @@ import trufnetwork_sdk_c_bindings.exports as truf_sdk
 from typing import List
 from tests.fixtures.test_trufnetwork import DEFAULT_TN_PRIVATE_KEY, tn_node
 from datetime import datetime, timedelta, timezone
+from tests.helpers.skips import skip_until_stream_creation_fee_funded
+
+# Every test here deploys a stream; see the marker for the node #1384 context.
+pytestmark = skip_until_stream_creation_fee_funded
 
 
 @pytest.fixture(scope="module")

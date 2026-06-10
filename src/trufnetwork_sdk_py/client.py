@@ -33,6 +33,8 @@ from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Op
 
 from pydantic import BaseModel
 
+from .utils import compute_rules_hash, derive_maa_address, derive_rule_id
+
 T = TypeVar("T")
 
 # Sentinel meaning "keyword not supplied"
@@ -499,6 +501,65 @@ class CacheAwareResponse(BaseModel, Generic[T]):
 
     data: T  # Original response data (List[StreamRecord], Dict, etc.)
     cache: CacheMetadata | None  # Cache metadata (if available)
+
+
+# --------------------------------------------------
+#   Modular Agent Address (agent wallet) result types
+# --------------------------------------------------
+
+
+class MAACreateRuleResult(TypedDict):
+    """Result of TNClient.maa_create_rule."""
+    tx_hash: str
+    rule_id: str  # 0x-hex, derived locally (the handle a funder passes to join_agent_address)
+
+
+class MAAJoinResult(TypedDict):
+    """Result of TNClient.join_agent_address."""
+    tx_hash: str
+    maa_address: str  # 0x-hex, derived locally (the wallet to fund)
+
+
+class MAARule(TypedDict):
+    """A rule's terms (maa_get_rule)."""
+    rule_id: str
+    restricted_addr: str
+    rules_hash: str
+    fee_mode: str
+    fee_bps: int
+    fee_flat: str
+    created_at: int
+
+
+class MAAAllowedAction(TypedDict):
+    """One allow-list entry (maa_get_allowed_actions)."""
+    namespace: str
+    action: str
+    body_hash: Optional[str]  # None when unpinned
+
+
+class MAAInstance(TypedDict):
+    """An agent wallet and its two component keys (maa_get_instance)."""
+    maa_address: str
+    rule_id: str
+    restricted_addr: str
+    unrestricted_addr: str
+    created_at: int
+
+
+class MAAEvent(TypedDict):
+    """One append-only audit row (maa_get_events)."""
+    id: int
+    maa_address: Optional[str]
+    event_type: str
+    actor_role: str
+    actor_addr: str
+    inner_namespace: Optional[str]
+    inner_action: Optional[str]
+    amount: Optional[str]
+    tx_hash: str
+    block_height: int
+    block_timestamp: int
 
 
 class TNClient:
@@ -3370,6 +3431,236 @@ class TNClient:
         if min_order_size <= 0:
             raise ValueError("min_order_size must be positive")
         return bridge
+
+    # --------------------------------------------------
+    #   Modular Agent Addresses (agent wallets) — migration 048
+    # --------------------------------------------------
+
+    def maa_create_rule(
+        self,
+        fee_mode: str,
+        fee_bps: int = 0,
+        fee_flat: str = "0",
+        namespaces: Optional[list[str]] = None,
+        actions: Optional[list[str]] = None,
+        body_hashes: Optional[list] = None,
+        salt: Optional[bytes | str] = None,
+        wait: bool = True,
+    ) -> MAACreateRuleResult:
+        """
+        Register an agent-wallet rule. The caller (signer) becomes the restricted agent. Returns the
+        locally-derived rule_id (the handle a funder passes to join_agent_address) and the tx hash. The
+        rule is immutable once created; no funds move here.
+
+        body_hashes is parallel to namespaces/actions; each element may be bytes, a 0x-hex string, or
+        None (unpinned). salt may be bytes, a 0x-hex string, or None.
+        """
+        if fee_mode not in ("bps", "flat"):
+            raise ValueError("fee_mode must be 'bps' or 'flat'")
+        if int(fee_bps) < 0 or int(fee_bps) > 10000:
+            raise ValueError("fee_bps must be between 0 and 10000 (10000 = 100%)")
+        ns = list(namespaces or [])
+        acts = list(actions or [])
+        body_hashes_hex = self._maa_body_hashes_hex(ns, body_hashes)
+        salt_bytes = self._maa_to_bytes(salt)
+        fee_flat_str = str(fee_flat) if fee_flat is not None else "0"
+
+        # Derive the rule_id locally (caller = the restricted agent) so it is known before the tx lands.
+        restricted = self._maa_to_bytes(truf_sdk.GetCurrentAccount(self.client))
+        rules_hash = compute_rules_hash(fee_mode, int(fee_bps), fee_flat_str, ns, acts, body_hashes_hex)
+        rule_id = derive_rule_id(restricted, rules_hash, salt_bytes)
+
+        tx_hash = truf_sdk.MAACreateRule(
+            self.client,
+            go.Slice_byte(list(salt_bytes)),
+            fee_mode,
+            int(fee_bps),
+            fee_flat_str,
+            go.Slice_string(ns),
+            go.Slice_string(acts),
+            go.Slice_string(body_hashes_hex),
+        )
+        if wait:
+            self.wait_for_tx(tx_hash)
+        return {"tx_hash": tx_hash, "rule_id": "0x" + rule_id.hex()}
+
+    def join_agent_address(self, rule_id: bytes | str, wait: bool = True) -> MAAJoinResult:
+        """
+        Join an existing rule as the unrestricted owner/funder. The caller (signer) becomes the owner.
+        Returns the locally-derived MAA address (the wallet to fund) and the tx hash. The rule's
+        restricted creator is looked up on-chain to derive the address.
+        """
+        rid = self._maa_to_bytes(rule_id)
+        if len(rid) != 32:
+            raise ValueError(f"rule_id must be 32 bytes, got {len(rid)}")
+        rule = self.maa_get_rule(rid)
+        if rule is None:
+            raise ValueError("unknown rule_id")
+        unrestricted = self._maa_to_bytes(truf_sdk.GetCurrentAccount(self.client))
+        maa_address = derive_maa_address(unrestricted, rule["restricted_addr"], rid)
+
+        tx_hash = truf_sdk.MAAJoin(self.client, go.Slice_byte(list(rid)))
+        if wait:
+            self.wait_for_tx(tx_hash)
+        return {"tx_hash": tx_hash, "maa_address": "0x" + maa_address.hex()}
+
+    def maa_get_rule(self, rule_id: bytes | str) -> Optional[MAARule]:
+        """Read a rule's terms (maa_get_rule). Returns None if no such rule exists."""
+        rows = self._maa_rows(truf_sdk.MAAGetRule(self.client, go.Slice_byte(list(self._maa_to_bytes(rule_id)))))
+        if not rows:
+            return None
+        r = rows[0]
+        return {
+            "rule_id": r.get("rule_id", ""),
+            "restricted_addr": r.get("restricted_addr", ""),
+            "rules_hash": r.get("rules_hash", ""),
+            "fee_mode": r.get("fee_mode", ""),
+            "fee_bps": int(r.get("fee_bps") or 0),
+            "fee_flat": r.get("fee_flat", ""),
+            "created_at": int(r.get("created_at") or 0),
+        }
+
+    def maa_get_allowed_actions(self, rule_id: bytes | str) -> list[MAAAllowedAction]:
+        """Read a rule's allow-list (maa_get_allowed_actions), in canonical order."""
+        rows = self._maa_rows(
+            truf_sdk.MAAGetAllowedActions(self.client, go.Slice_byte(list(self._maa_to_bytes(rule_id))))
+        )
+        return [
+            {
+                "namespace": r.get("namespace", ""),
+                "action": r.get("action", ""),
+                "body_hash": (r.get("body_hash") or None),
+            }
+            for r in rows
+        ]
+
+    def maa_get_instance(self, maa_address: bytes | str) -> Optional[MAAInstance]:
+        """Read an agent wallet and its two component keys (maa_get_instance). None if unknown."""
+        rows = self._maa_rows(
+            truf_sdk.MAAGetInstance(self.client, go.Slice_byte(list(self._maa_to_bytes(maa_address))))
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return {
+            "maa_address": r.get("maa_address", ""),
+            "rule_id": r.get("rule_id", ""),
+            "restricted_addr": r.get("restricted_addr", ""),
+            "unrestricted_addr": r.get("unrestricted_addr", ""),
+            "created_at": int(r.get("created_at") or 0),
+        }
+
+    def maa_list_by_restricted(self, agent: str, limit: int = 100, offset: int = 0) -> list[dict]:
+        """List the rules an agent created (maa_list_by_restricted). agent is a 0x-hex address."""
+        rows = self._maa_rows(truf_sdk.MAAListByRestricted(self.client, agent, int(limit), int(offset)))
+        return [{"rule_id": r.get("rule_id", ""), "created_at": int(r.get("created_at") or 0)} for r in rows]
+
+    def maa_list_by_unrestricted(self, owner: str, limit: int = 100, offset: int = 0) -> list[dict]:
+        """List the wallets an owner funded (maa_list_by_unrestricted). owner is a 0x-hex address."""
+        rows = self._maa_rows(truf_sdk.MAAListByUnrestricted(self.client, owner, int(limit), int(offset)))
+        return [
+            {
+                "maa_address": r.get("maa_address", ""),
+                "rule_id": r.get("rule_id", ""),
+                "created_at": int(r.get("created_at") or 0),
+            }
+            for r in rows
+        ]
+
+    def maa_list_instances_by_rule(self, rule_id: bytes | str, limit: int = 100, offset: int = 0) -> list[dict]:
+        """List every wallet funded under a rule (maa_list_instances_by_rule)."""
+        rows = self._maa_rows(
+            truf_sdk.MAAListInstancesByRule(
+                self.client, go.Slice_byte(list(self._maa_to_bytes(rule_id))), int(limit), int(offset)
+            )
+        )
+        return [
+            {
+                "maa_address": r.get("maa_address", ""),
+                "unrestricted_addr": r.get("unrestricted_addr", ""),
+                "created_at": int(r.get("created_at") or 0),
+            }
+            for r in rows
+        ]
+
+    def maa_get_events(self, rule_id: bytes | str, limit: int = 100, offset: int = 0) -> list[MAAEvent]:
+        """Read a rule's append-only audit log (maa_get_events)."""
+        rows = self._maa_rows(
+            truf_sdk.MAAGetEvents(
+                self.client, go.Slice_byte(list(self._maa_to_bytes(rule_id))), int(limit), int(offset)
+            )
+        )
+        return [
+            {
+                "id": int(r.get("id") or 0),
+                "maa_address": (r.get("maa_address") or None),
+                "event_type": r.get("event_type", ""),
+                "actor_role": r.get("actor_role", ""),
+                "actor_addr": r.get("actor_addr", ""),
+                "inner_namespace": (r.get("inner_namespace") or None),
+                "inner_action": (r.get("inner_action") or None),
+                "amount": (r.get("amount") or None),
+                "tx_hash": r.get("tx_hash", ""),
+                "block_height": int(r.get("block_height") or 0),
+                "block_timestamp": int(r.get("block_timestamp") or 0),
+            }
+            for r in rows
+        ]
+
+    def maa_is_known(self, maa_address: bytes | str) -> bool:
+        """Report whether an address is a known (joined) agent wallet (maa_is_known)."""
+        rows = self._maa_rows(
+            truf_sdk.MAAIsKnown(self.client, go.Slice_byte(list(self._maa_to_bytes(maa_address))))
+        )
+        if not rows:
+            return False
+        return str(rows[0].get("known", "")).lower() == "true"
+
+    # --- MAA helpers ---
+
+    @staticmethod
+    def _maa_to_bytes(value: bytes | str | None) -> bytes:
+        """Normalize bytes / a 0x-hex string (with or without prefix) / None to raw bytes."""
+        if value is None:
+            return b""
+        if isinstance(value, (bytes, bytearray)):
+            return bytes(value)
+        if isinstance(value, str):
+            s = value.strip()
+            if s == "":
+                return b""
+            if s.startswith(("0x", "0X")):
+                s = s[2:]
+            return bytes.fromhex(s)
+        raise TypeError(f"expected bytes or hex string, got {type(value).__name__}")
+
+    @staticmethod
+    def _maa_body_hashes_hex(namespaces: list[str], body_hashes: Optional[list]) -> list[str]:
+        """Normalize body_hashes (bytes/hex/None) to hex strings parallel to namespaces ('' = unpinned)."""
+        n = len(namespaces)
+        if not body_hashes:
+            return [""] * n
+        out: list[str] = []
+        for bh in body_hashes:
+            if bh is None or bh == "" or bh == b"":
+                out.append("")
+            elif isinstance(bh, (bytes, bytearray)):
+                out.append(bytes(bh).hex())
+            elif isinstance(bh, str):
+                out.append(bh[2:] if bh.startswith(("0x", "0X")) else bh)
+            else:
+                raise TypeError(f"body_hash must be bytes, hex string, or None, got {type(bh).__name__}")
+        if len(out) != n:
+            raise ValueError("body_hashes length must match namespaces length")
+        return out
+
+    @staticmethod
+    def _maa_rows(json_str: str) -> list[dict]:
+        """Parse the {column_names, values} JSON a read binding returns into a list of row dicts."""
+        data = json.loads(json_str)
+        cols = data.get("column_names") or []
+        vals = data.get("values") or []
+        return [dict(zip(cols, row)) for row in vals]
 
 
 # ═══════════════════════════════════════════════════════════════════════

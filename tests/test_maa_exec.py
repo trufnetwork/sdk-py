@@ -68,3 +68,11 @@ def test_none_and_empty_args_serialize_to_empty_array():
 def test_non_serializable_args_raise_valueerror():
     with pytest.raises(ValueError):
         TNClient._maa_exec_args(ADDR20, "a", "main", [object()])
+
+
+def test_non_finite_float_args_raise_valueerror():
+    # NaN/Infinity would serialize to invalid JSON ("[NaN]") that the Go decoder rejects downstream;
+    # they must be caught early at the Python layer with a clear error.
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError):
+            TNClient._maa_exec_args(ADDR20, "a", "main", [bad])

@@ -3655,9 +3655,11 @@ class TNClient:
             raise ValueError("action must not be empty")
         ns = namespace or "main"  # mirror the node's empty-namespace normalization
         try:
-            args_json = json.dumps(list(args) if args else [])
-        except TypeError as e:
-            raise ValueError(f"maa_exec arguments must be JSON-serializable: {e}") from e
+            # allow_nan=False rejects NaN/Infinity here (they serialize to invalid JSON the Go
+            # decoder rejects with a cryptic error); it raises ValueError, hence the wider except.
+            args_json = json.dumps(list(args) if args else [], allow_nan=False)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"maa_exec arguments must be finite and JSON-serializable: {e}") from e
         return addr, ns, action, args_json
 
     @staticmethod

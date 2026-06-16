@@ -3504,6 +3504,30 @@ class TNClient:
             self.wait_for_tx(tx_hash)
         return {"tx_hash": tx_hash, "maa_address": "0x" + maa_address.hex()}
 
+    def execute_agent_action(
+        self,
+        maa_address: bytes | str,
+        action: str,
+        args: Optional[list] = None,
+        namespace: str = "main",
+        wait: bool = True,
+    ) -> str:
+        """
+        Run one allow-listed action AS the agent wallet (a maa_exec transaction) and return the tx hash.
+        The caller (signer) acts as its component key — the restricted agent or the unrestricted owner —
+        and the node rewrites @caller to the wallet after checking the rule's role and allow-list. The
+        owner-exit actions (maa_withdraw / maa_bridge_out) are reachable here for the unrestricted owner.
+
+        maa_address is the 20-byte wallet (bytes or 0x-hex). action is the inner action name; namespace
+        defaults to "main". args is the inner action's argument list (a single call); it is serialized as
+        JSON, so each element must be JSON-encodable (ints stay ints, decimals are passed as strings).
+        """
+        addr, ns, act, args_json = self._maa_exec_args(maa_address, action, namespace, args)
+        tx_hash = truf_sdk.MAAExec(self.client, go.Slice_byte(list(addr)), ns, act, args_json)
+        if wait:
+            self.wait_for_tx(tx_hash)
+        return tx_hash
+
     def maa_get_rule(self, rule_id: bytes | str) -> Optional[MAARule]:
         """Read a rule's terms (maa_get_rule). Returns None if no such rule exists."""
         rows = self._maa_rows(truf_sdk.MAAGetRule(self.client, go.Slice_byte(list(self._maa_to_bytes(rule_id)))))
@@ -3617,6 +3641,24 @@ class TNClient:
         return str(rows[0].get("known", "")).lower() == "true"
 
     # --- MAA helpers ---
+
+    @staticmethod
+    def _maa_exec_args(
+        maa_address: bytes | str, action: str, namespace: str, args: Optional[list]
+    ) -> tuple[bytes, str, str, str]:
+        """Validate and normalize execute_agent_action inputs to the (addr, namespace, action, args_json)
+        the binding expects. Pure (no client/network) so it can be unit-tested without a node."""
+        addr = TNClient._maa_to_bytes(maa_address)
+        if len(addr) != 20:
+            raise ValueError(f"maa_address must be 20 bytes, got {len(addr)}")
+        if not action:
+            raise ValueError("action must not be empty")
+        ns = namespace or "main"  # mirror the node's empty-namespace normalization
+        try:
+            args_json = json.dumps(list(args) if args else [])
+        except TypeError as e:
+            raise ValueError(f"maa_exec arguments must be JSON-serializable: {e}") from e
+        return addr, ns, action, args_json
 
     @staticmethod
     def _maa_to_bytes(value: bytes | str | None) -> bytes:

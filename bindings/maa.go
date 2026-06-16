@@ -15,6 +15,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
+	"github.com/trufnetwork/sdk-go/core/types"
 )
 
 // MAACreateRule submits maa_create_rule (the caller becomes the restricted agent) and returns the tx
@@ -70,6 +71,60 @@ func MAAJoin(client *tnclient.Client, ruleID []byte) (string, error) {
 		return "", errors.Wrap(err, "maa_join")
 	}
 	return txHash.String(), nil
+}
+
+// MAAExec submits a maa_exec transaction: run one allow-listed inner action AS the agent wallet. The
+// caller (signer) acts as its component key — restricted agent or unrestricted owner — and the node
+// rewrites @caller to the wallet after checking the rule's role and allow-list. The owner-exit actions
+// (maa_withdraw / maa_bridge_out) are reachable here for the unrestricted owner. namespace "" defaults
+// to "main". argsJSON is a JSON array of the inner action's arguments (a single call), e.g.
+// `["0xabc...", 100, "5.5"]`; it is decoded with the same number handling the action-args encoder uses
+// so integers reach the node as integers, not floats. Returns the tx hash.
+func MAAExec(client *tnclient.Client, maaAddress []byte, namespace string, action string, argsJSON string) (string, error) {
+	args, err := decodeMAAArgs(argsJSON)
+	if err != nil {
+		return "", err
+	}
+	ctx := context.Background()
+	act, err := client.LoadActions()
+	if err != nil {
+		return "", errors.Wrap(err, "load actions")
+	}
+	txHash, err := act.ExecuteAgentAction(ctx, types.MAAExecuteInput{
+		MAAAddress: maaAddress,
+		Namespace:  namespace,
+		Action:     action,
+		Args:       args,
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "maa_exec")
+	}
+	return txHash, nil
+}
+
+// decodeMAAArgs parses a JSON array of inner-action arguments. It mirrors EncodeActionArgs's number
+// handling (UseNumber, then int64-or-float64) so a JSON integer reaches the action as an int64 rather
+// than a float64. An empty string or "[]" yields no arguments.
+func decodeMAAArgs(argsJSON string) ([]any, error) {
+	if argsJSON == "" || argsJSON == "[]" {
+		return nil, nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(argsJSON))
+	decoder.UseNumber()
+	var args []any
+	if err := decoder.Decode(&args); err != nil {
+		return nil, errors.Wrap(err, "decode maa_exec arguments JSON")
+	}
+	for i, arg := range args {
+		if num, ok := arg.(json.Number); ok {
+			if intVal, ierr := num.Int64(); ierr == nil {
+				args[i] = intVal
+			} else if floatVal, ferr := num.Float64(); ferr == nil {
+				args[i] = floatVal
+			}
+		}
+	}
+	return args, nil
 }
 
 // maaCallJSON runs a read (VIEW) action and returns its {column_names, values} result JSON-encoded.

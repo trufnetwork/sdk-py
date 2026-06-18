@@ -14,9 +14,18 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	kwilTypes "github.com/trufnetwork/kwil-db/core/types"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
 )
+
+// maaTypeKey marks a JSON object as a typed argument (rather than a plain scalar) inside the maa_exec
+// argument array. The only typed argument today is "numeric": a NUMERIC value carried as a string plus
+// its precision/scale, because JSON has no decimal type and the on-chain route does not coerce text to
+// NUMERIC — so a NUMERIC action parameter (e.g. maa_withdraw's $amount or insert_records' $value) can
+// only be driven by reconstructing a *types.Decimal with the EXACT precision/scale the parameter
+// declares. The Python side emits this shape; see trufnetwork_sdk_py.client.MAANumericArg.
+const maaTypeKey = "__tn_type__"
 
 // MAACreateRule submits maa_create_rule (the caller becomes the restricted agent) and returns the tx
 // hash. bodyHashesHex is parallel to namespaces/actions; an empty element is an unpinned (NULL) entry.
@@ -79,7 +88,9 @@ func MAAJoin(client *tnclient.Client, ruleID []byte) (string, error) {
 // (maa_withdraw / maa_bridge_out) are reachable here for the unrestricted owner. namespace "" defaults
 // to "main". argsJSON is a JSON array of the inner action's arguments (a single call), e.g.
 // `["0xabc...", 100, "5.5"]`; it is decoded with the same number handling the action-args encoder uses
-// so integers reach the node as integers, not floats. Returns the tx hash.
+// so integers reach the node as integers (not floats) at any nesting depth, and a NUMERIC argument
+// encoded as a {"__tn_type__":"numeric",...} marker reaches the node as a precision/scale-exact
+// *types.Decimal. Returns the tx hash.
 func MAAExec(client *tnclient.Client, maaAddress []byte, namespace string, action string, argsJSON string) (string, error) {
 	args, err := decodeMAAArgs(argsJSON)
 	if err != nil {
@@ -104,27 +115,114 @@ func MAAExec(client *tnclient.Client, maaAddress []byte, namespace string, actio
 
 // decodeMAAArgs parses a JSON array of inner-action arguments. It mirrors EncodeActionArgs's number
 // handling (UseNumber, then int64-or-float64) so a JSON integer reaches the action as an int64 rather
-// than a float64. An empty string or "[]" yields no arguments.
+// than a float64 — recursively, so an element of an INT[] array is an int64 too, not the float64 a
+// shallow conversion would leave (which the action-args encoder rejects). A JSON object is interpreted
+// as a typed-argument marker (see maaTypeKey); the only kind today is "numeric", which becomes a
+// precision/scale-exact *types.Decimal. An empty string or "[]" yields no arguments.
 func decodeMAAArgs(argsJSON string) ([]any, error) {
 	if argsJSON == "" || argsJSON == "[]" {
 		return nil, nil
 	}
 	decoder := json.NewDecoder(strings.NewReader(argsJSON))
 	decoder.UseNumber()
-	var args []any
-	if err := decoder.Decode(&args); err != nil {
+	var raw []any
+	if err := decoder.Decode(&raw); err != nil {
 		return nil, errors.Wrap(err, "decode maa_exec arguments JSON")
 	}
-	for i, arg := range args {
-		if num, ok := arg.(json.Number); ok {
-			if intVal, ierr := num.Int64(); ierr == nil {
-				args[i] = intVal
-			} else if floatVal, ferr := num.Float64(); ferr == nil {
-				args[i] = floatVal
-			}
+	args := make([]any, len(raw))
+	for i, arg := range raw {
+		conv, err := convertMAAArg(arg)
+		if err != nil {
+			return nil, err
 		}
+		args[i] = conv
 	}
 	return args, nil
+}
+
+// convertMAAArg normalizes one decoded JSON value into the Go type the action-args encoder expects,
+// recursing into arrays so the conversion is applied at every depth (not just the top level). JSON
+// numbers become int64 (or float64 when they do not fit); typed-argument objects become their native
+// value (currently only NUMERIC -> *types.Decimal); everything else passes through unchanged.
+func convertMAAArg(v any) (any, error) {
+	switch t := v.(type) {
+	case json.Number:
+		if intVal, err := t.Int64(); err == nil {
+			return intVal, nil
+		}
+		if floatVal, err := t.Float64(); err == nil {
+			return floatVal, nil
+		}
+		return nil, errors.Errorf("cannot represent JSON number %q as int64 or float64", t.String())
+	case []any:
+		for i := range t {
+			conv, err := convertMAAArg(t[i])
+			if err != nil {
+				return nil, err
+			}
+			t[i] = conv
+		}
+		return t, nil
+	case map[string]any:
+		return decodeMAATypedArg(t)
+	default:
+		return v, nil
+	}
+}
+
+// decodeMAATypedArg turns a typed-argument marker object into its native Go value. A bare JSON object
+// is never a valid inner-action argument on its own, so anything that is not a recognized marker is an
+// error rather than a silent pass-through.
+func decodeMAATypedArg(m map[string]any) (any, error) {
+	kind, _ := m[maaTypeKey].(string)
+	switch kind {
+	case "numeric":
+		return decodeMAANumeric(m)
+	case "":
+		return nil, errors.Errorf("unexpected object in maa_exec arguments (missing %q marker)", maaTypeKey)
+	default:
+		return nil, errors.Errorf("unsupported maa_exec typed argument %q", kind)
+	}
+}
+
+// decodeMAANumeric reconstructs a NUMERIC argument from its marker: ParseDecimalExplicit with the
+// declared precision/scale yields a *types.Decimal whose type matches the action parameter exactly,
+// which the engine requires (it compares precision and scale, and does not cast text to NUMERIC).
+func decodeMAANumeric(m map[string]any) (*kwilTypes.Decimal, error) {
+	value, ok := m["value"].(string)
+	if !ok {
+		return nil, errors.New("numeric maa_exec argument requires a string \"value\"")
+	}
+	precision, err := maaUint16Field(m, "precision")
+	if err != nil {
+		return nil, err
+	}
+	scale, err := maaUint16Field(m, "scale")
+	if err != nil {
+		return nil, err
+	}
+	dec, err := kwilTypes.ParseDecimalExplicit(value, precision, scale)
+	if err != nil {
+		return nil, errors.Wrapf(err, "parse numeric maa_exec argument %q as NUMERIC(%d,%d)", value, precision, scale)
+	}
+	return dec, nil
+}
+
+// maaUint16Field reads a non-negative integer JSON field (decoded as json.Number under UseNumber) and
+// range-checks it to uint16, the type ParseDecimalExplicit expects for precision/scale.
+func maaUint16Field(m map[string]any, key string) (uint16, error) {
+	num, ok := m[key].(json.Number)
+	if !ok {
+		return 0, errors.Errorf("numeric maa_exec argument requires integer %q", key)
+	}
+	n, err := num.Int64()
+	if err != nil {
+		return 0, errors.Wrapf(err, "numeric maa_exec argument %q", key)
+	}
+	if n < 0 || n > 65535 {
+		return 0, errors.Errorf("numeric maa_exec argument %q out of uint16 range: %d", key, n)
+	}
+	return uint16(n), nil
 }
 
 // maaCallJSON runs a read (VIEW) action and returns its {column_names, values} result JSON-encoded.
@@ -153,6 +251,13 @@ func MAAGetAllowedActions(client *tnclient.Client, ruleID []byte) (string, error
 // MAAGetInstance reads an agent wallet and its two component keys (maa_get_instance).
 func MAAGetInstance(client *tnclient.Client, maaAddress []byte) (string, error) {
 	return maaCallJSON(client, "maa_get_instance", []any{maaAddress})
+}
+
+// MAAGetBalance reads an agent wallet's escrow balance on a bridge (maa_get_balance). maaAddress is
+// passed as raw bytes (the action's parameter is BYTEA), so the read goes through the same typed-arg
+// path as the other getters rather than the string-coercing call_procedure helper.
+func MAAGetBalance(client *tnclient.Client, maaAddress []byte, bridge string) (string, error) {
+	return maaCallJSON(client, "maa_get_balance", []any{maaAddress, bridge})
 }
 
 // MAAListByRestricted lists the rules an agent created (maa_list_by_restricted). agent is a 0x-hex address.

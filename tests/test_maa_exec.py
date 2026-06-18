@@ -11,6 +11,7 @@ import json
 
 import pytest
 
+from trufnetwork_sdk_py import MAANumericArg
 from trufnetwork_sdk_py.client import TNClient
 
 ADDR20 = b"\x11" * 20
@@ -76,3 +77,56 @@ def test_non_finite_float_args_raise_valueerror():
     for bad in (float("nan"), float("inf"), float("-inf")):
         with pytest.raises(ValueError):
             TNClient._maa_exec_args(ADDR20, "a", "main", [bad])
+
+
+# --- MAANumericArg: NUMERIC arguments across the JSON boundary --------------------------------------
+# JSON has no decimal type and the node does not coerce text to NUMERIC, so a NUMERIC action parameter
+# is driven by a marker that carries the value plus its precision/scale. The binding rebuilds a
+# precision/scale-exact *types.Decimal from it (see bindings/maa_decode_test.go for the decode side).
+
+
+def test_scalar_numeric_marker_serializes_with_precision_and_scale():
+    # maa_withdraw($bridge TEXT, $amount NUMERIC(78,0)): the amount must travel as a marker, not a
+    # bare string (which would arrive as TEXT and be rejected).
+    _, _, _, args_json = TNClient._maa_exec_args(
+        ADDR20, "maa_withdraw", "main", ["eth_truf", MAANumericArg("110000000000000000000", 78, 0)]
+    )
+    assert json.loads(args_json) == [
+        "eth_truf",
+        {"__tn_type__": "numeric", "value": "110000000000000000000", "precision": 78, "scale": 0},
+    ]
+
+
+def test_nested_numeric_array_and_ints_serialize():
+    # insert_records($data_provider TEXT[], $stream_id TEXT[], $event_time INT8[], $value NUMERIC(36,18)[]):
+    # event_time stays an integer array; value is an array of numeric markers.
+    _, _, _, args_json = TNClient._maa_exec_args(
+        ADDR20,
+        "insert_records",
+        "main",
+        [["0xabc"], ["st"], [100, 200], [MAANumericArg("42.5", 36, 18), MAANumericArg("43.75", 36, 18)]],
+    )
+    assert json.loads(args_json) == [
+        ["0xabc"],
+        ["st"],
+        [100, 200],
+        [
+            {"__tn_type__": "numeric", "value": "42.5", "precision": 36, "scale": 18},
+            {"__tn_type__": "numeric", "value": "43.75", "precision": 36, "scale": 18},
+        ],
+    ]
+
+
+def test_numeric_marker_accepts_int_value():
+    assert json.loads(TNClient._maa_exec_args(ADDR20, "a", "main", [MAANumericArg(5, 78, 0)])[3]) == [
+        {"__tn_type__": "numeric", "value": "5", "precision": 78, "scale": 0}
+    ]
+
+
+def test_numeric_marker_rejects_bad_precision_scale():
+    with pytest.raises(ValueError):
+        MAANumericArg("1", 0, 0)  # precision must be >= 1
+    with pytest.raises(ValueError):
+        MAANumericArg("1", 36, 37)  # scale must be <= precision
+    with pytest.raises(ValueError):
+        MAANumericArg("1", 36, -1)  # scale must be >= 0

@@ -508,6 +508,52 @@ class CacheAwareResponse(BaseModel, Generic[T]):
 # --------------------------------------------------
 
 
+class MAANumericArg:
+    """A NUMERIC argument for :py:meth:`TNClient.execute_agent_action`.
+
+    ``execute_agent_action`` serializes the inner action's arguments to JSON, and JSON has no decimal
+    type. The on-chain route does NOT coerce text to NUMERIC — it reconstructs each argument's native
+    type and the engine requires a NUMERIC parameter to receive a NUMERIC value whose precision and
+    scale match EXACTLY. So a plain string or int cannot drive a NUMERIC parameter (``maa_withdraw``'s
+    ``$amount NUMERIC(78,0)``, ``insert_records``' ``$value NUMERIC(36,18)[]``, …): wrap it in this
+    marker, which carries the value plus its precision/scale across the JSON boundary so the binding
+    can rebuild a precision/scale-exact decimal.
+
+    Example::
+
+        client.execute_agent_action(
+            maa, "maa_withdraw", ["eth_truf", MAANumericArg("110000000000000000000", 78, 0)]
+        )
+        client.execute_agent_action(
+            maa, "insert_records",
+            [[provider], [stream_id], [event_time], [MAANumericArg("42.5", 36, 18)]],
+        )
+    """
+
+    __slots__ = ("value", "precision", "scale")
+
+    def __init__(self, value: "str | int", precision: int, scale: int):
+        self.value = str(value)
+        self.precision = int(precision)
+        self.scale = int(scale)
+        if self.precision < 1 or self.precision > 1000:
+            raise ValueError(f"precision must be between 1 and 1000, got {self.precision}")
+        if self.scale < 0 or self.scale > self.precision:
+            raise ValueError(f"scale must be between 0 and precision ({self.precision}), got {self.scale}")
+
+    def _to_maa_json(self) -> dict:
+        """The tagged object the maa_exec binding decodes back into a precision/scale-exact decimal."""
+        return {
+            "__tn_type__": "numeric",
+            "value": self.value,
+            "precision": self.precision,
+            "scale": self.scale,
+        }
+
+    def __repr__(self) -> str:
+        return f"MAANumericArg({self.value!r}, {self.precision}, {self.scale})"
+
+
 class MAACreateRuleResult(TypedDict):
     """Result of TNClient.maa_create_rule."""
     tx_hash: str
@@ -3520,7 +3566,12 @@ class TNClient:
 
         maa_address is the 20-byte wallet (bytes or 0x-hex). action is the inner action name; namespace
         defaults to "main". args is the inner action's argument list (a single call); it is serialized as
-        JSON, so each element must be JSON-encodable (ints stay ints, decimals are passed as strings).
+        JSON, so each element must be JSON-encodable. Ints stay ints (at any nesting depth) and strings
+        stay strings (TEXT). A NUMERIC parameter — e.g. maa_withdraw's $amount NUMERIC(78,0) or
+        insert_records' $value NUMERIC(36,18)[] — must be wrapped in :py:class:`MAANumericArg` so the
+        node receives a precision/scale-exact decimal; a bare string would arrive as TEXT and be
+        rejected (the engine does not coerce text to NUMERIC). Nested arrays are supported, so
+        array-valued parameters (e.g. create_streams / insert_records) are passed as lists.
         """
         addr, ns, act, args_json = self._maa_exec_args(maa_address, action, namespace, args)
         tx_hash = truf_sdk.MAAExec(self.client, go.Slice_byte(list(addr)), ns, act, args_json)
@@ -3573,6 +3624,20 @@ class TNClient:
             "unrestricted_addr": r.get("unrestricted_addr", ""),
             "created_at": int(r.get("created_at") or 0),
         }
+
+    def maa_get_balance(self, maa_address: bytes | str, bridge: str) -> str:
+        """Read an agent wallet's escrow balance on a bridge (maa_get_balance), in base units (wei)
+        as a string. Returns "0" when the wallet holds nothing. ``bridge`` is the action-prefix
+        identifier (e.g. "eth_truf" / "hoodi_tt"). Unlike call_procedure, the wallet address is sent
+        as BYTEA, matching the action's parameter type."""
+        rows = self._maa_rows(
+            truf_sdk.MAAGetBalance(
+                self.client, go.Slice_byte(list(self._maa_to_bytes(maa_address))), bridge
+            )
+        )
+        if not rows:
+            return "0"
+        return str(rows[0].get("balance", "0") or "0")
 
     def maa_list_by_restricted(self, agent: str, limit: int = 100, offset: int = 0) -> list[dict]:
         """List the rules an agent created (maa_list_by_restricted). agent is a 0x-hex address."""
@@ -3657,10 +3722,21 @@ class TNClient:
         try:
             # allow_nan=False rejects NaN/Infinity here (they serialize to invalid JSON the Go
             # decoder rejects with a cryptic error); it raises ValueError, hence the wider except.
-            args_json = json.dumps(list(args) if args else [], allow_nan=False)
+            # default= renders MAANumericArg markers (at any nesting depth) as the tagged object the
+            # binding rebuilds into a precision/scale-exact decimal.
+            args_json = json.dumps(
+                list(args) if args else [], allow_nan=False, default=TNClient._maa_json_default
+            )
         except (TypeError, ValueError) as e:
             raise ValueError(f"maa_exec arguments must be finite and JSON-serializable: {e}") from e
         return addr, ns, action, args_json
+
+    @staticmethod
+    def _maa_json_default(o):
+        """json.dumps hook: serialize MAANumericArg markers; reject anything else not JSON-native."""
+        if isinstance(o, MAANumericArg):
+            return o._to_maa_json()
+        raise TypeError(f"object of type {type(o).__name__} is not a valid maa_exec argument")
 
     @staticmethod
     def _maa_to_bytes(value: bytes | str | None) -> bytes:

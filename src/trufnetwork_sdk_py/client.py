@@ -33,7 +33,6 @@ from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Op
 
 from pydantic import BaseModel
 
-from .utils import compute_rules_hash, derive_maa_address, derive_rule_id
 
 T = TypeVar("T")
 
@@ -3495,8 +3494,8 @@ class TNClient:
     ) -> MAACreateRuleResult:
         """
         Register an agent-wallet rule. The caller (signer) becomes the restricted agent. Returns the
-        locally-derived rule_id (the handle a funder passes to join_agent_address) and the tx hash. The
-        rule is immutable once created; no funds move here.
+        rule_id (the handle a funder passes to join_agent_address; derived by the underlying Go SDK) and
+        the tx hash. The rule is immutable once created; no funds move here.
 
         body_hashes is parallel to namespaces/actions; each element may be bytes, a 0x-hex string, or
         None (unpinned). salt may be bytes, a 0x-hex string, or None.
@@ -3511,44 +3510,35 @@ class TNClient:
         salt_bytes = self._maa_to_bytes(salt)
         fee_flat_str = str(fee_flat) if fee_flat is not None else "0"
 
-        # Derive the rule_id locally (caller = the restricted agent) so it is known before the tx lands.
-        restricted = self._maa_to_bytes(truf_sdk.GetCurrentAccount(self.client))
-        rules_hash = compute_rules_hash(fee_mode, int(fee_bps), fee_flat_str, ns, acts, body_hashes_hex)
-        rule_id = derive_rule_id(restricted, rules_hash, salt_bytes)
-
-        tx_hash = truf_sdk.MAACreateRule(
-            self.client,
-            go.Slice_byte(list(salt_bytes)),
-            fee_mode,
-            int(fee_bps),
-            fee_flat_str,
-            go.Slice_string(ns),
-            go.Slice_string(acts),
-            go.Slice_string(body_hashes_hex),
+        result = json.loads(
+            truf_sdk.MAACreateRule(
+                self.client,
+                go.Slice_byte(list(salt_bytes)),
+                fee_mode,
+                int(fee_bps),
+                fee_flat_str,
+                go.Slice_string(ns),
+                go.Slice_string(acts),
+                go.Slice_string(body_hashes_hex),
+            )
         )
         if wait:
-            self.wait_for_tx(tx_hash)
-        return {"tx_hash": tx_hash, "rule_id": "0x" + rule_id.hex()}
+            self.wait_for_tx(result["tx_hash"])
+        return {"tx_hash": result["tx_hash"], "rule_id": result["rule_id"]}
 
     def join_agent_address(self, rule_id: bytes | str, wait: bool = True) -> MAAJoinResult:
         """
         Join an existing rule as the unrestricted owner/funder. The caller (signer) becomes the owner.
-        Returns the locally-derived MAA address (the wallet to fund) and the tx hash. The rule's
-        restricted creator is looked up on-chain to derive the address.
+        Returns the MAA address (the wallet to fund; derived by the underlying Go SDK, which looks up
+        the rule's restricted creator on-chain) and the tx hash.
         """
         rid = self._maa_to_bytes(rule_id)
         if len(rid) != 32:
             raise ValueError(f"rule_id must be 32 bytes, got {len(rid)}")
-        rule = self.maa_get_rule(rid)
-        if rule is None:
-            raise ValueError("unknown rule_id")
-        unrestricted = self._maa_to_bytes(truf_sdk.GetCurrentAccount(self.client))
-        maa_address = derive_maa_address(unrestricted, rule["restricted_addr"], rid)
-
-        tx_hash = truf_sdk.MAAJoin(self.client, go.Slice_byte(list(rid)))
+        result = json.loads(truf_sdk.MAAJoin(self.client, go.Slice_byte(list(rid))))
         if wait:
-            self.wait_for_tx(tx_hash)
-        return {"tx_hash": tx_hash, "maa_address": "0x" + maa_address.hex()}
+            self.wait_for_tx(result["tx_hash"])
+        return {"tx_hash": result["tx_hash"], "maa_address": result["maa_address"]}
 
     def execute_agent_action(
         self,

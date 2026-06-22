@@ -27,8 +27,19 @@ import (
 // declares. The Python side emits this shape; see trufnetwork_sdk_py.client.MAANumericArg.
 const maaTypeKey = "__tn_type__"
 
-// MAACreateRule submits maa_create_rule (the caller becomes the restricted agent) and returns the tx
-// hash. bodyHashesHex is parallel to namespaces/actions; an empty element is an unpinned (NULL) entry.
+// maaWriteResult JSON-encodes a write's tx hash together with the address/id the underlying Go SDK
+// derives for it, matching the {tx_hash, <key>} shape the Python client reads back.
+func maaWriteResult(txHash, key string, raw []byte) (string, error) {
+	out, err := json.Marshal(map[string]string{"tx_hash": txHash, key: "0x" + hex.EncodeToString(raw)})
+	if err != nil {
+		return "", errors.Wrap(err, "marshal maa write result")
+	}
+	return string(out), nil
+}
+
+// MAACreateRule registers an agent-wallet rule (the caller becomes the restricted agent) by delegating
+// to the Go SDK's CreateAgentRule, and returns JSON {tx_hash, rule_id} (rule_id 0x-hex, derived by the
+// Go SDK). bodyHashesHex is parallel to namespaces/actions; an empty element is an unpinned (NULL) entry.
 func MAACreateRule(
 	client *tnclient.Client,
 	salt []byte,
@@ -39,12 +50,6 @@ func MAACreateRule(
 	actions []string,
 	bodyHashesHex []string,
 ) (string, error) {
-	ctx := context.Background()
-	act, err := client.LoadActions()
-	if err != nil {
-		return "", errors.Wrap(err, "load actions")
-	}
-
 	bodyHashes := make([][]byte, len(bodyHashesHex))
 	for i, h := range bodyHashesHex {
 		if h == "" {
@@ -59,27 +64,40 @@ func MAACreateRule(
 		bodyHashes[i] = decoded
 	}
 
-	txHash, err := act.ExecuteProcedure(ctx, "maa_create_rule", [][]any{
-		{salt, feeMode, feeBps, feeFlat, namespaces, actions, bodyHashes},
+	ctx := context.Background()
+	act, err := client.LoadActions()
+	if err != nil {
+		return "", errors.Wrap(err, "load actions")
+	}
+	ruleID, txHash, err := act.CreateAgentRule(ctx, types.MAACreateRuleInput{
+		Salt:       salt,
+		FeeMode:    feeMode,
+		FeeBps:     feeBps,
+		FeeFlat:    feeFlat,
+		Namespaces: namespaces,
+		Actions:    actions,
+		BodyHashes: bodyHashes,
 	})
 	if err != nil {
 		return "", errors.Wrap(err, "maa_create_rule")
 	}
-	return txHash.String(), nil
+	return maaWriteResult(txHash, "rule_id", ruleID)
 }
 
-// MAAJoin submits maa_join (the caller becomes the unrestricted owner/funder) and returns the tx hash.
+// MAAJoin joins an existing rule as the unrestricted owner/funder by delegating to the Go SDK's
+// JoinAgentAddress (which resolves the rule and derives the wallet), and returns JSON
+// {tx_hash, maa_address} (maa_address 0x-hex).
 func MAAJoin(client *tnclient.Client, ruleID []byte) (string, error) {
 	ctx := context.Background()
 	act, err := client.LoadActions()
 	if err != nil {
 		return "", errors.Wrap(err, "load actions")
 	}
-	txHash, err := act.ExecuteProcedure(ctx, "maa_join", [][]any{{ruleID}})
+	maaAddress, txHash, err := act.JoinAgentAddress(ctx, ruleID)
 	if err != nil {
 		return "", errors.Wrap(err, "maa_join")
 	}
-	return txHash.String(), nil
+	return maaWriteResult(txHash, "maa_address", maaAddress)
 }
 
 // MAAExec submits a maa_exec transaction: run one allow-listed inner action AS the agent wallet. The

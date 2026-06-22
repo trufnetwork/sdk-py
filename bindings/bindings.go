@@ -136,13 +136,28 @@ func GetCurrentAccount(client *tnclient.Client) (string, error) {
 }
 
 // createSigner creates an EthPersonalSigner from a private key.
+//
+// The hex key is accepted with or without a "0x"/"0X" prefix (and is tolerant of
+// surrounding whitespace); the underlying kwil-db decoder requires bare hex, so we
+// normalize here. This lets callers pass either form interchangeably.
 func createSigner(privateKey string) (*auth.EthPersonalSigner, error) {
-	pk, err := crypto.Secp256k1PrivateKeyFromHex(privateKey)
+	pk, err := crypto.Secp256k1PrivateKeyFromHex(normalizeHexKey(privateKey))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signer")
 	}
 	signer := &auth.EthPersonalSigner{Key: *pk}
 	return signer, nil
+}
+
+// normalizeHexKey strips surrounding whitespace and an optional "0x"/"0X" prefix from a
+// hex-encoded private key. A bare hex key is never altered: a valid hex string can begin
+// with '0' but not 'x'/'X', so only an actual prefix is removed.
+func normalizeHexKey(key string) string {
+	key = strings.TrimSpace(key)
+	if len(key) >= 2 && key[0] == '0' && (key[1] == 'x' || key[1] == 'X') {
+		key = key[2:]
+	}
+	return key
 }
 
 // GenerateStreamId generates a stream ID from the given name.

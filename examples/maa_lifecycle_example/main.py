@@ -79,7 +79,9 @@ _salt_env = os.getenv("MAA_SALT")
 if _salt_env:
     SALT = bytes.fromhex(_salt_env[2:] if _salt_env.startswith("0x") else _salt_env)
 else:
-    SALT = b"MAA" + int(time.time()).to_bytes(8, "big") + b"\x00" * 21  # 3 + 8 + 21 = 32 bytes
+    # Nanosecond precision so two runs in the same second still get distinct salts; the ns
+    # value (~1.8e18) fits in 8 unsigned bytes (max ~1.8e19).
+    SALT = b"MAA" + time.time_ns().to_bytes(8, "big") + b"\x00" * 21  # 3 + 8 + 21 = 32 bytes
 assert len(SALT) == 32, f"salt must be 32 bytes, got {len(SALT)}"
 
 NAMESPACES = ["main", "main"]

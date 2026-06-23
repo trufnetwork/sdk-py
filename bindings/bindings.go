@@ -2326,6 +2326,74 @@ func GetUserPositions(client *tnclient.Client) (string, error) {
 	return string(jsonBytes), nil
 }
 
+// GetPositionsByWallet returns a wallet's portfolio (holdings + open orders) by address.
+// Unlike GetUserPositions (which reads @caller), this reads the wallet passed in.
+func GetPositionsByWallet(client *tnclient.Client, walletAddress string) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	results, err := orderBook.GetPositionsByWallet(ctx, types.GetPositionsByWalletInput{
+		WalletHex: walletAddress,
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get positions by wallet")
+	}
+
+	positions := make([]map[string]any, len(results))
+	for i, pos := range results {
+		positions[i] = map[string]any{
+			"query_id":      pos.QueryID,
+			"outcome":       pos.Outcome,
+			"price":         pos.Price,
+			"amount":        pos.Amount,
+			"position_type": pos.PositionType,
+		}
+	}
+
+	jsonBytes, err := json.Marshal(positions)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal positions")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// GetCollateralByWallet returns a wallet's total locked collateral by address on a bridge.
+// Unlike GetUserCollateral (which reads @caller), this reads the wallet passed in.
+func GetCollateralByWallet(client *tnclient.Client, walletAddress string, bridge string) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	result, err := orderBook.GetCollateralByWallet(ctx, types.GetCollateralByWalletInput{
+		WalletHex: walletAddress,
+		Bridge:    bridge,
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get collateral by wallet")
+	}
+
+	collateral := map[string]any{
+		"total_locked":      result.TotalLocked,
+		"buy_orders_locked": result.BuyOrdersLocked,
+		"shares_value":      result.SharesValue,
+	}
+
+	jsonBytes, err := json.Marshal(collateral)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal collateral")
+	}
+
+	return string(jsonBytes), nil
+}
+
 // GetMarketDepth returns aggregated volume per price level
 func GetMarketDepth(client *tnclient.Client, queryID int, outcome bool) (string, error) {
 	ctx := context.Background()

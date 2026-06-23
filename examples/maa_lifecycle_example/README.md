@@ -21,6 +21,11 @@ make that safe, mirroring the node's canonical oracle `tests/streams/maa/data_ag
 5. **Local derivation matches the chain** — `rule_id` and the MAA address are derived offline
    (`compute_rules_hash` / `derive_rule_id` / `derive_maa_address_hex`) and asserted equal to what the
    node returns.
+6. **Portfolio reads by address** — `get_positions_by_wallet` / `get_collateral_by_wallet`
+   (migration 051) read the agent wallet's order-book inventory *by address* — the signer is not the
+   wallet being read — so an owner or a delegated market-maker bot can monitor an agent wallet it
+   does not sign for. This MAA does data provision (not order-book trading), so the reads return
+   empty/zero; a clean return is the proof that 051 is live.
 
 ## Two identities (required)
 
@@ -33,32 +38,34 @@ The agent and the owner are **different keys**:
 
 ## Run
 
+Configuration is read from a `.env` file next to the script (real environment variables still
+take precedence, so you can override any value with a shell `export`). `.env` is gitignored.
+
 ```bash
 # from the repo root
 uv venv .venv && source .venv/bin/activate && uv pip install -e ".[dev]"
 
 cd examples/maa_lifecycle_example
-
-export PROVIDER_URL="https://gateway.testnet.truf.network"   # the testnet RPC/gateway
-export AGENT_PRIVATE_KEY=0x...        # restricted agent
-export OWNER_PRIVATE_KEY=0x...        # unrestricted owner (must hold bridged TRUF)
-export MAA_BRIDGE="hoodi_tt"          # token bridge namespace on this network
-export MAA_FUND_AMOUNT="250000000000000000000"   # wei to fund the MAA with
-# optional: export MAA_FEE_BPS=250    # owner-withdraw commission to the agent (2.5%)
+cp .env.example .env       # then edit .env: fill in AGENT_PRIVATE_KEY and OWNER_PRIVATE_KEY
 
 python main.py
 ```
 
-### Environment variables
+Each run uses a fresh salt by default, so it registers a new rule/MAA and can be re-run without
+colliding with a previous run. Set `MAA_SALT` (64 hex chars) to pin a reproducible rule_id.
+
+### Environment variables (see `.env.example`)
 
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `PROVIDER_URL` | `https://gateway.testnet.truf.network` | The testnet RPC/gateway. **Confirm the real URL for your network.** |
-| `AGENT_PRIVATE_KEY` | — (required) | Restricted agent key. |
-| `OWNER_PRIVATE_KEY` | — (required) | Unrestricted owner key; must hold ≥ `MAA_FUND_AMOUNT` + fees of bridged token. |
-| `MAA_BRIDGE` | `hoodi_tt` | Token bridge namespace. dev = `hoodi_tt`/`hoodi_tt2`, mainnet = `eth_truf`/`eth_usdc`. **Confirm which exists on testnet.** |
+| `AGENT_PRIVATE_KEY` | — (required) | Restricted agent key (with or without `0x`). |
+| `OWNER_PRIVATE_KEY` | — (required) | Unrestricted owner key (with or without `0x`); must hold ≥ `MAA_FUND_AMOUNT` + fees of bridged token. |
+| `MAA_BRIDGE` | `hoodi_tt` | Funding/fee bridge namespace. dev = `hoodi_tt`/`hoodi_tt2`, mainnet = `eth_truf`/`eth_usdc`. |
 | `MAA_FUND_AMOUNT` | `250000000000000000000` (250 TRUF) | Must cover the action fees (`create_streams` may cost 100 TRUF where the fee is active). |
 | `MAA_FEE_BPS` | `250` (2.5%) | Owner-withdraw commission paid to the agent. |
+| `MAA_COLLATERAL_BRIDGE` | `hoodi_tt2` | Order-book bridge for `get_collateral_by_wallet` (migration 051) — the bridge the markets settle in, **not** the `hoodi_tt` fee bridge. |
+| `MAA_SALT` | _(fresh per run)_ | Optional 64-hex salt to pin a reproducible rule_id across runs. |
 
 ## Open items to confirm before the first run
 

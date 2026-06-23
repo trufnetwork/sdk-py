@@ -15,17 +15,13 @@ an agent wallet useful and safe:
 
 This mirrors the node's canonical oracle, tests/streams/maa/data_agent_test.go.
 
-Two keys are required (the agent and the owner are DIFFERENT identities):
+Config comes from a .env file next to this script (real environment variables still take
+precedence). Two DISTINCT keys are required — the agent and the owner are different identities:
 
-    export PROVIDER_URL="https://gateway.testnet.truf.network"   # the testnet RPC/gateway
-    export AGENT_PRIVATE_KEY=0x...   # restricted: signs maa_create_rule + runs actions as the MAA
-    export OWNER_PRIVATE_KEY=0x...   # unrestricted: joins, funds, withdraws (must hold bridged TRUF)
-    export MAA_BRIDGE="hoodi_tt"     # the token bridge namespace on this network (confirm per env)
-    export MAA_FUND_AMOUNT="250000000000000000000"  # wei to fund the MAA with (NUMERIC(78,0))
-
+    cp .env.example .env     # then fill in AGENT_PRIVATE_KEY and OWNER_PRIVATE_KEY
     python main.py
 
-See README.md for what success looks like and the open items to confirm before the first run.
+See .env.example for every setting, and README.md for what success looks like.
 """
 
 import os
@@ -40,13 +36,34 @@ from trufnetwork_sdk_py.utils import (
     derive_maa_address_hex,
 )
 
-# --- configuration (all overridable via environment) -----------------------------------------------
+
+# --- load .env (zero-dependency; real environment variables take precedence) ------------------------
+def _load_dotenv(path: str) -> None:
+    """Populate os.environ from a KEY=VALUE .env file, without overriding existing vars."""
+    if not os.path.exists(path):
+        return
+    with open(path) as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+
+
+_load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
+# --- configuration (all overridable via environment / .env; see .env.example) ----------------------
 PROVIDER_URL = os.getenv("PROVIDER_URL", "https://gateway.testnet.truf.network")
 AGENT_PRIVATE_KEY = os.getenv("AGENT_PRIVATE_KEY")  # restricted agent
 OWNER_PRIVATE_KEY = os.getenv("OWNER_PRIVATE_KEY")  # unrestricted owner / funder
-BRIDGE = os.getenv("MAA_BRIDGE", "hoodi_tt")        # token bridge namespace (e.g. hoodi_tt / eth_truf)
+BRIDGE = os.getenv("MAA_BRIDGE", "hoodi_tt")        # funding/fee bridge namespace (e.g. hoodi_tt / eth_truf)
 FUND_AMOUNT = os.getenv("MAA_FUND_AMOUNT", "250000000000000000000")  # wei (NUMERIC(78,0))
 FEE_BPS = int(os.getenv("MAA_FEE_BPS", "250"))      # 2.5% owner-withdraw commission to the agent
+# Order-book collateral bridge for get_collateral_by_wallet (migration 051). This is the bridge the
+# order-book MARKETS settle in (hoodi_tt2 / sepolia_bridge / ethereum_bridge on dev/testnet), NOT the
+# hoodi_tt funding/fee bridge above. get_positions_by_wallet needs no bridge.
+COLLATERAL_BRIDGE = os.getenv("MAA_COLLATERAL_BRIDGE", "hoodi_tt2")
 
 # On-chain decimal types the inner actions declare. A NUMERIC argument MUST be wrapped in MAANumericArg
 # with these EXACT precision/scale, because JSON has no decimal type and the node does not coerce text
@@ -54,8 +71,18 @@ FEE_BPS = int(os.getenv("MAA_FEE_BPS", "250"))      # 2.5% owner-withdraw commis
 TOKEN_PRECISION, TOKEN_SCALE = 78, 0    # bridge amounts: NUMERIC(78,0)
 VALUE_PRECISION, VALUE_SCALE = 36, 18   # primitive record values: NUMERIC(36,18)
 
-# A fixed salt makes the rule_id (and therefore the MAA) deterministic for this agent+owner pair.
-SALT = b"\x4d\x41\x41" + b"\x00" * 29  # b"MAA" + padding, 32 bytes
+# A fresh salt per run keeps each smoke test independent: it yields a new rule_id (and therefore a
+# new MAA), so re-running never collides with an already-registered rule. The local-derivation
+# cross-checks below use this exact salt, so they stay valid. Set MAA_SALT (64 hex chars, optional
+# 0x) to pin a reproducible rule_id across runs.
+_salt_env = os.getenv("MAA_SALT")
+if _salt_env:
+    SALT = bytes.fromhex(_salt_env[2:] if _salt_env.startswith("0x") else _salt_env)
+else:
+    # Nanosecond precision so two runs in the same second still get distinct salts; the ns
+    # value (~1.8e18) fits in 8 unsigned bytes (max ~1.8e19).
+    SALT = b"MAA" + time.time_ns().to_bytes(8, "big") + b"\x00" * 21  # 3 + 8 + 21 = 32 bytes
+assert len(SALT) == 32, f"salt must be 32 bytes, got {len(SALT)}"
 
 NAMESPACES = ["main", "main"]
 ACTIONS = ["create_streams", "insert_records"]  # the agent's allow-list (mirrors data_agent_test.go)
@@ -212,12 +239,27 @@ def main() -> int:
         print(f"   - {ev['event_type']:<12} role={ev['actor_role']:<13} actor={ev['actor_addr']} "
               f"action={ev.get('inner_action') or '-'} amount={ev.get('amount') or '-'}")
 
+    # (h) READ the agent wallet's ORDER-BOOK portfolio BY ADDRESS (migration 051).
+    #     get_positions_by_wallet / get_collateral_by_wallet read the wallet you pass in (NOT
+    #     @caller), so an owner — or a delegated market-maker bot — can read an agent wallet's live
+    #     inventory without holding its key. The signer here (agent) differs from the wallet read
+    #     (the MAA), which is the whole point. This MAA's allow-list is create_streams/insert_records
+    #     (data provision), so it holds NO order-book positions — the reads return empty/zero. A clean
+    #     return (instead of "unknown action") is the proof that migration 051 is live on this network.
+    banner("(h) read the agent wallet's order-book portfolio by address")
+    positions = agent.get_positions_by_wallet(maa)
+    collateral = agent.get_collateral_by_wallet(maa, COLLATERAL_BRIDGE)
+    print(f"get_positions_by_wallet({maa}) -> {len(positions)} positions: {positions}")
+    print(f"get_collateral_by_wallet({maa}, {COLLATERAL_BRIDGE}) -> {collateral}")
+    print("✅ address-parameterized portfolio reads are live (migration 051)")
+
     banner("✅ MAA lifecycle smoke test PASSED")
     print("Proven on-chain via the Python SDK:")
     print("  • @caller rewritten to the MAA (the stream is owned by the wallet, not the agent key)")
     print("  • fees debit the MAA's own escrow")
     print("  • the restricted agent cannot move funds out")
     print("  • the owner withdraws with the agreed commission")
+    print("  • an owner can read the wallet's order-book positions/collateral by address (051)")
     return 0
 
 

@@ -2804,6 +2804,38 @@ class TNClient:
 
         return cast(UserCollateral, json.loads(json_str))
 
+    def get_positions_by_wallet(self, wallet_address: str) -> list[UserPosition]:
+        """Get a wallet's portfolio (holdings + open orders) by address.
+
+        Unlike get_user_positions (which reads the signer), this reads the wallet you
+        pass in — so an owner can read an agent wallet's (MAA) positions without holding
+        its key. ``wallet_address`` is a 0x-prefixed (or bare) 20-byte hex address.
+        """
+        json_str = truf_sdk.GetPositionsByWallet(self.client, wallet_address)
+
+        if not json_str:
+            return []
+
+        return cast(list[UserPosition], json.loads(json_str))
+
+    def get_collateral_by_wallet(self, wallet_address: str, bridge: str) -> UserCollateral:
+        """Get a wallet's total locked collateral by address, on a given bridge.
+
+        Unlike get_user_collateral (which reads the signer), this reads the wallet you
+        pass in. ``bridge`` is required (per-bridge token decimals), e.g. "hoodi_tt" /
+        "eth_truf". ``wallet_address`` is a 0x-prefixed (or bare) 20-byte hex address.
+        """
+        json_str = truf_sdk.GetCollateralByWallet(self.client, wallet_address, bridge)
+
+        if not json_str:
+            return {
+                "total_locked": "0",
+                "buy_orders_locked": "0",
+                "shares_value": "0",
+            }
+
+        return cast(UserCollateral, json.loads(json_str))
+
     # ═══════════════════════════════════════════════════════════════
     # ORDER BOOK - SETTLEMENT & REWARDS
     # ═══════════════════════════════════════════════════════════════

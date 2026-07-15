@@ -41,7 +41,7 @@ WINGOPY_PYINIT_FIX := true
 endif
 
 gopy_build:
-	rm -f src/trufnetwork_sdk_c_bindings/*.so
+	rm -f src/trufnetwork_sdk_c_bindings/*.so src/trufnetwork_sdk_c_bindings/*.pyd src/trufnetwork_sdk_c_bindings/*.dll
 	gopy gen -output=src/trufnetwork_sdk_c_bindings -vm=python3 -name=trufnetwork_sdk_c_bindings $(DYNAMIC_LINK_FLAG) ./bindings
 	@$(WINGOPY_PYINIT_FIX)
 	cd src/trufnetwork_sdk_c_bindings && \

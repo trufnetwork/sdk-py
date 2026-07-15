@@ -26,9 +26,24 @@ else
 SUBMAKE_BUILD := make build
 endif
 
+# gopy's own template emits a Windows-only line to fix pybindgen's PyInit_
+# declaration (see the "windows-only sed hack" comment it generates), but
+# indents that one recipe line with two spaces instead of a tab, which GNU
+# Make rejects as "missing separator" before it ever reaches a shell. This
+# is gopy's bug, not ours: the line either doesn't exist (Linux/macOS
+# targets never emit it) or is well-formed once fixed upstream, so the
+# check below is content-matched and OS-gated to stay a no-op everywhere
+# except an affected Windows build.
+ifeq ($(OS),Windows_NT)
+WINGOPY_PYINIT_FIX := sed -i 's|^  sed -i "s/ PyInit_/|\tsed -i "s/ PyInit_/|' src/trufnetwork_sdk_c_bindings/Makefile
+else
+WINGOPY_PYINIT_FIX := true
+endif
+
 gopy_build:
 	rm -f src/trufnetwork_sdk_c_bindings/*.so
 	gopy gen -output=src/trufnetwork_sdk_c_bindings -vm=python3 -name=trufnetwork_sdk_c_bindings $(DYNAMIC_LINK_FLAG) ./bindings
+	@$(WINGOPY_PYINIT_FIX)
 	cd src/trufnetwork_sdk_c_bindings && \
 	$(SUBMAKE_BUILD)
 	if [ `uname` = "Linux" ]; then \

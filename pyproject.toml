@@ -31,7 +31,7 @@ dev = [
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
 include-package-data = true
-package-data = { "*" = ["*.so", "*.dll", "*.dylib"] }
+package-data = { "*" = ["*.so", "*.dll", "*.dylib", "*.pyd"] }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

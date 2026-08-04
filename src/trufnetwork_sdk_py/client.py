@@ -33,6 +33,14 @@ from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Op
 
 from pydantic import BaseModel
 
+from .forecast import (
+    BookLevel,
+    BucketDepth,
+    MarketForecast,
+    forecast_from_depth,
+)
+from .market_buckets import bucket_bounds_from_market_data
+
 
 T = TypeVar("T")
 
@@ -2790,6 +2798,105 @@ class TNClient:
             return {"best_bid": None, "best_ask": None, "spread": None}
 
         return cast(BestPrices, json.loads(json_str))
+
+    def get_market_forecast(self, query_ids: list[int]) -> MarketForecast | None:
+        """Collapse a market's bucket books into the single value they imply.
+
+        A prediction market prices ranges: each bucket is its own query_id with
+        its own binary book. This reads every bucket's FULL YES and NO ladders
+        and its bounds, then returns the one number the books collectively
+        imply plus the band around it. See ``trufnetwork_sdk_py.forecast``.
+
+        The YES and NO books are both fetched because the forecast consolidates
+        them: on this venue a resting BUY NO at p is hittable by a BUY YES at
+        100-p (mint match), so NO liquidity is executable YES liquidity and
+        ignoring it would discard real quotes. That costs two order-book reads
+        per bucket.
+
+        Args:
+            query_ids: The bucket query_ids of ONE market. Order does not
+                matter, they are sorted by lower bound here. The buckets are
+                expected to tile the whole line, with the bottom one open below
+                and the top one open above; a layout that does not is still
+                estimated, with the problem reported in ``warnings``.
+
+        Returns:
+            A MarketForecast, or None when no bucket has a usable quote.
+
+        Raises:
+            ValueError: if fewer than two query_ids are given, or a market is
+                missing the query_components needed to derive its bounds.
+        """
+        if len(query_ids) < 2:
+            raise ValueError(
+                f"a market forecast needs at least 2 bucket query_ids, got {len(query_ids)}"
+            )
+
+        books: list[BucketDepth] = []
+        for query_id in query_ids:
+            info = self.get_market_info(query_id)
+            query_components = info.get("query_components") or b""
+            if not query_components:
+                raise ValueError(
+                    f"market {query_id} has no query_components, so its bucket "
+                    "bounds cannot be derived"
+                )
+            lower, upper = bucket_bounds_from_market_data(
+                self.decode_market_data(query_components)
+            )
+            yes_bids, yes_asks = self._order_book_ladders(query_id, True)
+            no_bids, no_asks = self._order_book_ladders(query_id, False)
+            books.append(
+                BucketDepth(
+                    lower=lower,
+                    upper=upper,
+                    yes_bids=yes_bids,
+                    yes_asks=yes_asks,
+                    no_bids=no_bids,
+                    no_asks=no_asks,
+                    query_id=query_id,
+                )
+            )
+
+        # None sorts first, which is where the open-below bucket belongs.
+        books.sort(key=lambda b: (b.lower is not None, b.lower))
+
+        layout: list[str] = []
+        if books[0].lower is not None:
+            layout.append("lowest bucket is not open below")
+        if books[-1].upper is not None:
+            layout.append("highest bucket is not open above")
+        breaks = sum(
+            1 for a, b in zip(books, books[1:]) if a.upper != b.lower
+        )
+        if breaks:
+            layout.append(f"{breaks} gap(s) or overlap(s) between bucket bounds")
+
+        forecast = forecast_from_depth(books)
+        if forecast is None:
+            return None
+        forecast.warnings[:0] = layout
+        return forecast
+
+    def _order_book_ladders(
+        self, query_id: int, outcome: bool
+    ) -> tuple[list[BookLevel], list[BookLevel]]:
+        """One outcome's resting book, split into (bids, asks) ladders.
+
+        ``get_order_book`` marks bids with a NEGATIVE price and asks with a
+        positive one; price 0 means shares held with no resting order, which is
+        not part of the book. Prices come back to the forecast as the positive
+        1-99 cent convention it expects.
+        """
+        bids: list[BookLevel] = []
+        asks: list[BookLevel] = []
+        for entry in self.get_order_book(query_id, outcome):
+            price, amount = entry["price"], entry["amount"]
+            if price < 0:
+                bids.append(BookLevel(price=float(-price), size=float(amount)))
+            elif price > 0:
+                asks.append(BookLevel(price=float(price), size=float(amount)))
+        return bids, asks
 
     def get_user_collateral(self) -> UserCollateral:
         """Get caller's total locked collateral value."""

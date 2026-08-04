@@ -30,6 +30,19 @@ from .utils import (
     derive_maa_address,
     derive_maa_address_hex,
 )
+from .forecast import (
+    BookLevel,
+    BucketBook,
+    BucketDepth,
+    BucketEstimate,
+    MarketForecast,
+    bucket_estimate_from_depth,
+    bucket_probability,
+    typical_half_spread,
+    forecast_from_buckets,
+    forecast_from_depth,
+)
+from .market_buckets import bucket_bounds_from_market_data
 
 __all__ = [
     "TNClient",
@@ -61,4 +74,15 @@ __all__ = [
     "VISIBILITY_PRIVATE",
     "BulkInserter",
     "BulkInsertError",
+    "BookLevel",
+    "BucketBook",
+    "BucketDepth",
+    "BucketEstimate",
+    "MarketForecast",
+    "bucket_estimate_from_depth",
+    "bucket_probability",
+    "typical_half_spread",
+    "bucket_bounds_from_market_data",
+    "forecast_from_buckets",
+    "forecast_from_depth",
 ]

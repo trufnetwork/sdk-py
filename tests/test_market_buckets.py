@@ -192,6 +192,36 @@ def test_single_bucket_is_rejected():
         fake_client().get_market_forecast([103])
 
 
+def test_duplicate_query_ids_are_rejected():
+    """A repeated bucket would have its probability counted twice, quietly
+    reshaping the distribution rather than failing."""
+    with pytest.raises(ValueError, match="duplicate"):
+        fake_client().get_market_forecast([101, 102, 103, 103])
+
+
+# A second, independently valid bucket set, on a different stream. Each set
+# forecasts fine alone; the two together describe unrelated events.
+OTHER_MARKETS = {
+    query_id + 100: ({**market_data, "stream_id": "other"}, quotes)
+    for query_id, (market_data, quotes) in MSFT_MARKETS.items()
+}
+
+
+def test_buckets_from_two_different_markets_are_rejected():
+    """Normalising across two events would divide one market's probabilities by
+    the other's total and return a confident number about nothing. Both sets are
+    individually valid, so nothing but the identity check catches this."""
+    both = {**MSFT_MARKETS, **OTHER_MARKETS}
+    with pytest.raises(ValueError, match="different event"):
+        fake_client(both).get_market_forecast(list(both))
+
+
+def test_each_of_those_sets_still_forecasts_on_its_own():
+    """The identity check must reject the mixture without rejecting either half."""
+    assert fake_client().get_market_forecast(list(MSFT_MARKETS)) is not None
+    assert fake_client(OTHER_MARKETS).get_market_forecast(list(OTHER_MARKETS)) is not None
+
+
 def test_market_without_query_components_is_rejected():
     """Legacy markets carry no bounds, and guessing them would be worse than
     failing."""

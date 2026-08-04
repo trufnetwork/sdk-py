@@ -48,9 +48,28 @@ MIN_QUOTED_BUCKETS = 2
 
 
 def _tiles_the_line(members) -> bool:
-    """One bucket open below, one open above, at least one in between."""
-    types = [md["type"] for _, md, _ in members]
-    return len(members) >= 3 and types.count("below") == 1 and types.count("above") == 1
+    """A CONTIGUOUS bucket set: open below, open above, no gaps in between.
+
+    Counting the open ends is not enough. Markets can share a stream and a
+    settle time without tiling the line, and
+    ``test_buckets_are_ordered_and_tile_the_line`` asserts contiguity on
+    whatever this picks -- so letting a gapped group through here surfaces as a
+    FAILURE rather than the skip it should be.
+    """
+    if len(members) < 3:
+        return False
+
+    bounds = [b for _, _, b in members]
+    if sum(1 for lower, _ in bounds if lower is None) != 1:
+        return False
+    if sum(1 for _, upper in bounds if upper is None) != 1:
+        return False
+
+    # None sorts first, which is where the open-below bucket belongs.
+    ordered = sorted(bounds, key=lambda b: (b[0] is not None, b[0]))
+    if ordered[-1][1] is not None:
+        return False
+    return all(a[1] == b[0] for a, b in zip(ordered, ordered[1:]))
 
 
 def _discover_groups(client):
@@ -149,11 +168,16 @@ def _median_bucket(forecast):
     NOT the most probable bucket: with probabilities [0.40, 0.35, 0.25] the
     leader is the first, but the cumulative only reaches half way through the
     second, so that is where the median belongs.
+
+    The crossing test is STRICT so it agrees with the half-open [lower, upper)
+    bucket rule. On [0.50, 0.30, 0.20] the cumulative hits exactly 0.5 at the
+    end of bucket 1, and the median is the boundary value itself; that value
+    belongs to bucket 2, which is what a strict test returns.
     """
     running = 0.0
     for bucket in forecast.buckets:
         running += bucket.probability
-        if running >= 0.5:
+        if running > 0.5:
             return bucket
     return forecast.buckets[-1]
 
@@ -187,10 +211,12 @@ def test_value_falls_in_the_bucket_where_the_cdf_crosses_half(live_forecast):
         pytest.skip("median unresolvable from this market's strikes")
 
     bucket = _median_bucket(forecast)
+    # Half-open [lower, upper): the lower edge belongs to this bucket, the upper
+    # edge belongs to the next one.
     if bucket.lower is not None:
         assert forecast.value >= bucket.lower
     if bucket.upper is not None:
-        assert forecast.value <= bucket.upper
+        assert forecast.value < bucket.upper
 
 
 def test_band_brackets_the_value(live_forecast):
@@ -236,10 +262,10 @@ def test_bid_sign_convention_still_holds(live_client, live_forecast):
                 assert level.size > 0
 
             if bids and best["best_bid"] is not None:
-                assert max(l.price for l in bids) == best["best_bid"]
+                assert max(level.price for level in bids) == best["best_bid"]
                 checked += 1
             if asks and best["best_ask"] is not None:
-                assert min(l.price for l in asks) == best["best_ask"]
+                assert min(level.price for level in asks) == best["best_ask"]
                 checked += 1
 
     if not checked:

@@ -2831,8 +2831,15 @@ class TNClient:
             raise ValueError(
                 f"a market forecast needs at least 2 bucket query_ids, got {len(query_ids)}"
             )
+        if len(set(query_ids)) != len(query_ids):
+            repeated = sorted({q for q in query_ids if query_ids.count(q) > 1})
+            raise ValueError(
+                f"duplicate bucket query_ids {repeated}; a repeated bucket would "
+                "have its probability counted twice"
+            )
 
         books: list[BucketDepth] = []
+        identity: tuple | None = None
         for query_id in query_ids:
             info = self.get_market_info(query_id)
             query_components = info.get("query_components") or b""
@@ -2841,9 +2848,29 @@ class TNClient:
                     f"market {query_id} has no query_components, so its bucket "
                     "bounds cannot be derived"
                 )
-            lower, upper = bucket_bounds_from_market_data(
-                self.decode_market_data(query_components)
+            market_data = self.decode_market_data(query_components)
+
+            # Buckets of one market differ only in their strike: they share a
+            # data provider, a stream and a settlement time. Forecasting across
+            # two events would normalise unrelated probabilities into one
+            # distribution and return a confident number about nothing, so it is
+            # rejected rather than warned about.
+            this_identity = (
+                market_data.get("data_provider"),
+                market_data.get("stream_id"),
+                info.get("settle_time"),
             )
+            if identity is None:
+                identity = this_identity
+            elif this_identity != identity:
+                raise ValueError(
+                    f"market {query_id} belongs to a different event than the "
+                    f"first bucket: (data_provider, stream_id, settle_time) is "
+                    f"{this_identity} against {identity}. One forecast covers "
+                    "the buckets of ONE market."
+                )
+
+            lower, upper = bucket_bounds_from_market_data(market_data)
             yes_bids, yes_asks = self._order_book_ladders(query_id, True)
             no_bids, no_asks = self._order_book_ladders(query_id, False)
             books.append(

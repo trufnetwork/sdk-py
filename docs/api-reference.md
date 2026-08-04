@@ -1451,7 +1451,7 @@ Prediction markets price **ranges**, not values. A five-bucket EPS market says
 $2.14". These helpers invert that, collapsing the order books across every
 bucket of one market into the single number they collectively imply.
 
-```
+```text
 market says                     ->  forecast says
 "34% between 2.06 and 2.21"         "2.14, p10..p90 1.91..2.38"
 ```
@@ -1534,7 +1534,6 @@ market share a data stream and a settlement time.
 
 ```python
 from collections import defaultdict
-from trufnetwork_sdk_py import bucket_bounds_from_market_data
 
 groups = defaultdict(list)
 for summary in client.list_markets(settled_filter=False, limit=100):
@@ -1542,8 +1541,12 @@ for summary in client.list_markets(settled_filter=False, limit=100):
     market_data = client.decode_market_data(info["query_components"])
     groups[(market_data["stream_id"], summary["settle_time"])].append(summary["id"])
 
-# A complete market tiles the line: one "below" bucket, one "above", ranges between.
-for (stream_id, settle_time), query_ids in groups.items():
+# A complete market tiles the line: one "below" bucket, one "above", ranges
+# between. A stream can also carry a market that is not part of a bucket set at
+# all, so skip anything too small to forecast rather than letting it raise.
+for query_ids in groups.values():
+    if len(query_ids) < 2:
+        continue
     forecast = client.get_market_forecast(query_ids)
 ```
 

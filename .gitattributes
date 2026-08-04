@@ -1,0 +1,19 @@
+# Normalise line endings to LF in the repository.
+#
+# Without this, an editor writing CRLF turns any later edit into a whole-file
+# rewrite: the real change hides inside hundreds of phantom deleted lines and
+# the file conflicts with everything else touching it.
+#
+# eol=lf overrides core.autocrlf, so working copies get LF on every platform,
+# not just what git stores. That is deliberate: every editor in use here reads
+# LF fine, and leaving checkout to a per-developer setting is what produced the
+# mixed endings in the first place.
+* text=auto eol=lf
+
+# Binary and generated content git must not touch.
+*.png binary
+*.jpg binary
+*.so binary
+*.dylib binary
+*.dll binary
+uv.lock -diff linguist-generated

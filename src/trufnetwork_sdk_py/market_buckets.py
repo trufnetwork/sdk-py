@@ -5,6 +5,7 @@ verbatim mirror of the upstream algorithm in truflation/prediction-bots and
 must stay diffable against it. Nothing here is part of the forecast maths.
 """
 
+import math
 from typing import Any
 
 
@@ -36,20 +37,51 @@ def bucket_bounds_from_market_data(
                 f"a {market_type!r} market needs at least {index + 1} threshold(s), "
                 f"got {len(thresholds)}"
             )
-        return float(thresholds[index])
+        value = float(thresholds[index])
+        # float() accepts "nan", "inf" and "-inf" without complaint. Those would
+        # flow all the way into the forecast and surface as a NaN value rather
+        # than as this market being unreadable.
+        if not math.isfinite(value):
+            raise ValueError(
+                f"threshold {index} of a {market_type!r} market is not finite: "
+                f"{thresholds[index]!r}"
+            )
+        return value
 
     if market_type == "below":
         return None, threshold(0)
     if market_type == "above":
         return threshold(0), None
     if market_type == "between":
-        return threshold(0), threshold(1)
+        lower, upper = threshold(0), threshold(1)
+        # Bounds are half-open [lower, upper), so lower == upper is an empty
+        # bucket and lower > upper is an inverted one. Neither can hold an
+        # outcome, and both would quietly distort the tiling.
+        if lower >= upper:
+            raise ValueError(
+                f"a {market_type!r} market needs lower < upper, "
+                f"got [{lower}, {upper})"
+            )
+        return lower, upper
     if market_type == "equals":
         # thresholds are (target, tolerance), NOT (lower, upper). Reading them
         # positionally the way `between` is read would give an inverted bucket
         # and be silently wrong rather than loud.
         target, tolerance = threshold(0), threshold(1)
-        return target - tolerance, target + tolerance
+        if tolerance <= 0:
+            raise ValueError(
+                f"an {market_type!r} market needs a positive tolerance, "
+                f"got {tolerance}"
+            )
+        lower, upper = target - tolerance, target + tolerance
+        # Both operands are finite, but the sum or difference can still overflow
+        # near the float limits.
+        if not math.isfinite(lower) or not math.isfinite(upper):
+            raise ValueError(
+                f"an {market_type!r} market with target {target} and tolerance "
+                f"{tolerance} overflows its bounds"
+            )
+        return lower, upper
 
     raise ValueError(
         f"cannot derive bucket bounds from a {market_type!r} market"

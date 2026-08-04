@@ -43,6 +43,32 @@ def test_equals_market_is_target_plus_minus_tolerance():
     assert lower < upper
 
 
+def test_non_finite_thresholds_are_rejected():
+    """float() accepts these without complaint; left alone they surface as a NaN
+    forecast rather than as an unreadable market."""
+    for value in ("nan", "inf", "+inf", "-inf"):
+        with pytest.raises(ValueError, match="not finite"):
+            bucket_bounds_from_market_data({"type": "below", "thresholds": [value]})
+
+
+def test_inverted_or_empty_between_bucket_is_rejected():
+    """Bounds are half-open [lower, upper): equal bounds are empty and inverted
+    ones can never hold an outcome."""
+    for thresholds in (["4.62", "4.33"], ["4.33", "4.33"]):
+        with pytest.raises(ValueError, match="lower < upper"):
+            bucket_bounds_from_market_data(
+                {"type": "between", "thresholds": thresholds}
+            )
+
+
+def test_non_positive_equals_tolerance_is_rejected():
+    for tolerance in ("0", "-0.10"):
+        with pytest.raises(ValueError, match="positive tolerance"):
+            bucket_bounds_from_market_data(
+                {"type": "equals", "thresholds": ["5.25", tolerance]}
+            )
+
+
 def test_unknown_market_type_is_rejected():
     with pytest.raises(ValueError, match="cannot derive bucket bounds"):
         bucket_bounds_from_market_data({"type": "unknown", "thresholds": []})
@@ -250,6 +276,44 @@ def test_markets_differing_only_in_the_block_they_freeze_are_rejected():
     both = {**latest, **pinned}
     with pytest.raises(ValueError, match="different event"):
         fake_client(both).get_market_forecast(list(both))
+
+
+def test_markets_differing_only_in_their_bridge_are_rejected():
+    """The bridge is the one identity field outside the query components: it is
+    a create_market argument, so an identical question can be collateralised two
+    ways. Those are separate markets with separate books."""
+    other_bridge = {
+        query_id + 500: (market_data, quotes)
+        for query_id, (market_data, quotes) in MSFT_MARKETS.items()
+    }
+    both = {**MSFT_MARKETS, **other_bridge}
+    client = fake_client(both)
+    client.get_market_info = lambda query_id: {
+        "query_components": str(query_id).encode(),
+        "bridge": "eth_truf" if query_id >= 500 else "eth_usdc",
+    }
+    with pytest.raises(ValueError, match="different event"):
+        client.get_market_forecast(list(both))
+
+
+def test_unreadable_query_timestamp_is_rejected():
+    """A None timestamp compares equal across buckets, so two malformed markets
+    would collide on it and match each other. The key being ABSENT is different
+    -- that is the current bindings not emitting it, which every other test in
+    this file relies on."""
+    unreadable = {
+        query_id: ({**market_data, "timestamp": None}, quotes)
+        for query_id, (market_data, quotes) in MSFT_MARKETS.items()
+    }
+    with pytest.raises(ValueError, match="no readable query timestamp"):
+        fake_client(unreadable).get_market_forecast(list(unreadable))
+
+
+def test_absent_timestamp_key_is_not_treated_as_unreadable():
+    """Today's bindings emit five keys and no timestamp at all. That must keep
+    working until they are rebuilt."""
+    assert "timestamp" not in MSFT_MARKETS[101][0]
+    assert fake_client().get_market_forecast(list(MSFT_MARKETS)) is not None
 
 
 def test_each_of_those_sets_still_forecasts_on_its_own():

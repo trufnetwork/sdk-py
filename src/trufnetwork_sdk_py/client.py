@@ -2872,9 +2872,31 @@ class TNClient:
             # starts discriminating on them as soon as the bindings are rebuilt.
             # Two markets can settle at the same moment while observing the
             # stream at different points, which settle_time alone cannot see.
+            # A binary action always carries its timestamp; only frozen_at is
+            # nullable. A None timestamp would compare equal across buckets, so
+            # two malformed markets would COLLIDE on that component and match
+            # each other -- the check failing open in exactly the case it exists
+            # to catch. The key being ABSENT is different: that is the old
+            # bindings not emitting the field at all, which is not a defect in
+            # the market, so it is left alone.
+            if (
+                market_data.get("type") != "unknown"
+                and "timestamp" in market_data
+                and market_data["timestamp"] is None
+            ):
+                raise ValueError(
+                    f"market {query_id} carries no readable query timestamp, so "
+                    "it cannot be matched against the other buckets of its market"
+                )
+
+            # The bridge is the one identity field that lives outside the query
+            # components: it is a create_market argument, so two markets can ask
+            # an identical question while collateralising it differently. Those
+            # are separate markets with separate books.
             this_identity = (
                 market_data.get("data_provider"),
                 market_data.get("stream_id"),
+                info.get("bridge"),
                 info.get("settle_time"),
                 market_data.get("timestamp"),
                 market_data.get("frozen_at"),
@@ -2884,7 +2906,7 @@ class TNClient:
             elif this_identity != identity:
                 raise ValueError(
                     f"market {query_id} belongs to a different event than the "
-                    f"first bucket: (data_provider, stream_id, settle_time, "
+                    f"first bucket: (data_provider, stream_id, bridge, settle_time, "
                     f"timestamp, frozen_at) is {this_identity} against "
                     f"{identity}. One forecast covers the buckets of ONE market."
                 )

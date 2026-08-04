@@ -1480,9 +1480,9 @@ frozen_at)` — the bridge included because an identical question collateralised
 two ways is two markets with two separate books.
 
 > `timestamp` and `frozen_at` come from `DecodeMarketData` in the compiled Go
-> bindings. The committed bindings predate those fields, so until they are
-> rebuilt the identity effectively rests on the first three; the check widens
-> automatically once they are present.
+> bindings. If yours were built against an sdk-go predating those fields, the
+> call fails with a hint to rerun `make gopy_build` rather than forecasting on
+> a weaker identity than sdk-go and sdk-js apply to the same market.
 
 **Cost:** two order-book reads plus one market-info read per bucket. Both the
 YES and NO books are fetched, because on this venue a resting BUY NO at *p* is
@@ -1492,9 +1492,22 @@ YES liquidity and ignoring it would discard real quotes.
 **Example:**
 ```python
 forecast = client.get_market_forecast([419, 420, 421, 422, 423])
+if forecast is None:
+    raise SystemExit("no bucket of this market carries a usable quote")
 
 print(f"{forecast.value:.4f}")              # 2.1363
-print(f"{forecast.p10:.4f}..{forecast.p90:.4f}")   # 1.9058..2.3792
+
+# value_basis is "tail" when the median sits beyond the outer strikes. The
+# number then rests on the assumed tail shape rather than on a real strike,
+# and can land far outside the quoted range.
+if forecast.value_basis == "tail":
+    print("  ! read from the tail model, not between real strikes")
+
+# p10/p90 are None when the market has too few strikes to place them.
+if forecast.p10 is not None and forecast.p90 is not None:
+    print(f"{forecast.p10:.4f}..{forecast.p90:.4f}")   # 1.9058..2.3792
+else:
+    print("band unresolved")
 
 for bucket in forecast.buckets:
     print(f"  {bucket.lower}-{bucket.upper}: {bucket.probability:.1%}")

@@ -69,6 +69,17 @@ def test_non_positive_equals_tolerance_is_rejected():
             )
 
 
+def test_collapsed_or_overflowing_equals_bounds_are_rejected():
+    """A positive tolerance is not enough. Absorbed by a large target it leaves
+    both edges on the same value, and near the float limits the sum overflows."""
+    assert 1e300 - 1e-300 == 1e300 + 1e-300, "the collapse, demonstrated"
+    for thresholds in (["1e300", "1e-300"], ["1.7e308", "1.7e308"]):
+        with pytest.raises(ValueError, match="usable bucket"):
+            bucket_bounds_from_market_data(
+                {"type": "equals", "thresholds": thresholds}
+            )
+
+
 def test_unknown_market_type_is_rejected():
     with pytest.raises(ValueError, match="cannot derive bucket bounds"):
         bucket_bounds_from_market_data({"type": "unknown", "thresholds": []})

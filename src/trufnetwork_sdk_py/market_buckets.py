@@ -74,12 +74,14 @@ def bucket_bounds_from_market_data(
                 f"got {tolerance}"
             )
         lower, upper = target - tolerance, target + tolerance
-        # Both operands are finite, but the sum or difference can still overflow
-        # near the float limits.
-        if not math.isfinite(lower) or not math.isfinite(upper):
+        # A positive tolerance does not guarantee a non-empty bucket. Near the
+        # float limits the sum can overflow to inf, and a tolerance small enough
+        # relative to the target is absorbed entirely, collapsing both edges onto
+        # the same value: 1e300 +/- 1e-300 is 1e300 twice.
+        if not math.isfinite(lower) or not math.isfinite(upper) or lower >= upper:
             raise ValueError(
                 f"an {market_type!r} market with target {target} and tolerance "
-                f"{tolerance} overflows its bounds"
+                f"{tolerance} does not describe a usable bucket: [{lower}, {upper})"
             )
         return lower, upper
 

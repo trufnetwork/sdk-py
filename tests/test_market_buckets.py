@@ -236,6 +236,22 @@ def test_markets_differing_only_in_the_time_they_observe_are_rejected():
         fake_client(both).get_market_forecast(list(both))
 
 
+def test_markets_differing_only_in_the_block_they_freeze_are_rejected():
+    """`frozen_at` is the other query field settle_time cannot see: the same
+    question asked of pinned data and of latest data is two different queries."""
+    pinned = {
+        query_id + 300: ({**market_data, "frozen_at": 987654}, quotes)
+        for query_id, (market_data, quotes) in MSFT_MARKETS.items()
+    }
+    latest = {
+        query_id: ({**market_data, "frozen_at": None}, quotes)
+        for query_id, (market_data, quotes) in MSFT_MARKETS.items()
+    }
+    both = {**latest, **pinned}
+    with pytest.raises(ValueError, match="different event"):
+        fake_client(both).get_market_forecast(list(both))
+
+
 def test_each_of_those_sets_still_forecasts_on_its_own():
     """The identity check must reject the mixture without rejecting either half."""
     assert fake_client().get_market_forecast(list(MSFT_MARKETS)) is not None

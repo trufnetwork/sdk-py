@@ -22,6 +22,7 @@ plumbing between the SDK and the chain is connected the right way round.
 
 import os
 from collections import defaultdict
+from itertools import pairwise
 
 import pytest
 
@@ -69,7 +70,7 @@ def _tiles_the_line(members) -> bool:
     ordered = sorted(bounds, key=lambda b: (b[0] is not None, b[0]))
     if ordered[-1][1] is not None:
         return False
-    return all(a[1] == b[0] for a, b in zip(ordered, ordered[1:]))
+    return all(a[1] == b[0] for a, b in pairwise(ordered))
 
 
 def _discover_groups(client):
@@ -261,10 +262,23 @@ def test_bid_sign_convention_still_holds(live_client, live_forecast):
                 )
                 assert level.size > 0
 
-            if bids and best["best_bid"] is not None:
+            # A non-empty ladder and an absent best quote is itself a
+            # disagreement between the two node paths, which is what this test
+            # exists to catch. Skipping that case would hide it.
+            if bids:
+                assert best["best_bid"] is not None, (
+                    f"query {query_id} outcome={outcome}: get_order_book "
+                    f"returned {len(bids)} bid(s) but get_best_prices reports "
+                    "no best bid"
+                )
                 assert max(level.price for level in bids) == best["best_bid"]
                 checked += 1
-            if asks and best["best_ask"] is not None:
+            if asks:
+                assert best["best_ask"] is not None, (
+                    f"query {query_id} outcome={outcome}: get_order_book "
+                    f"returned {len(asks)} ask(s) but get_best_prices reports "
+                    "no best ask"
+                )
                 assert min(level.price for level in asks) == best["best_ask"]
                 checked += 1
 

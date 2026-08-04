@@ -29,9 +29,17 @@ import warnings
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
-from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Optional, Required
+from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Optional, Required, NotRequired
 
 from pydantic import BaseModel
+
+from .forecast import (
+    BookLevel,
+    BucketDepth,
+    MarketForecast,
+    forecast_from_depth,
+)
+from .market_buckets import bucket_bounds_from_market_data
 
 
 T = TypeVar("T")
@@ -306,12 +314,22 @@ class DecodedQueryComponents(TypedDict):
 
 
 class MarketData(TypedDict):
-    """Structured content of a prediction market's query components"""
+    """Structured content of a prediction market's query components.
+
+    ``timestamp`` (the point in the stream the query observes, unix seconds) and
+    ``frozen_at`` (the block height the data is pinned to; None means latest)
+    are produced by ``contractsapi.DecodeMarketData`` in sdk-go, which this SDK
+    calls through its compiled bindings. They are ``NotRequired`` because the
+    committed bindings predate those fields: they appear once the bindings are
+    rebuilt against an sdk-go that emits them. Read them with ``.get()``.
+    """
     data_provider: str
     stream_id: str
     action_id: str
     type: Literal["above", "below", "between", "equals", "unknown"]
     thresholds: list[str]
+    timestamp: NotRequired[int | None]
+    frozen_at: NotRequired[int | None]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2790,6 +2808,163 @@ class TNClient:
             return {"best_bid": None, "best_ask": None, "spread": None}
 
         return cast(BestPrices, json.loads(json_str))
+
+    def get_market_forecast(self, query_ids: list[int]) -> MarketForecast | None:
+        """Collapse a market's bucket books into the single value they imply.
+
+        A prediction market prices ranges: each bucket is its own query_id with
+        its own binary book. This reads every bucket's FULL YES and NO ladders
+        and its bounds, then returns the one number the books collectively
+        imply plus the band around it. See ``trufnetwork_sdk_py.forecast``.
+
+        The YES and NO books are both fetched because the forecast consolidates
+        them: on this venue a resting BUY NO at p is hittable by a BUY YES at
+        100-p (mint match), so NO liquidity is executable YES liquidity and
+        ignoring it would discard real quotes. That costs two order-book reads
+        per bucket.
+
+        Args:
+            query_ids: The bucket query_ids of ONE market. Order does not
+                matter, they are sorted by lower bound here. The buckets are
+                expected to tile the whole line, with the bottom one open below
+                and the top one open above; a layout that does not is still
+                estimated, with the problem reported in ``warnings``.
+
+        Returns:
+            A MarketForecast, or None when no bucket has a usable quote.
+
+        Raises:
+            ValueError: if fewer than two query_ids are given, or a market is
+                missing the query_components needed to derive its bounds.
+        """
+        if len(query_ids) < 2:
+            raise ValueError(
+                f"a market forecast needs at least 2 bucket query_ids, got {len(query_ids)}"
+            )
+        if len(set(query_ids)) != len(query_ids):
+            repeated = sorted({q for q in query_ids if query_ids.count(q) > 1})
+            raise ValueError(
+                f"duplicate bucket query_ids {repeated}; a repeated bucket would "
+                "have its probability counted twice"
+            )
+
+        books: list[BucketDepth] = []
+        identity: tuple | None = None
+        for query_id in query_ids:
+            info = self.get_market_info(query_id)
+            query_components = info.get("query_components") or b""
+            if not query_components:
+                raise ValueError(
+                    f"market {query_id} has no query_components, so its bucket "
+                    "bounds cannot be derived"
+                )
+            market_data = self.decode_market_data(query_components)
+
+            # Buckets of one market differ only in their strike: they share a
+            # data provider, a stream, a settlement time and the query time they
+            # observe. Forecasting across two events would normalise unrelated
+            # probabilities into one distribution and return a confident number
+            # about nothing, so it is rejected rather than warned about.
+            #
+            # timestamp/frozen_at come from sdk-go's DecodeMarketData through the
+            # compiled bindings. The committed bindings predate them, so today
+            # they are None for every bucket and contribute nothing; the check
+            # starts discriminating on them as soon as the bindings are rebuilt.
+            # Two markets can settle at the same moment while observing the
+            # stream at different points, which settle_time alone cannot see.
+            # A binary action always carries its timestamp; only frozen_at is
+            # nullable. A None timestamp would compare equal across buckets, so
+            # two malformed markets would COLLIDE on that component and match
+            # each other -- the check failing open in exactly the case it exists
+            # to catch. The key being ABSENT is different: that is the old
+            # bindings not emitting the field at all, which is not a defect in
+            # the market, so it is left alone.
+            if (
+                market_data.get("type") != "unknown"
+                and "timestamp" in market_data
+                and market_data["timestamp"] is None
+            ):
+                raise ValueError(
+                    f"market {query_id} carries no readable query timestamp, so "
+                    "it cannot be matched against the other buckets of its market"
+                )
+
+            # The bridge is the one identity field that lives outside the query
+            # components: it is a create_market argument, so two markets can ask
+            # an identical question while collateralising it differently. Those
+            # are separate markets with separate books.
+            this_identity = (
+                market_data.get("data_provider"),
+                market_data.get("stream_id"),
+                info.get("bridge"),
+                info.get("settle_time"),
+                market_data.get("timestamp"),
+                market_data.get("frozen_at"),
+            )
+            if identity is None:
+                identity = this_identity
+            elif this_identity != identity:
+                raise ValueError(
+                    f"market {query_id} belongs to a different event than the "
+                    f"first bucket: (data_provider, stream_id, bridge, settle_time, "
+                    f"timestamp, frozen_at) is {this_identity} against "
+                    f"{identity}. One forecast covers the buckets of ONE market."
+                )
+
+            lower, upper = bucket_bounds_from_market_data(market_data)
+            yes_bids, yes_asks = self._order_book_ladders(query_id, True)
+            no_bids, no_asks = self._order_book_ladders(query_id, False)
+            books.append(
+                BucketDepth(
+                    lower=lower,
+                    upper=upper,
+                    yes_bids=yes_bids,
+                    yes_asks=yes_asks,
+                    no_bids=no_bids,
+                    no_asks=no_asks,
+                    query_id=query_id,
+                )
+            )
+
+        # None sorts first, which is where the open-below bucket belongs.
+        books.sort(key=lambda b: (b.lower is not None, b.lower))
+
+        layout: list[str] = []
+        if books[0].lower is not None:
+            layout.append("lowest bucket is not open below")
+        if books[-1].upper is not None:
+            layout.append("highest bucket is not open above")
+        breaks = sum(
+            1 for a, b in zip(books, books[1:]) if a.upper != b.lower
+        )
+        if breaks:
+            layout.append(f"{breaks} gap(s) or overlap(s) between bucket bounds")
+
+        forecast = forecast_from_depth(books)
+        if forecast is None:
+            return None
+        forecast.warnings[:0] = layout
+        return forecast
+
+    def _order_book_ladders(
+        self, query_id: int, outcome: bool
+    ) -> tuple[list[BookLevel], list[BookLevel]]:
+        """One outcome's resting book, split into (bids, asks) ladders.
+
+        ``get_order_book`` marks bids with a NEGATIVE price and asks with a
+        positive one; price 0 means shares held with no resting order, which is
+        not part of the book. Prices come back to the forecast as the positive
+        1-99 cent convention it expects.
+        """
+        bids: list[BookLevel] = []
+        asks: list[BookLevel] = []
+        for entry in self.get_order_book(query_id, outcome):
+            price, amount = entry["price"], entry["amount"]
+            if price < 0:
+                bids.append(BookLevel(price=float(-price), size=float(amount)))
+            elif price > 0:
+                asks.append(BookLevel(price=float(price), size=float(amount)))
+        return bids, asks
 
     def get_user_collateral(self) -> UserCollateral:
         """Get caller's total locked collateral value."""

@@ -1444,6 +1444,169 @@ Get aggregated order book depth for a market outcome.
 
 **Returns:** List of depth levels with aggregated amounts at each price.
 
+### Market Forecasting
+
+Prediction markets price **ranges**, not values. A five-bucket EPS market says
+"34% chance EPS lands between $2.06 and $2.21"; it never says "EPS will be
+$2.14". These helpers invert that, collapsing the order books across every
+bucket of one market into the single number they collectively imply.
+
+```text
+market says                     ->  forecast says
+"34% between 2.06 and 2.21"         "2.14, p10..p90 1.91..2.38"
+```
+
+#### `client.get_market_forecast(query_ids: list[int]) -> MarketForecast | None`
+
+Collapse a market's bucket books into the single value they imply.
+
+**Parameters:**
+- `query_ids: list[int]` - The bucket query_ids of **one** market. Order does
+  not matter; they are sorted by bound internally. See *Finding a market's
+  query_ids* below.
+
+**Returns:** A `MarketForecast`, or `None` when no bucket has a usable quote.
+
+**Raises:** `ValueError` if fewer than two query_ids are given, if any is
+repeated, if they do not all belong to the same market, or if a market is
+missing the `query_components` needed to derive its bounds.
+
+One forecast covers the buckets of **one** market. A repeated query_id would
+have its bucket counted twice, and mixing two markets would normalise unrelated
+probabilities into a single distribution — both are rejected rather than warned
+about. Buckets of one market differ only in their strike, so the identity
+compared is `(data_provider, stream_id, bridge, settle_time, timestamp,
+frozen_at)` — the bridge included because an identical question collateralised
+two ways is two markets with two separate books.
+
+> `timestamp` and `frozen_at` come from `DecodeMarketData` in the compiled Go
+> bindings. The committed bindings predate those fields, so until they are
+> rebuilt the identity effectively rests on the first three; the check widens
+> automatically once they are present.
+
+**Cost:** two order-book reads plus one market-info read per bucket. Both the
+YES and NO books are fetched, because on this venue a resting BUY NO at *p* is
+hittable by a BUY YES at *100-p* (mint match), so NO liquidity is executable
+YES liquidity and ignoring it would discard real quotes.
+
+**Example:**
+```python
+forecast = client.get_market_forecast([419, 420, 421, 422, 423])
+
+print(f"{forecast.value:.4f}")              # 2.1363
+print(f"{forecast.p10:.4f}..{forecast.p90:.4f}")   # 1.9058..2.3792
+
+for bucket in forecast.buckets:
+    print(f"  {bucket.lower}-{bucket.upper}: {bucket.probability:.1%}")
+
+for warning in forecast.warnings:
+    print(f"  ! {warning}")
+```
+
+#### `MarketForecast`
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `value` | `float` | The point estimate: the **median** of the implied distribution |
+| `p10`, `p90` | `float \| None` | The published band. The market implies an 80% chance the outcome lands inside it |
+| `margin_of_error` | `float` | Half the P10..P90 band. **Not** a standard error — see below |
+| `sigma` | `float` | The band scaled to a normal-equivalent standard deviation |
+| `value_basis` | `str` | `"interior"`, `"tail"`, or `"unresolved"` — see below |
+| `p10_basis`, `p90_basis` | `str` | Same flags, for each end of the band |
+| `method` | `str` | `"rank"` normally, `"discrete"` on a degenerate book |
+| `buckets` | `list[BucketEstimate]` | Per-bucket detail |
+| `warnings` | `list[str]` | Book-quality problems worth surfacing |
+| `multimodal`, `n_peaks` | `bool`, `int` | Whether the book implies more than one peak |
+| `low`, `high` | `float` | `value -/+ margin_of_error` |
+| `as_dict()` | `dict` | Flat, JSON-serialisable form |
+
+Each `BucketEstimate` carries `query_id`, `lower`, `upper`, `probability`
+(normalised, sums to 1), `raw_probability`, `confidence`, `one_sided` and
+`quoted`.
+
+**`margin_of_error` is a band, not a precision.** It is half the P10..P90
+spread, so it describes how uncertain the **outcome** is, not how tightly the
+book pins your estimate. Expect it to be large — on a live five-bucket EPS
+market, roughly 0.24 against a value of 2.14. Publishing it as "± 0.24" is
+correct; reading it as "our estimate is accurate to 0.24" is not.
+
+**Check the `_basis` flags before displaying a number.** The outer two buckets
+are open-ended, so the books say nothing about how far out they extend. When a
+percentile falls inside one, an exponential tail model supplies the number and
+the corresponding flag reads `"tail"`. `"interior"` means it was read between
+real strikes with no shape assumption. `"unresolved"` means the market has too
+few strikes to place it at all.
+
+**Read `warnings`.** Unquoted or one-sided buckets, crossed books, and
+dutch-book deviations are reported rather than silently smoothed over.
+
+#### Finding a market's query_ids
+
+Each bucket is a **separate market** with its own query_id, so a "market" is a
+set of them. They can be reassembled from chain data alone: buckets of the same
+market share a data stream and a settlement time.
+
+```python
+from collections import defaultdict
+
+groups = defaultdict(list)
+for summary in client.list_markets(settled_filter=False, limit=100):
+    info = client.get_market_info(summary["id"])
+    market_data = client.decode_market_data(info["query_components"])
+    groups[(market_data["stream_id"], summary["settle_time"])].append(summary["id"])
+
+# A complete market tiles the line: one "below" bucket, one "above", ranges
+# between. A stream can also carry a market that is not part of a bucket set at
+# all, so skip anything too small to forecast rather than letting it raise.
+for query_ids in groups.values():
+    if len(query_ids) < 2:
+        continue
+    forecast = client.get_market_forecast(query_ids)
+```
+
+A layout that does not tile the line is still estimated, with the problem
+reported in `warnings` rather than raised.
+
+#### Forecasting from your own book data
+
+If you already hold the books, the algorithm is available as pure functions with
+no I/O. `forecast_from_depth` is the preferred entry point; it consolidates the
+YES and NO ladders itself.
+
+```python
+from trufnetwork_sdk_py import (
+    BookLevel, BucketDepth, forecast_from_depth,
+    BucketBook, forecast_from_buckets,
+)
+
+# Full ladders. Prices are positive 1-99 cents on every side.
+buckets = [
+    BucketDepth(
+        lower=None, upper=1.91,            # None = open-ended outer bucket
+        yes_bids=[BookLevel(price=4, size=386)],
+        yes_asks=[],
+        no_bids=[BookLevel(price=83, size=25)],
+        no_asks=[BookLevel(price=97, size=6)],
+        query_id=419,
+    ),
+    # ... remaining buckets, ascending
+]
+forecast = forecast_from_depth(buckets)
+
+# Or, if you only have top-of-book (no consolidation, weaker estimate):
+forecast = forecast_from_buckets([
+    BucketBook(lower=None, upper=1.91, best_bid=4, best_ask=17, query_id=419),
+    # ...
+])
+```
+
+Buckets must span the whole line, with the first open below (`lower=None`) and
+the last open above (`upper=None`).
+
+`bucket_bounds_from_market_data(market_data)` converts the output of
+`decode_market_data` into a `(lower, upper)` pair, handling the `below`,
+`between`, `above` and `equals` market types.
+
 ### Settlement
 
 Markets are settled **automatically** by the network scheduler. No manual intervention is required.

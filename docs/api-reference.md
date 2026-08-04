@@ -1467,8 +1467,20 @@ Collapse a market's bucket books into the single value they imply.
 
 **Returns:** A `MarketForecast`, or `None` when no bucket has a usable quote.
 
-**Raises:** `ValueError` if fewer than two query_ids are given, or a market is
+**Raises:** `ValueError` if fewer than two query_ids are given, if any is
+repeated, if they do not all belong to the same market, or if a market is
 missing the `query_components` needed to derive its bounds.
+
+One forecast covers the buckets of **one** market. A repeated query_id would
+have its bucket counted twice, and mixing two markets would normalise unrelated
+probabilities into a single distribution — both are rejected rather than warned
+about. Buckets of one market differ only in their strike, so the identity
+compared is `(data_provider, stream_id, settle_time, timestamp, frozen_at)`.
+
+> `timestamp` and `frozen_at` come from `DecodeMarketData` in the compiled Go
+> bindings. The committed bindings predate those fields, so until they are
+> rebuilt the identity effectively rests on the first three; the check widens
+> automatically once they are present.
 
 **Cost:** two order-book reads plus one market-info read per bucket. Both the
 YES and NO books are fetched, because on this venue a resting BUY NO at *p* is

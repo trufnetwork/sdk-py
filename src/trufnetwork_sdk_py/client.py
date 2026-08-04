@@ -29,7 +29,7 @@ import warnings
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
 
-from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Optional, Required
+from typing import Any, TypedDict, Literal, cast, overload, Generic, TypeVar, Optional, Required, NotRequired
 
 from pydantic import BaseModel
 
@@ -314,12 +314,22 @@ class DecodedQueryComponents(TypedDict):
 
 
 class MarketData(TypedDict):
-    """Structured content of a prediction market's query components"""
+    """Structured content of a prediction market's query components.
+
+    ``timestamp`` (the point in the stream the query observes, unix seconds) and
+    ``frozen_at`` (the block height the data is pinned to; None means latest)
+    are produced by ``contractsapi.DecodeMarketData`` in sdk-go, which this SDK
+    calls through its compiled bindings. They are ``NotRequired`` because the
+    committed bindings predate those fields: they appear once the bindings are
+    rebuilt against an sdk-go that emits them. Read them with ``.get()``.
+    """
     data_provider: str
     stream_id: str
     action_id: str
     type: Literal["above", "below", "between", "equals", "unknown"]
     thresholds: list[str]
+    timestamp: NotRequired[int | None]
+    frozen_at: NotRequired[int | None]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2851,23 +2861,32 @@ class TNClient:
             market_data = self.decode_market_data(query_components)
 
             # Buckets of one market differ only in their strike: they share a
-            # data provider, a stream and a settlement time. Forecasting across
-            # two events would normalise unrelated probabilities into one
-            # distribution and return a confident number about nothing, so it is
-            # rejected rather than warned about.
+            # data provider, a stream, a settlement time and the query time they
+            # observe. Forecasting across two events would normalise unrelated
+            # probabilities into one distribution and return a confident number
+            # about nothing, so it is rejected rather than warned about.
+            #
+            # timestamp/frozen_at come from sdk-go's DecodeMarketData through the
+            # compiled bindings. The committed bindings predate them, so today
+            # they are None for every bucket and contribute nothing; the check
+            # starts discriminating on them as soon as the bindings are rebuilt.
+            # Two markets can settle at the same moment while observing the
+            # stream at different points, which settle_time alone cannot see.
             this_identity = (
                 market_data.get("data_provider"),
                 market_data.get("stream_id"),
                 info.get("settle_time"),
+                market_data.get("timestamp"),
+                market_data.get("frozen_at"),
             )
             if identity is None:
                 identity = this_identity
             elif this_identity != identity:
                 raise ValueError(
                     f"market {query_id} belongs to a different event than the "
-                    f"first bucket: (data_provider, stream_id, settle_time) is "
-                    f"{this_identity} against {identity}. One forecast covers "
-                    "the buckets of ONE market."
+                    f"first bucket: (data_provider, stream_id, settle_time, "
+                    f"timestamp, frozen_at) is {this_identity} against "
+                    f"{identity}. One forecast covers the buckets of ONE market."
                 )
 
             lower, upper = bucket_bounds_from_market_data(market_data)

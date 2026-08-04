@@ -319,9 +319,10 @@ class MarketData(TypedDict):
     ``timestamp`` (the point in the stream the query observes, unix seconds) and
     ``frozen_at`` (the block height the data is pinned to; None means latest)
     are produced by ``contractsapi.DecodeMarketData`` in sdk-go, which this SDK
-    calls through its compiled bindings. They are ``NotRequired`` because the
-    committed bindings predate those fields: they appear once the bindings are
-    rebuilt against an sdk-go that emits them. Read them with ``.get()``.
+    calls through its compiled bindings. They are ``NotRequired`` so that a
+    market decoded by bindings built against an older sdk-go still types, but
+    ``get_market_forecast`` refuses such a market rather than forecasting on a
+    weaker identity than sdk-go and sdk-js apply. Read them with ``.get()``.
     """
     data_provider: str
     stream_id: str
@@ -2867,26 +2868,37 @@ class TNClient:
             # about nothing, so it is rejected rather than warned about.
             #
             # timestamp/frozen_at come from sdk-go's DecodeMarketData through the
-            # compiled bindings. The committed bindings predate them, so today
-            # they are None for every bucket and contribute nothing; the check
-            # starts discriminating on them as soon as the bindings are rebuilt.
-            # Two markets can settle at the same moment while observing the
-            # stream at different points, which settle_time alone cannot see.
+            # compiled bindings. Two markets can settle at the same moment while
+            # observing the stream at different points, which settle_time alone
+            # cannot see.
+            #
             # A binary action always carries its timestamp; only frozen_at is
             # nullable. A None timestamp would compare equal across buckets, so
             # two malformed markets would COLLIDE on that component and match
             # each other -- the check failing open in exactly the case it exists
-            # to catch. The key being ABSENT is different: that is the old
-            # bindings not emitting the field at all, which is not a defect in
-            # the market, so it is left alone.
+            # to catch.
+            #
+            # A MISSING key is refused for the same reason rather than waved
+            # through. It means the bindings were built against an sdk-go
+            # predating these fields, which leaves this SDK accepting bucket
+            # sets that sdk-go and sdk-js both reject. Failing loudly on a stale
+            # build beats returning a confident number the other two SDKs would
+            # have refused to produce.
             if (
                 market_data.get("type") != "unknown"
-                and "timestamp" in market_data
-                and market_data["timestamp"] is None
+                and market_data.get("timestamp") is None
             ):
+                hint = (
+                    ""
+                    if "timestamp" in market_data
+                    else " (the decoded market has no timestamp field at all, "
+                    "which means the C bindings were built against an sdk-go "
+                    "predating it -- rebuild them with `make gopy_build`)"
+                )
                 raise ValueError(
                     f"market {query_id} carries no readable query timestamp, so "
-                    "it cannot be matched against the other buckets of its market"
+                    f"it cannot be matched against the other buckets of its "
+                    f"market{hint}"
                 )
 
             # The bridge is the one identity field that lives outside the query

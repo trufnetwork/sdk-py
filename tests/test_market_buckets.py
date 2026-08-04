@@ -95,12 +95,18 @@ def test_missing_thresholds_are_rejected():
 # The live mainnet MSFT book, as five separate markets. Bounds are carried in
 # each bucket's own query_components, exactly as on chain. Quotes are
 # (yes_bid, yes_ask) in cents; None means nothing resting on that side.
+#
+# Every bucket carries the same `timestamp`, which is what makes them one
+# market: the bindings decode it from argument 2 of the binary action, and
+# get_market_forecast refuses a bucket set it cannot read it from.
+OBSERVED_AT = 1700000000
+
 MSFT_MARKETS = {
-    101: ({"type": "below", "thresholds": ["4.04"]}, (1, None)),
-    102: ({"type": "between", "thresholds": ["4.04", "4.33"]}, (16, 28)),
-    103: ({"type": "between", "thresholds": ["4.33", "4.62"]}, (44, 56)),
-    104: ({"type": "between", "thresholds": ["4.62", "4.92"]}, (9, 21)),
-    105: ({"type": "above", "thresholds": ["4.92"]}, (1, None)),
+    101: ({"type": "below", "thresholds": ["4.04"], "timestamp": OBSERVED_AT}, (1, None)),
+    102: ({"type": "between", "thresholds": ["4.04", "4.33"], "timestamp": OBSERVED_AT}, (16, 28)),
+    103: ({"type": "between", "thresholds": ["4.33", "4.62"], "timestamp": OBSERVED_AT}, (44, 56)),
+    104: ({"type": "between", "thresholds": ["4.62", "4.92"], "timestamp": OBSERVED_AT}, (9, 21)),
+    105: ({"type": "above", "thresholds": ["4.92"], "timestamp": OBSERVED_AT}, (1, None)),
 }
 
 # Big enough that even a 1c level clears DEPTH_MIN_SIDE_NOTIONAL_USD, so the
@@ -257,8 +263,8 @@ def test_markets_differing_only_in_the_time_they_observe_are_rejected():
     """The case settle_time alone cannot see: same provider, same stream, same
     settlement, but observing the stream a day apart.
 
-    The stub supplies ``timestamp`` because the committed Go bindings do not
-    emit it yet; this pins the comparison so it works the moment they do.
+    Both sets carry a readable ``timestamp``; they differ only in its value,
+    which is the whole point of comparing it.
     """
     later = {
         query_id + 200: ({**market_data, "timestamp": 1700086400}, quotes)
@@ -320,11 +326,20 @@ def test_unreadable_query_timestamp_is_rejected():
         fake_client(unreadable).get_market_forecast(list(unreadable))
 
 
-def test_absent_timestamp_key_is_not_treated_as_unreadable():
-    """Today's bindings emit five keys and no timestamp at all. That must keep
-    working until they are rebuilt."""
-    assert "timestamp" not in MSFT_MARKETS[101][0]
-    assert fake_client().get_market_forecast(list(MSFT_MARKETS)) is not None
+def test_absent_timestamp_key_is_refused_like_an_unreadable_one():
+    """A decoded market with no timestamp field at all means the C bindings were
+    built against an sdk-go predating it.
+
+    Waving that through would leave this SDK accepting bucket sets that sdk-go
+    and sdk-js both reject, so it fails with a hint at the rebuild instead.
+    """
+    stale = {
+        query_id: ({k: v for k, v in market_data.items() if k != "timestamp"}, quotes)
+        for query_id, (market_data, quotes) in MSFT_MARKETS.items()
+    }
+    assert "timestamp" not in stale[101][0]
+    with pytest.raises(ValueError, match="make gopy_build"):
+        fake_client(stale).get_market_forecast(list(stale))
 
 
 def test_each_of_those_sets_still_forecasts_on_its_own():

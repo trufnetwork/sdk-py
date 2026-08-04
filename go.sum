@@ -62,6 +62,8 @@ github.com/trufnetwork/kwil-db/core v0.4.3-0.20260615121733-0d71bd259558 h1:m7a9
 github.com/trufnetwork/kwil-db/core v0.4.3-0.20260615121733-0d71bd259558/go.mod h1:HnOsh9+BN13LJCjiH0+XKaJzyjWKf+H9AofFFp90KwQ=
 github.com/trufnetwork/sdk-go v0.7.3-0.20260623101902-a88c54ac6abb h1:NyKYWkkmeShfSR+2FjAg78s+k0LY5A95Yayh4H+yPjo=
 github.com/trufnetwork/sdk-go v0.7.3-0.20260623101902-a88c54ac6abb/go.mod h1:CivlBpc5RcYwyo8EysoAZWXXfmTtigfkR5VctivwSHc=
+github.com/trufnetwork/sdk-go v0.7.4-0.20260804082214-38a6f5396c5c h1:PhmC1YDj6d6USgzq3WrkLiKPpYe51beJMEhO+zVkgbQ=
+github.com/trufnetwork/sdk-go v0.7.4-0.20260804082214-38a6f5396c5c/go.mod h1:CivlBpc5RcYwyo8EysoAZWXXfmTtigfkR5VctivwSHc=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=

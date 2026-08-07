@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(
     reason="live node not configured; set TN_LIVE_NODE_URL to run",
 )
 
-# Discovery costs two depth reads per market until a two-sided one turns up.
+# Discovery costs one depth read per market until a two-sided one turns up.
 # Mainnet carried ~130 open markets when this was written and the first page
 # already held one; the cap is headroom, not a target.
 MAX_MARKETS_SCANNED = 400
@@ -60,6 +60,9 @@ def two_sided_market(live_client) -> int:
     consolidated level is native and a wrapper that dropped the inverse side
     entirely would still pass. Skip rather than fail when the network has none
     -- an empty book is a fact about the day, not a defect.
+
+    "Is this market two-sided?" is the question get_full_market_depth exists to
+    answer, so the scan asks it once per market rather than once per outcome.
     """
     offset = 0
     scanned = 0
@@ -70,16 +73,42 @@ def two_sided_market(live_client) -> int:
             break
         for market in page:
             scanned += 1
-            query_id = market["id"]
-            if _quoted(live_client.get_market_depth(query_id, True)) and _quoted(
-                live_client.get_market_depth(query_id, False)
-            ):
-                return query_id
+            depth = live_client.get_full_market_depth(market["id"])
+            yes = [level for level in depth if level["outcome"]]
+            no = [level for level in depth if not level["outcome"]]
+            if _quoted(yes) and _quoted(no):
+                return market["id"]
         if len(page) < 100:
             break
         offset += 100
 
     pytest.skip("no open market on this network quotes both outcomes right now")
+
+
+def test_full_market_depth_matches_two_single_outcome_reads(live_client, two_sided_market):
+    """The whole-market read and the per-outcome reads describe the same book.
+
+    This is what makes the new action safe to switch to: it aggregates the same
+    rows, it just does both outcomes in one statement. If the two ever disagreed
+    on anything but timing, every consolidated ladder built on it would be wrong
+    while the per-outcome reads stayed right.
+    """
+    for _ in range(STABLE_READ_ATTEMPTS):
+        before = live_client.get_full_market_depth(two_sided_market)
+        yes = live_client.get_market_depth(two_sided_market, True)
+        no = live_client.get_market_depth(two_sided_market, False)
+        if before == live_client.get_full_market_depth(two_sided_market):
+            break
+    else:
+        pytest.skip("the book kept moving between reads; nothing stable to compare")
+
+    def rows(levels):
+        return sorted(
+            (level["price"], level["buy_volume"], level["sell_volume"]) for level in levels
+        )
+
+    assert rows(level for level in before if level["outcome"]) == rows(yes)
+    assert rows(level for level in before if not level["outcome"]) == rows(no)
 
 
 @pytest.fixture(scope="module")

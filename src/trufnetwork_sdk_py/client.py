@@ -258,6 +258,19 @@ class DepthLevel(TypedDict):
     sell_volume: int
 
 
+class FullDepthLevel(TypedDict):
+    """Market depth at one outcome's price level, as get_full_market_depth
+    returns it.
+
+    The ``outcome`` tag is what a ``DepthLevel`` leaves implicit, because the
+    call it comes from asked for one outcome. True=YES, False=NO.
+    """
+    outcome: bool
+    price: int
+    buy_volume: int
+    sell_volume: int
+
+
 class ConsolidatedLevel(TypedDict):
     """One price level of a consolidated order book, in the requested frame.
 
@@ -2830,6 +2843,33 @@ class TNClient:
             return []
 
         return cast(list[DepthLevel], json.loads(json_str))
+
+    def get_full_market_depth(self, query_id: int) -> list[FullDepthLevel]:
+        """Get aggregated volume per price level for BOTH outcomes, in one read.
+
+        Same aggregation as ``get_market_depth``, for the whole market instead
+        of one outcome, with each level tagged by the outcome it rests on. Rows
+        arrive YES first then NO, price ascending within each.
+
+        One statement is one snapshot. Anything that compares the two outcomes
+        to each other wants this rather than two ``get_market_depth`` calls,
+        because between two calls an order can land on one side and not the
+        other, and the pair then describes a market state that never existed.
+
+        ``get_market_depth`` is unchanged and stays the right call when you want
+        one outcome: a depth chart, or a bot quoting a single side.
+
+        Args:
+            query_id: The market to read.
+
+        Requires a node carrying ``get_full_market_depth``.
+        """
+        json_str = truf_sdk.GetFullMarketDepth(self.client, query_id)
+
+        if not json_str:
+            return []
+
+        return cast(list[FullDepthLevel], json.loads(json_str))
 
     def get_consolidated_order_book(
         self, query_id: int, outcome: bool = True

@@ -2431,6 +2431,49 @@ func GetMarketDepth(client *tnclient.Client, queryID int, outcome bool) (string,
 	return string(jsonBytes), nil
 }
 
+// GetFullMarketDepth returns aggregated volume per price level for BOTH
+// outcomes, from one read.
+//
+// Same aggregation as GetMarketDepth, for the whole market instead of one
+// outcome, with each level tagged by the outcome it rests on. Rows arrive YES
+// first then NO, price ascending within each.
+//
+// One statement is one snapshot. Anything that compares the two outcomes to
+// each other wants this rather than two GetMarketDepth calls, because between
+// two calls an order can land on one side and not the other.
+func GetFullMarketDepth(client *tnclient.Client, queryID int) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	results, err := orderBook.GetFullMarketDepth(ctx, types.GetFullMarketDepthInput{
+		QueryID: queryID,
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get full market depth")
+	}
+
+	levels := make([]map[string]any, len(results))
+	for i, level := range results {
+		levels[i] = map[string]any{
+			"outcome":     level.Outcome,
+			"price":       level.Price,
+			"buy_volume":  level.BuyVolume,
+			"sell_volume": level.SellVolume,
+		}
+	}
+
+	jsonBytes, err := json.Marshal(levels)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal full market depth")
+	}
+
+	return string(jsonBytes), nil
+}
+
 // GetBestPrices returns current bid/ask spread
 func GetBestPrices(client *tnclient.Client, queryID int, outcome bool) (string, error) {
 	ctx := context.Background()

@@ -1444,6 +1444,37 @@ Get aggregated order book depth for a market outcome.
 
 **Returns:** List of depth levels with aggregated amounts at each price.
 
+#### `client.get_full_market_depth(query_id) -> list[FullDepthLevel]`
+
+Get aggregated volume per price level for **both** outcomes, from one read.
+
+**Parameters:**
+- `query_id: int` - Market ID
+
+Same aggregation as `get_market_depth`, for the whole market instead of one
+outcome, with each level tagged by the outcome it rests on. Rows arrive YES
+first then NO, price ascending within each.
+
+One statement is one snapshot. Anything comparing the two outcomes to each other
+wants this rather than two `get_market_depth` calls, because between two calls an
+order can land on one side and not the other, and the pair then describes a
+market state that never existed.
+
+**Returns:** List of `FullDepthLevel` — `outcome` (True=YES), `price`,
+`buy_volume`, `sell_volume`.
+
+**Example:**
+```python
+for level in client.get_full_market_depth(query_id=419):
+    side = "YES" if level["outcome"] else "NO"
+    print(f"{side} {level['price']}c: {level['buy_volume']} buy, "
+          f"{level['sell_volume']} sell")
+```
+
+`get_market_depth` is unchanged and stays the right call when you want one
+outcome: a depth chart, or a bot quoting a single side. Requires a node carrying
+`get_full_market_depth`.
+
 #### `client.get_consolidated_order_book(query_id, outcome=True) -> ConsolidatedOrderBook`
 
 Get one outcome's book with the opposite outcome's quotes folded in.

@@ -21,6 +21,7 @@ import (
 	kwillog "github.com/trufnetwork/kwil-db/core/log"
 	kwilTypes "github.com/trufnetwork/kwil-db/core/types"
 	"github.com/trufnetwork/sdk-go/core/contractsapi"
+	"github.com/trufnetwork/sdk-go/core/forecast"
 	"github.com/trufnetwork/sdk-go/core/tnclient"
 	"github.com/trufnetwork/sdk-go/core/types"
 	"github.com/trufnetwork/sdk-go/core/util"
@@ -2475,6 +2476,74 @@ func GetBestPrices(client *tnclient.Client, queryID int, outcome bool) (string, 
 	}
 
 	return string(jsonBytes), nil
+}
+
+// GetConsolidatedOrderBook returns one outcome's book with the opposite
+// outcome's quotes folded in.
+//
+// A binary market's two books are two views of one position, and the matching
+// engine fills across them. A resting SELL NO at 93c is a standing BID for YES
+// at 7c: a trader hits it by SELLING YES, both sides sell, and the chain burns
+// the share pair. GetMarketDepth on the YES outcome cannot show that quote, so
+// the market looks thinner than it is.
+//
+// In the YES frame:
+//
+//	consolidated bids = YES bids + (100 - p for every NO ask)
+//	consolidated asks = YES asks + (100 - p for every NO bid)
+//
+// The folding rule lives in sdk-go, so Python, Go and TypeScript agree on what
+// a market's executable ladder is.
+func GetConsolidatedOrderBook(client *tnclient.Client, queryID int, outcome bool) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	book, err := orderBook.GetConsolidatedOrderBook(ctx, types.GetConsolidatedOrderBookInput{
+		QueryID: queryID,
+		Outcome: outcome,
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get consolidated order book")
+	}
+
+	consolidated := map[string]any{
+		"query_id":   book.QueryID,
+		"outcome":    book.Outcome,
+		"bids":       consolidatedLevels(book.Bids),
+		"asks":       consolidatedLevels(book.Asks),
+		"is_crossed": book.IsCrossed,
+	}
+
+	jsonBytes, err := json.Marshal(consolidated)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal consolidated order book")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// consolidatedLevels renders one side of a consolidated ladder for JSON.
+//
+// Native and inverse are carried separately rather than only as their sum. Mint
+// and burn matches fire only when the two prices sum to exactly 100, while a
+// direct same-outcome match crosses, so one order fills every native level past
+// its limit plus exactly ONE inverse level. Anything quoting a fill needs the
+// split to get that right.
+func consolidatedLevels(levels []forecast.ConsolidatedLevel) []map[string]any {
+	out := make([]map[string]any, len(levels))
+	for i, level := range levels {
+		out[i] = map[string]any{
+			"price":   level.Price,
+			"total":   level.Total,
+			"native":  level.Native,
+			"inverse": level.Inverse,
+		}
+	}
+	return out
 }
 
 // GetUserCollateral returns caller's total locked collateral value

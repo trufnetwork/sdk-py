@@ -1444,6 +1444,72 @@ Get aggregated order book depth for a market outcome.
 
 **Returns:** List of depth levels with aggregated amounts at each price.
 
+#### `client.get_consolidated_order_book(query_id, outcome=True) -> ConsolidatedOrderBook`
+
+Get one outcome's book with the opposite outcome's quotes folded in.
+
+**Parameters:**
+- `query_id: int` - Market ID
+- `outcome: bool` - The outcome the prices are framed in, True=YES. The
+  NO-framed book is the YES-framed book reflected, so one call answers either
+  tab.
+
+`get_market_depth` returns one outcome's ladder, but a binary market's two books
+are two views of one position and the matching engine fills across them. A
+resting SELL NO at 93c is a standing **bid** for YES at 7c: a trader hits it by
+**selling** YES, both sides sell, and the chain burns the share pair. Read only
+the YES book and that quote is invisible.
+
+In the YES frame:
+
+```text
+consolidated bids = YES bids + (100 - p for every NO ask)
+consolidated asks = YES asks + (100 - p for every NO bid)
+```
+
+The sides swap. A NO ask arrives as a YES bid, because hitting it means both
+parties sell and the share pair burns; hitting a consolidated ask means both buy
+and a pair mints.
+
+**Returns:** A `ConsolidatedOrderBook` with `bids` best (highest) first and
+`asks` best (lowest) first.
+
+| Key | Type | Meaning |
+|-----|------|---------|
+| `query_id` | `int` | The market this book belongs to |
+| `outcome` | `bool` | Which side the prices are framed in |
+| `bids`, `asks` | `list[ConsolidatedLevel]` | The executable ladder, best first |
+| `is_crossed` | `bool` | Whether the best bid sits at or above the best ask |
+
+Each `ConsolidatedLevel` carries `price`, `total`, `native` and `inverse`.
+`native` rests in this outcome's own book and fills as a direct match; `inverse`
+rests in the opposite outcome's book at `100 - price`.
+
+**Example:**
+```python
+book = client.get_consolidated_order_book(query_id=419)
+for level in book["asks"]:
+    print(f"{level['price']:.0f}c: {level['total']:.0f} shares "
+          f"({level['native']:.0f} direct, {level['inverse']:.0f} mint)")
+```
+
+**This is not a sweepable ladder.** A direct same-outcome match crosses prices,
+but mint and burn fire only when the two prices sum to exactly 100. So one order
+fills every native level past its limit plus exactly **one** inverse level.
+Walking these levels the way you would walk `get_market_depth` quotes fills the
+chain will not produce, which is why each level keeps `native` and `inverse`
+separate rather than only their sum.
+
+A consolidated book can also sit crossed indefinitely, which `is_crossed`
+reports: a YES bid at 61 against a NO bid at 45 shows a bid at 61 over an ask at
+55, and 61 + 45 is not 100 so nothing matches. Render it rather than treating it
+as bad data.
+
+Costs one `get_full_market_depth` read, so both sides are one snapshot of the
+chain and `is_crossed` describes a state the book was really in. Requires a node
+carrying that action. The folding itself runs in sdk-go, so Python, Go and
+TypeScript agree on what a market's executable ladder is.
+
 ### Market Forecasting
 
 Prediction markets price **ranges**, not values. A five-bucket EPS market says

@@ -254,7 +254,37 @@ class UserPosition(TypedDict):
 class DepthLevel(TypedDict):
     """Market depth at price level"""
     price: int
-    total_amount: int
+    buy_volume: int
+    sell_volume: int
+
+
+class ConsolidatedLevel(TypedDict):
+    """One price level of a consolidated order book, in the requested frame.
+
+    ``native`` rests in this outcome's own book and fills as a direct match.
+    ``inverse`` rests in the opposite outcome's book at ``100 - price`` and
+    fills by minting a share pair on the ask side or burning one on the bid
+    side. ``total`` is their sum.
+    """
+    price: float
+    total: float
+    native: float
+    inverse: float
+
+
+class ConsolidatedOrderBook(TypedDict):
+    """One outcome's book with the opposite outcome's quotes folded in.
+
+    ``is_crossed`` reports the best bid sitting at or above the best ask. That
+    is a real state a consolidated book can hold indefinitely, not bad data:
+    a YES bid at 61 and a NO bid at 45 read as a bid at 61 over an ask at 55,
+    and the engine never matches them because 61 + 45 is not 100.
+    """
+    query_id: int
+    outcome: bool
+    bids: list[ConsolidatedLevel]
+    asks: list[ConsolidatedLevel]
+    is_crossed: bool
 
 
 class BestPrices(TypedDict):
@@ -2800,6 +2830,62 @@ class TNClient:
             return []
 
         return cast(list[DepthLevel], json.loads(json_str))
+
+    def get_consolidated_order_book(
+        self, query_id: int, outcome: bool = True
+    ) -> ConsolidatedOrderBook:
+        """Get one outcome's book with the opposite outcome's quotes folded in.
+
+        ``get_market_depth`` returns a single outcome's ladder, but a binary
+        market's two books are two views of one position and the matching
+        engine fills across them. A resting SELL NO at 93c is a standing BID
+        for YES at 7c: a trader hits it by SELLING YES, both sides sell, and
+        the chain burns the share pair. Read only the YES book and that quote
+        is invisible, which makes the market look thinner than it is.
+
+        So, in the YES frame::
+
+            consolidated bids = YES bids + (100 - p for every NO ask)
+            consolidated asks = YES asks + (100 - p for every NO bid)
+
+        The sides swap. A NO ask arrives as a YES bid, because hitting it means
+        both parties sell and the pair burns; hitting a consolidated ask means
+        both buy and a pair mints.
+
+        **This is not a sweepable ladder.** A direct same-outcome match crosses
+        prices, but mint and burn fire only when the two prices sum to exactly
+        100. One order therefore fills every native level past its limit plus
+        exactly ONE inverse level, so walking these levels the way you would
+        walk ``get_market_depth`` quotes fills the chain will not produce. That
+        is why each level keeps ``native`` and ``inverse`` separate rather than
+        only their sum.
+
+        Args:
+            query_id: The market to read.
+            outcome: The outcome the prices are framed in, True=YES. The
+                NO-framed book is the YES-framed book reflected, so one call
+                answers either tab.
+
+        Returns:
+            A ``ConsolidatedOrderBook`` with ``bids`` best (highest) first and
+            ``asks`` best (lowest) first.
+
+        Cost is one ``get_full_market_depth`` read, so both sides are one
+        snapshot of the chain and ``is_crossed`` describes a state the book was
+        really in. Requires a node carrying that action.
+        """
+        json_str = truf_sdk.GetConsolidatedOrderBook(self.client, query_id, outcome)
+
+        if not json_str:
+            return {
+                "query_id": query_id,
+                "outcome": outcome,
+                "bids": [],
+                "asks": [],
+                "is_crossed": False,
+            }
+
+        return cast(ConsolidatedOrderBook, json.loads(json_str))
 
     def get_best_prices(self, query_id: int, outcome: bool) -> BestPrices:
         """Get current bid/ask spread."""

@@ -477,6 +477,7 @@ class TestQueryOperationsValidation:
         assert hasattr(client, "get_order_book")
         assert hasattr(client, "get_user_positions")
         assert hasattr(client, "get_market_depth")
+        assert hasattr(client, "get_consolidated_order_book")
         assert hasattr(client, "get_best_prices")
         assert hasattr(client, "get_user_collateral")
 
@@ -539,6 +540,8 @@ class TestTypeDefinitions:
             OrderBookEntry,
             UserPosition,
             DepthLevel,
+            ConsolidatedLevel,
+            ConsolidatedOrderBook,
             BestPrices,
             UserCollateral,
             DistributionSummary,
@@ -553,6 +556,8 @@ class TestTypeDefinitions:
         assert OrderBookEntry is not None
         assert UserPosition is not None
         assert DepthLevel is not None
+        assert ConsolidatedLevel is not None
+        assert ConsolidatedOrderBook is not None
         assert BestPrices is not None
         assert UserCollateral is not None
         assert DistributionSummary is not None

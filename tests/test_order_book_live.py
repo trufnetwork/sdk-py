@@ -164,10 +164,18 @@ def test_the_opposite_outcome_reaches_the_ladder(books):
 
 def test_the_no_frame_is_the_yes_frame_reflected(live_client, two_sided_market):
     """One call answers either tab: a YES bid at p is a NO ask at 100-p."""
+    # Re-read BOTH frames. Re-reading only YES would miss an order placed after
+    # the first read and cancelled before the third: YES comes back identical
+    # while no_book was taken from a state that no longer exists, and the
+    # comparison below then fails on drift rather than on a defect. Arguing that
+    # a settled YES frame implies a settled NO frame would also lean on exactly
+    # the mirror property this test exists to verify.
     for _ in range(STABLE_READ_ATTEMPTS):
         yes_book = live_client.get_consolidated_order_book(two_sided_market, True)
         no_book = live_client.get_consolidated_order_book(two_sided_market, False)
-        if yes_book == live_client.get_consolidated_order_book(two_sided_market, True):
+        yes_again = live_client.get_consolidated_order_book(two_sided_market, True)
+        no_again = live_client.get_consolidated_order_book(two_sided_market, False)
+        if yes_book == yes_again and no_book == no_again:
             break
     else:
         pytest.skip("the book kept moving between reads; nothing stable to compare")

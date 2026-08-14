@@ -2643,9 +2643,10 @@ func quoteFills(fills []forecast.ConsolidatedFill) []map[string]any {
 	out := make([]map[string]any, len(fills))
 	for i, fill := range fills {
 		out[i] = map[string]any{
-			"price":  fill.Price,
-			"shares": fill.Shares,
-			"path":   string(fill.Path),
+			"price":       fill.Price,
+			"level_price": fill.LevelPrice,
+			"shares":      fill.Shares,
+			"path":        string(fill.Path),
 		}
 	}
 	return out
@@ -2722,6 +2723,45 @@ func QuoteConsolidatedSellFromBook(bookJSON string, shares, limit float64) (stri
 		return marshalSellQuote(forecast.QuoteConsolidatedSell(bids, shares))
 	}
 	return marshalSellQuote(forecast.QuoteConsolidatedSellAtPrice(bids, shares, limit))
+}
+
+// ReflectConsolidatedBook returns the same market in the opposite outcome's
+// frame, with no second chain read.
+//
+// Both outcome views come from one get_full_market_depth response, so the
+// opposite view is an exact reflection rather than new information: prices
+// complement to 100, bids and asks swap, and native and inverse volume swap with
+// them. Anything rendering both outcomes wants this rather than a second read,
+// which would also risk stitching two moments of the chain into one view.
+func ReflectConsolidatedBook(bookJSON string) (string, error) {
+	var book struct {
+		QueryID int              `json:"query_id"`
+		Outcome bool             `json:"outcome"`
+		Bids    []map[string]any `json:"bids"`
+		Asks    []map[string]any `json:"asks"`
+	}
+	if err := json.Unmarshal([]byte(bookJSON), &book); err != nil {
+		return "", errors.Wrap(err, "failed to parse consolidated order book")
+	}
+
+	reflected := forecast.ReflectConsolidatedBook(forecast.ConsolidatedOrderBook{
+		QueryID: book.QueryID,
+		Outcome: book.Outcome,
+		Bids:    quoteLevels(book.Bids),
+		Asks:    quoteLevels(book.Asks),
+	})
+
+	jsonBytes, err := json.Marshal(map[string]any{
+		"query_id":   reflected.QueryID,
+		"outcome":    reflected.Outcome,
+		"bids":       consolidatedLevels(reflected.Bids),
+		"asks":       consolidatedLevels(reflected.Asks),
+		"is_crossed": reflected.IsCrossed,
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal consolidated order book")
+	}
+	return string(jsonBytes), nil
 }
 
 // QuoteConsolidatedBuy reads a market's consolidated book and quotes a buy

@@ -1541,6 +1541,27 @@ chain and `is_crossed` describes a state the book was really in. Requires a node
 carrying that action. The folding itself runs in sdk-go, so Python, Go and
 TypeScript agree on what a market's executable ladder is.
 
+#### Reflecting a book into the other outcome
+
+`reflect_consolidated_order_book(book)` returns the same market in the opposite
+outcome's frame, with no second chain read.
+
+Both outcome views come from one `get_full_market_depth` response, so the
+opposite view is an exact reflection rather than new information: prices
+complement to 100, bids and asks swap, and native and inverse volume swap with
+them, because a resting order belongs to the other outcome once the frame flips.
+
+```python
+from trufnetwork_sdk_py.client import reflect_consolidated_order_book
+
+yes = client.get_consolidated_order_book(query_id=419, outcome=True)
+no = reflect_consolidated_order_book(yes)
+```
+
+Anything rendering both outcomes wants this rather than a second
+`get_consolidated_order_book` call. It halves the round trips and removes the
+chance of stitching two different moments of the chain into one view.
+
 #### Quoting a fill
 
 Answers what an order of a given size will actually do against a consolidated
@@ -1587,6 +1608,14 @@ ladder walk gets wrong:
 
 `fills` carries each leg's `path` — `"direct"`, `"mint"` or `"burn"` — for
 callers that want to show how the order settles.
+
+Each leg also carries two prices, and they are not the same thing. `price` is
+what a share on that leg pays or receives; `level_price` is the ladder level the
+liquidity rested at. They agree on every buy leg. They diverge on a sell, where
+a direct match pays the seller the submitted limit rather than each resting
+bid's own price, so one order can take three bids and be paid the same on all
+three. Anything rendering which levels an order consumed wants `level_price`;
+anything totalling money wants `price`.
 
 **Choosing the limit is the caller's policy, not the SDK's.** Left to itself the
 model applies one reasonable default: the limit that fills the most, cheapest for

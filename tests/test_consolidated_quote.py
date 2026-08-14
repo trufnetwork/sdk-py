@@ -21,6 +21,7 @@ from trufnetwork_sdk_py.client import (
     TNClient,
     quote_consolidated_buy_from_book,
     quote_consolidated_sell_from_book,
+    reflect_consolidated_order_book,
 )
 
 
@@ -88,8 +89,8 @@ def test_prices_native_legs_at_their_own_price_and_the_inverse_leg_at_the_limit(
     assert quote["limit_price"] == 30
     assert quote["estimated_total_cost"] == 26
     assert quote["fills"] == [
-        {"price": 20, "shares": 40, "path": "direct"},
-        {"price": 30, "shares": 60, "path": "mint"},
+        {"price": 20, "level_price": 20, "shares": 40, "path": "direct"},
+        {"price": 30, "level_price": 30, "shares": 60, "path": "mint"},
     ]
 
 
@@ -125,8 +126,8 @@ def test_combines_a_direct_leg_and_a_burn_leg_at_the_submitted_limit():
     assert quote["filled_shares"] == 70
     assert quote["estimated_proceeds"] == 49
     assert quote["fills"] == [
-        {"price": 70, "shares": 30, "path": "direct"},
-        {"price": 70, "shares": 40, "path": "burn"},
+        {"price": 70, "level_price": 70, "shares": 30, "path": "direct"},
+        {"price": 70, "level_price": 70, "shares": 40, "path": "burn"},
     ]
 
 
@@ -137,7 +138,9 @@ def test_reaches_the_inverse_leg_only_at_the_exact_limit_price():
 
     assert quote["limit_price"] == 65
     assert quote["estimated_proceeds"] == 52
-    assert quote["fills"] == [{"price": 65, "shares": 80, "path": "burn"}]
+    assert quote["fills"] == [
+        {"price": 65, "level_price": 65, "shares": 80, "path": "burn"}
+    ]
 
 
 # --- guards and caller-supplied limits ---------------------------------------
@@ -335,3 +338,65 @@ def test_quote_consolidated_sell_forwards_a_caller_supplied_limit(monkeypatch):
     # No limit means "choose one", so a real price has to survive the hop.
     assert captured["limit"] == 80
     assert quote["limit_price"] == 80
+
+
+# --- the resting level on each leg -------------------------------------------
+
+
+def test_a_sell_records_the_bid_it_took_not_just_the_price_it_was_paid():
+    # A sell is paid its limit on every share, so price alone cannot say which
+    # bids the order consumed. Anything rendering "x of y taken at this level"
+    # reads level_price instead.
+    quote = quote_consolidated_sell_from_book(
+        book(bids=[level(80, 50, 0), level(70, 50, 40)]), 140
+    )
+
+    assert quote["limit_price"] == 70
+    assert quote["fills"] == [
+        {"price": 70, "level_price": 80, "shares": 50, "path": "direct"},
+        {"price": 70, "level_price": 70, "shares": 50, "path": "direct"},
+        {"price": 70, "level_price": 70, "shares": 40, "path": "burn"},
+    ]
+    # Every share is paid the limit, so the 80c bid earns 70c here.
+    assert quote["estimated_proceeds"] == 98
+
+
+def test_a_buy_pays_each_level_its_own_price_so_both_agree():
+    quote = quote_consolidated_buy_from_book(
+        book(asks=[level(20, 40, 0), level(30, 0, 60)]), 100
+    )
+
+    for fill in quote["fills"]:
+        assert fill["level_price"] == fill["price"]
+
+
+# --- reflection --------------------------------------------------------------
+
+
+def test_reflection_swaps_the_sides_and_the_native_inverse_split():
+    # A YES ask at 60 holding 10 YES sells and 4 NO buys (resting at 40) is, in
+    # the NO frame, a NO bid at 40 holding those 4 NO buys natively and the 10
+    # YES sells as its inverse.
+    no = reflect_consolidated_order_book(
+        book(asks=[level(60, 10, 4)], bids=[level(30, 20, 0)])
+    )
+
+    assert no["query_id"] == 419
+    assert no["outcome"] is False
+    assert no["bids"] == [{"price": 40, "total": 14, "native": 4, "inverse": 10}]
+    assert no["asks"] == [{"price": 70, "total": 20, "native": 0, "inverse": 20}]
+
+
+def test_reflection_round_trips_back_to_itself():
+    yes = book(
+        asks=[level(16, 320, 29), level(19, 289, 53)],
+        bids=[level(4, 1049, 33), level(1, 4283, 56)],
+    )
+
+    there_and_back = reflect_consolidated_order_book(
+        reflect_consolidated_order_book(yes)
+    )
+
+    assert there_and_back["bids"] == yes["bids"]
+    assert there_and_back["asks"] == yes["asks"]
+    assert there_and_back["outcome"] == yes["outcome"]

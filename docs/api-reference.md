@@ -1541,6 +1541,56 @@ chain and `is_crossed` describes a state the book was really in. Requires a node
 carrying that action. The folding itself runs in sdk-go, so Python, Go and
 TypeScript agree on what a market's executable ladder is.
 
+#### Quoting a fill
+
+Answers what an order of a given size will actually do against a consolidated
+ladder, so no caller has to re-derive the matching rules. The model runs in
+sdk-go, like the folding above.
+
+```python
+from trufnetwork_sdk_py.client import quote_consolidated_buy_from_book
+
+book = client.get_consolidated_order_book(query_id=419)
+quote = quote_consolidated_buy_from_book(book, 700)
+
+print(f"submit {quote['limit_price']:.0f}c for {quote['filled_shares']:.0f} shares, "
+      f"${quote['estimated_total_cost']:.2f}")
+for fill in quote["fills"]:
+    print(f"  {fill['shares']:.0f} @ {fill['price']:.0f}c by {fill['path']}")
+```
+
+`quote_consolidated_buy_from_book` reads the book's `asks` and
+`quote_consolidated_sell_from_book` reads its `bids`, so one read answers both
+directions. `client.quote_consolidated_buy(query_id, shares)` and
+`client.quote_consolidated_sell(query_id, shares)` fetch the book themselves,
+which costs one chain read per quote — hold the book yourself when quoting
+repeatedly, such as a bot re-pricing on every tick.
+
+Three things the returned quote makes explicit, each of which a hand-rolled
+ladder walk gets wrong:
+
+- **`available_shares` is not the ladder's total.** It is the most any single
+  order can take, which is smaller whenever inverse volume rests at more than one
+  price. A ladder summing to 350 can cap one order at 200.
+- **Fillable size is not monotonic in the limit price.** Raising the limit can
+  lose the inverse level the fill was counting on, so the model evaluates every
+  candidate price instead of walking down the ladder.
+- **A sell pays its limit on every share.** A direct match pays the seller the
+  ask price and refunds the buyer the difference, so crediting each resting bid
+  its own price overstates any sell reaching past one level.
+
+`fills` carries each leg's `path` — `"direct"`, `"mint"` or `"burn"` — for
+callers that want to show how the order settles.
+
+**Choosing the limit is the caller's policy, not the SDK's.** Left to itself the
+model applies one reasonable default: the limit that fills the most, cheapest for
+a buy and highest for a sell. Pass `limit_price` to quote a price you have
+already settled on, such as a ceiling or one a self-trade guard moved.
+
+The quote assumes the order reaches the front of the queue at its price. Matching
+is FIFO within a level, so an older order resting at the same price takes the
+counterparty first and the real fill comes up short.
+
 ### Market Forecasting
 
 Prediction markets price **ranges**, not values. A five-bucket EPS market says

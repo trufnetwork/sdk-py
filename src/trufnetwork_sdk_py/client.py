@@ -24,6 +24,7 @@ See tests in `tests/test_cache_support.py` for working examples.
 """
 
 import json
+import math
 import warnings
 
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
@@ -576,14 +577,15 @@ def quote_consolidated_buy_from_book(
         limit_price: The limit to submit, in cents. Leave it None to have the
             model choose the cheapest limit that fills the most, which is what
             a market order wants. Pass a price when something downstream has
-            already settled on one.
+            already settled on one. An order can only carry a whole cent from
+            1 through 99, so any other price quotes nothing.
 
     Returns:
         A ``ConsolidatedBuyQuote``. The model chooses one limit, so the whole
         order rests at one price rather than sweeping several.
     """
     json_str = truf_sdk.QuoteConsolidatedBuyFromBook(
-        json.dumps(book), shares, limit_price if limit_price is not None else 0.0
+        json.dumps(book), shares, limit_price if limit_price is not None else math.nan
     )
     return cast(ConsolidatedBuyQuote, json.loads(json_str))
 
@@ -603,13 +605,15 @@ def quote_consolidated_sell_from_book(
             ``bids`` are what a sell hits.
         shares: The size to quote.
         limit_price: The limit to submit, in cents. Leave it None to have the
-            model choose the highest limit that fills the most.
+            model choose the highest limit that fills the most. An order can
+            only carry a whole cent from 1 through 99, so any other price
+            quotes nothing.
 
     Returns:
         A ``ConsolidatedSellQuote``.
     """
     json_str = truf_sdk.QuoteConsolidatedSellFromBook(
-        json.dumps(book), shares, limit_price if limit_price is not None else 0.0
+        json.dumps(book), shares, limit_price if limit_price is not None else math.nan
     )
     return cast(ConsolidatedSellQuote, json.loads(json_str))
 
@@ -3060,14 +3064,15 @@ class TNClient:
             shares: The size to quote.
             outcome: The outcome to buy, True=YES.
             limit_price: The limit to submit, in cents, or None to let the
-                model choose.
+                model choose. An order can only carry a whole cent from 1
+                through 99, so any other price quotes nothing.
         """
         json_str = truf_sdk.QuoteConsolidatedBuy(
             self.client,
             query_id,
             outcome,
             shares,
-            limit_price if limit_price is not None else 0.0,
+            limit_price if limit_price is not None else math.nan,
         )
         return cast(ConsolidatedBuyQuote, json.loads(json_str))
 
@@ -3089,14 +3094,15 @@ class TNClient:
             shares: The size to quote.
             outcome: The outcome to sell, True=YES.
             limit_price: The limit to submit, in cents, or None to let the
-                model choose.
+                model choose. An order can only carry a whole cent from 1
+                through 99, so any other price quotes nothing.
         """
         json_str = truf_sdk.QuoteConsolidatedSell(
             self.client,
             query_id,
             outcome,
             shares,
-            limit_price if limit_price is not None else 0.0,
+            limit_price if limit_price is not None else math.nan,
         )
         return cast(ConsolidatedSellQuote, json.loads(json_str))
 

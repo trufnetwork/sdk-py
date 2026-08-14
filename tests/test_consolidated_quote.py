@@ -12,6 +12,7 @@ monkeypatching the binding, which is what the wrapper actually owns.
 """
 
 import json
+import math
 
 import pytest
 
@@ -175,6 +176,50 @@ def test_quotes_a_buy_at_the_limit_the_caller_chose():
     assert quote["is_fully_filled"] is False
 
 
+@pytest.mark.parametrize("limit", [0, 100, 19.5, -5])
+def test_rejects_a_limit_no_order_can_carry(limit):
+    # The node declares $price as INT and errors outside 1-99, so none of these
+    # reach the book. Quoting a fill for one would promise an order that cannot
+    # be placed: a buy at 100 otherwise takes every level, and a sell at 0
+    # otherwise fills the whole ladder for nothing.
+    #
+    # 0 matters twice over. It is the value a "no limit given" sentinel would
+    # most naturally use, and it must still be rejected rather than quietly
+    # turned into a limit the model picked.
+    ladder = book(
+        bids=[level(80, 50, 0), level(70, 50, 0)],
+        asks=[level(16, 320, 29), level(19, 289, 53)],
+    )
+
+    buy = quote_consolidated_buy_from_book(ladder, 500, limit_price=limit)
+    assert buy["filled_shares"] == 0
+    assert buy["limit_price"] is None
+    assert buy["estimated_total_cost"] == 0
+    assert buy["is_fully_filled"] is False
+    assert buy["fills"] == []
+
+    # The ladder is still described, so a caller can tell the limit was the
+    # problem rather than the book.
+    assert buy["available_shares"] == 662
+
+    sell = quote_consolidated_sell_from_book(ladder, 100, limit_price=limit)
+    assert sell["filled_shares"] == 0
+    assert sell["estimated_proceeds"] == 0
+    assert sell["fills"] == []
+    assert sell["available_shares"] == 100
+
+
+def test_never_chooses_a_fractional_limit():
+    # A caller can build a ladder carrying a price the chain never produces. The
+    # model must not select one, since the resulting order is rejected.
+    quote = quote_consolidated_buy_from_book(
+        book(asks=[level(19.5, 500, 0), level(40, 60, 0)]), 60
+    )
+
+    assert quote["limit_price"] == 40
+    assert quote["available_shares"] == 60
+
+
 def test_an_empty_book_quotes_nothing():
     buy = quote_consolidated_buy_from_book(book(), 100)
     assert buy["limit_price"] is None
@@ -263,12 +308,12 @@ def test_quote_consolidated_buy_forwards_the_market_and_size(monkeypatch):
 
     quote = _client_without_connect().quote_consolidated_buy(419, 100, outcome=False)
 
-    assert captured == {
-        "query_id": 419,
-        "outcome": False,
-        "shares": 100,
-        "limit": 0.0,
-    }
+    assert captured["query_id"] == 419
+    assert captured["outcome"] is False
+    assert captured["shares"] == 100
+    # No limit given travels as NaN, so 0 stays a real price the model rejects
+    # rather than a sentinel it silently reads as "choose one".
+    assert math.isnan(captured["limit"])
     assert quote["limit_price"] == 59
 
 

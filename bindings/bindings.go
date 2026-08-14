@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"reflect"
 	"strconv"
@@ -2598,9 +2599,14 @@ func consolidatedLevels(levels []forecast.ConsolidatedLevel) []map[string]any {
 // P plus exactly ONE inverse level. Summing the ladder overstates what one order
 // can take, and fillable size does not even grow monotonically with the limit.
 //
-// A limit of 0 or less means "choose the best limit", which is what a trader
-// placing a market order wants. Pass a positive limit to quote a price the caller
-// has already settled on, such as one a self-trade guard moved.
+// A NaN limit means "choose the best limit", which is what a trader placing a
+// market order wants. Pass a real limit to quote a price the caller has already
+// settled on, such as one a self-trade guard moved.
+//
+// NaN rather than 0 or a negative number, because every real value has to reach
+// forecast.Submittable: an order can only carry a whole cent from 1 through 99,
+// and a caller who asks for 0 or 100 should be told nothing fills rather than
+// silently handed a price the model picked for them.
 
 // quoteLevels reads one side of a consolidated ladder back out of JSON.
 func quoteLevels(raw []map[string]any) []forecast.ConsolidatedLevel {
@@ -2698,10 +2704,10 @@ func QuoteConsolidatedBuyFromBook(bookJSON string, shares, limit float64) (strin
 		return "", err
 	}
 
-	if limit > 0 {
-		return marshalBuyQuote(forecast.QuoteConsolidatedBuyAtPrice(asks, shares, limit))
+	if math.IsNaN(limit) {
+		return marshalBuyQuote(forecast.QuoteConsolidatedBuy(asks, shares))
 	}
-	return marshalBuyQuote(forecast.QuoteConsolidatedBuy(asks, shares))
+	return marshalBuyQuote(forecast.QuoteConsolidatedBuyAtPrice(asks, shares, limit))
 }
 
 // QuoteConsolidatedSellFromBook quotes a sell against a book the caller already
@@ -2712,10 +2718,10 @@ func QuoteConsolidatedSellFromBook(bookJSON string, shares, limit float64) (stri
 		return "", err
 	}
 
-	if limit > 0 {
-		return marshalSellQuote(forecast.QuoteConsolidatedSellAtPrice(bids, shares, limit))
+	if math.IsNaN(limit) {
+		return marshalSellQuote(forecast.QuoteConsolidatedSell(bids, shares))
 	}
-	return marshalSellQuote(forecast.QuoteConsolidatedSell(bids, shares))
+	return marshalSellQuote(forecast.QuoteConsolidatedSellAtPrice(bids, shares, limit))
 }
 
 // QuoteConsolidatedBuy reads a market's consolidated book and quotes a buy

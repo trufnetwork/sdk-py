@@ -1553,11 +1553,17 @@ from trufnetwork_sdk_py.client import quote_consolidated_buy_from_book
 book = client.get_consolidated_order_book(query_id=419)
 quote = quote_consolidated_buy_from_book(book, 700)
 
-print(f"submit {quote['limit_price']:.0f}c for {quote['filled_shares']:.0f} shares, "
-      f"${quote['estimated_total_cost']:.2f}")
-for fill in quote["fills"]:
-    print(f"  {fill['shares']:.0f} @ {fill['price']:.0f}c by {fill['path']}")
+if quote["limit_price"] is None:
+    print("nothing fillable")
+else:
+    print(f"submit {quote['limit_price']:.0f}c for {quote['filled_shares']:.0f} shares, "
+          f"${quote['estimated_total_cost']:.2f}")
+    for fill in quote["fills"]:
+        print(f"  {fill['shares']:.0f} @ {fill['price']:.0f}c by {fill['path']}")
 ```
+
+`limit_price` is `None` whenever no order can be quoted — an empty book, or a
+`limit_price` the chain would reject — so branch on it before formatting.
 
 `quote_consolidated_buy_from_book` reads the book's `asks` and
 `quote_consolidated_sell_from_book` reads its `bids`, so one read answers both
@@ -1586,6 +1592,12 @@ callers that want to show how the order settles.
 model applies one reasonable default: the limit that fills the most, cheapest for
 a buy and highest for a sell. Pass `limit_price` to quote a price you have
 already settled on, such as a ceiling or one a self-trade guard moved.
+
+A limit only counts if an order could carry it: a whole cent from 1 through 99,
+which is what the node accepts. The model never chooses a limit outside that, and
+a `limit_price` outside it quotes nothing — `available_shares` is still filled in,
+so a zero fill beside a non-zero `available_shares` says the limit was the
+problem rather than the book.
 
 The quote assumes the order reaches the front of the queue at its price. Matching
 is FIFO within a level, so an older order resting at the same price takes the

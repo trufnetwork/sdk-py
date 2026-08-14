@@ -2589,6 +2589,155 @@ func consolidatedLevels(levels []forecast.ConsolidatedLevel) []map[string]any {
 	return out
 }
 
+// Quoting a fill against a consolidated ladder.
+//
+// The model lives in sdk-go, so Python, Go and TypeScript agree on what an order
+// will actually do. A consolidated ladder is not sweepable: match_direct crosses
+// through the order's limit, but match_mint and match_burn only fire when the two
+// prices sum to exactly 100, so an order at limit P fills every native level past
+// P plus exactly ONE inverse level. Summing the ladder overstates what one order
+// can take, and fillable size does not even grow monotonically with the limit.
+//
+// A limit of 0 or less means "choose the best limit", which is what a trader
+// placing a market order wants. Pass a positive limit to quote a price the caller
+// has already settled on, such as one a self-trade guard moved.
+
+// quoteLevels reads one side of a consolidated ladder back out of JSON.
+func quoteLevels(raw []map[string]any) []forecast.ConsolidatedLevel {
+	levels := make([]forecast.ConsolidatedLevel, 0, len(raw))
+	for _, entry := range raw {
+		number := func(key string) float64 {
+			value, _ := entry[key].(float64)
+			return value
+		}
+		levels = append(levels, forecast.ConsolidatedLevel{
+			Price:   number("price"),
+			Total:   number("total"),
+			Native:  number("native"),
+			Inverse: number("inverse"),
+		})
+	}
+	return levels
+}
+
+// consolidatedBookSides pulls the bids and asks out of a consolidated book's JSON.
+func consolidatedBookSides(bookJSON string) (bids, asks []forecast.ConsolidatedLevel, err error) {
+	var book struct {
+		Bids []map[string]any `json:"bids"`
+		Asks []map[string]any `json:"asks"`
+	}
+	if err := json.Unmarshal([]byte(bookJSON), &book); err != nil {
+		return nil, nil, errors.Wrap(err, "failed to parse consolidated order book")
+	}
+	return quoteLevels(book.Bids), quoteLevels(book.Asks), nil
+}
+
+// quoteFills renders a quote's legs for JSON.
+func quoteFills(fills []forecast.ConsolidatedFill) []map[string]any {
+	out := make([]map[string]any, len(fills))
+	for i, fill := range fills {
+		out[i] = map[string]any{
+			"price":  fill.Price,
+			"shares": fill.Shares,
+			"path":   string(fill.Path),
+		}
+	}
+	return out
+}
+
+// optionalPrice renders a price that may be absent.
+//
+// The Go model reports 0 for a price it could not choose, which no tradable price
+// can be. Python reads that as None rather than a free fill.
+func optionalPrice(price float64) any {
+	if price <= 0 {
+		return nil
+	}
+	return price
+}
+
+// marshalBuyQuote renders a buy quote for JSON.
+func marshalBuyQuote(quote forecast.ConsolidatedBuyQuote) (string, error) {
+	jsonBytes, err := json.Marshal(map[string]any{
+		"limit_price":          optionalPrice(quote.LimitPrice),
+		"filled_shares":        quote.FilledShares,
+		"available_shares":     quote.AvailableShares,
+		"estimated_total_cost": quote.EstimatedTotalCost,
+		"average_price":        optionalPrice(quote.AveragePrice),
+		"is_fully_filled":      quote.IsFullyFilled,
+		"fills":                quoteFills(quote.Fills),
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal buy quote")
+	}
+	return string(jsonBytes), nil
+}
+
+// marshalSellQuote renders a sell quote for JSON.
+func marshalSellQuote(quote forecast.ConsolidatedSellQuote) (string, error) {
+	jsonBytes, err := json.Marshal(map[string]any{
+		"limit_price":        optionalPrice(quote.LimitPrice),
+		"filled_shares":      quote.FilledShares,
+		"available_shares":   quote.AvailableShares,
+		"estimated_proceeds": quote.EstimatedProceeds,
+		"average_price":      optionalPrice(quote.AveragePrice),
+		"is_fully_filled":    quote.IsFullyFilled,
+		"fills":              quoteFills(quote.Fills),
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal sell quote")
+	}
+	return string(jsonBytes), nil
+}
+
+// QuoteConsolidatedBuyFromBook quotes a buy against a book the caller already
+// holds, without reading the chain again.
+func QuoteConsolidatedBuyFromBook(bookJSON string, shares, limit float64) (string, error) {
+	_, asks, err := consolidatedBookSides(bookJSON)
+	if err != nil {
+		return "", err
+	}
+
+	if limit > 0 {
+		return marshalBuyQuote(forecast.QuoteConsolidatedBuyAtPrice(asks, shares, limit))
+	}
+	return marshalBuyQuote(forecast.QuoteConsolidatedBuy(asks, shares))
+}
+
+// QuoteConsolidatedSellFromBook quotes a sell against a book the caller already
+// holds, without reading the chain again.
+func QuoteConsolidatedSellFromBook(bookJSON string, shares, limit float64) (string, error) {
+	bids, _, err := consolidatedBookSides(bookJSON)
+	if err != nil {
+		return "", err
+	}
+
+	if limit > 0 {
+		return marshalSellQuote(forecast.QuoteConsolidatedSellAtPrice(bids, shares, limit))
+	}
+	return marshalSellQuote(forecast.QuoteConsolidatedSell(bids, shares))
+}
+
+// QuoteConsolidatedBuy reads a market's consolidated book and quotes a buy
+// against it.
+func QuoteConsolidatedBuy(client *tnclient.Client, queryID int, outcome bool, shares, limit float64) (string, error) {
+	bookJSON, err := GetConsolidatedOrderBook(client, queryID, outcome)
+	if err != nil {
+		return "", err
+	}
+	return QuoteConsolidatedBuyFromBook(bookJSON, shares, limit)
+}
+
+// QuoteConsolidatedSell reads a market's consolidated book and quotes a sell
+// against it.
+func QuoteConsolidatedSell(client *tnclient.Client, queryID int, outcome bool, shares, limit float64) (string, error) {
+	bookJSON, err := GetConsolidatedOrderBook(client, queryID, outcome)
+	if err != nil {
+		return "", err
+	}
+	return QuoteConsolidatedSellFromBook(bookJSON, shares, limit)
+}
+
 // GetUserCollateral returns caller's total locked collateral value
 func GetUserCollateral(client *tnclient.Client) (string, error) {
 	ctx := context.Background()

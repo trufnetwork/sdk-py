@@ -24,6 +24,7 @@ See tests in `tests/test_cache_support.py` for working examples.
 """
 
 import json
+import math
 import warnings
 
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
@@ -300,6 +301,56 @@ class ConsolidatedOrderBook(TypedDict):
     is_crossed: bool
 
 
+ConsolidatedFillPath = Literal["direct", "mint", "burn"]
+
+
+class ConsolidatedFill(TypedDict):
+    """One leg of a quoted fill, and how it reaches the chain.
+
+    ``direct`` matches an order resting in the same outcome's book. ``mint``
+    pairs two buys and ``burn`` pairs two sells, and both need the two prices
+    to sum to exactly 100.
+    """
+    price: float
+    shares: float
+    path: ConsolidatedFillPath
+
+
+class ConsolidatedBuyQuote(TypedDict):
+    """What a buy of a given size can expect.
+
+    ``available_shares`` is the most one order can fill at any price, which is
+    less than the ladder's total whenever inverse volume rests at more than one
+    price. ``estimated_total_cost`` is in dollars: native legs pay their own
+    price and the inverse leg pays the limit. ``limit_price`` and
+    ``average_price`` are None when nothing fills.
+    """
+    limit_price: float | None
+    filled_shares: float
+    available_shares: float
+    estimated_total_cost: float
+    average_price: float | None
+    is_fully_filled: bool
+    fills: list[ConsolidatedFill]
+
+
+class ConsolidatedSellQuote(TypedDict):
+    """What a sell of a given size can expect.
+
+    ``estimated_proceeds`` is in dollars and every share pays the submitted
+    limit, so ``average_price`` is always that limit. A direct match pays the
+    seller the ask price and refunds the buyer the difference, which is why
+    crediting each resting bid its own price overstates a multi-level sell.
+    """
+    limit_price: float | None
+    filled_shares: float
+    available_shares: float
+    estimated_proceeds: float
+    average_price: float | None
+    is_fully_filled: bool
+    fills: list[ConsolidatedFill]
+
+
 class BestPrices(TypedDict):
     """Best bid/ask spread"""
     best_bid: int | None
@@ -500,6 +551,71 @@ _EXTENSION_NAMESPACE_ALIASES = {
     "sepolia": "sepolia_bridge",
     "ethereum": "ethereum_bridge",
 }
+
+
+def quote_consolidated_buy_from_book(
+    book: ConsolidatedOrderBook, shares: float, limit_price: float | None = None
+) -> ConsolidatedBuyQuote:
+    """Quote a buy against a book you already hold, with no further chain read.
+
+    A consolidated ladder is not sweepable. ``match_direct`` crosses through
+    the order's limit, but ``match_mint`` and ``match_burn`` only fire when the
+    two prices sum to exactly 100, so an order at limit P fills every native
+    level past P plus exactly ONE inverse level. Summing the ladder overstates
+    what a single order can take, and fillable size does not even grow
+    monotonically with the limit price: raising it can lose the inverse level
+    the fill was counting on.
+
+    The estimate assumes the order reaches the front of the queue at its price.
+    Matching is FIFO within a level, so an older order resting at the same
+    price takes the counterparty first and the real fill comes up short.
+
+    Args:
+        book: A book from :meth:`TNClient.get_consolidated_order_book`. Its
+            ``asks`` are what a buy hits.
+        shares: The size to quote.
+        limit_price: The limit to submit, in cents. Leave it None to have the
+            model choose the cheapest limit that fills the most, which is what
+            a market order wants. Pass a price when something downstream has
+            already settled on one. An order can only carry a whole cent from
+            1 through 99, so any other price quotes nothing.
+
+    Returns:
+        A ``ConsolidatedBuyQuote``. The model chooses one limit, so the whole
+        order rests at one price rather than sweeping several.
+    """
+    json_str = truf_sdk.QuoteConsolidatedBuyFromBook(
+        json.dumps(book), shares, limit_price if limit_price is not None else math.nan
+    )
+    return cast(ConsolidatedBuyQuote, json.loads(json_str))
+
+
+def quote_consolidated_sell_from_book(
+    book: ConsolidatedOrderBook, shares: float, limit_price: float | None = None
+) -> ConsolidatedSellQuote:
+    """Quote a sell against a book you already hold, with no further chain read.
+
+    Every share pays the submitted limit. A direct match pays the seller the
+    ask price and refunds the buyer the difference, and a burn pays each side
+    its own price, so reaching down the ladder drags every share to the bottom
+    price rather than paying each level its own.
+
+    Args:
+        book: A book from :meth:`TNClient.get_consolidated_order_book`. Its
+            ``bids`` are what a sell hits.
+        shares: The size to quote.
+        limit_price: The limit to submit, in cents. Leave it None to have the
+            model choose the highest limit that fills the most. An order can
+            only carry a whole cent from 1 through 99, so any other price
+            quotes nothing.
+
+    Returns:
+        A ``ConsolidatedSellQuote``.
+    """
+    json_str = truf_sdk.QuoteConsolidatedSellFromBook(
+        json.dumps(book), shares, limit_price if limit_price is not None else math.nan
+    )
+    return cast(ConsolidatedSellQuote, json.loads(json_str))
 
 
 def _normalize_bridge_for_action(bridge_identifier: str) -> str:
@@ -2926,6 +3042,69 @@ class TNClient:
             }
 
         return cast(ConsolidatedOrderBook, json.loads(json_str))
+
+    def quote_consolidated_buy(
+        self,
+        query_id: int,
+        shares: float,
+        outcome: bool = True,
+        limit_price: float | None = None,
+    ) -> ConsolidatedBuyQuote:
+        """Read a market's consolidated book and quote a buy against it.
+
+        Costs one chain read. Hold the book yourself and call
+        :func:`quote_consolidated_buy_from_book` instead when quoting
+        repeatedly, such as a bot re-pricing on every tick.
+
+        See :func:`quote_consolidated_buy_from_book` for what the quote means
+        and why the ladder is not sweepable.
+
+        Args:
+            query_id: The market to read.
+            shares: The size to quote.
+            outcome: The outcome to buy, True=YES.
+            limit_price: The limit to submit, in cents, or None to let the
+                model choose. An order can only carry a whole cent from 1
+                through 99, so any other price quotes nothing.
+        """
+        json_str = truf_sdk.QuoteConsolidatedBuy(
+            self.client,
+            query_id,
+            outcome,
+            shares,
+            limit_price if limit_price is not None else math.nan,
+        )
+        return cast(ConsolidatedBuyQuote, json.loads(json_str))
+
+    def quote_consolidated_sell(
+        self,
+        query_id: int,
+        shares: float,
+        outcome: bool = True,
+        limit_price: float | None = None,
+    ) -> ConsolidatedSellQuote:
+        """Read a market's consolidated book and quote a sell against it.
+
+        Costs one chain read. Hold the book yourself and call
+        :func:`quote_consolidated_sell_from_book` instead when quoting
+        repeatedly.
+
+        Args:
+            query_id: The market to read.
+            shares: The size to quote.
+            outcome: The outcome to sell, True=YES.
+            limit_price: The limit to submit, in cents, or None to let the
+                model choose. An order can only carry a whole cent from 1
+                through 99, so any other price quotes nothing.
+        """
+        json_str = truf_sdk.QuoteConsolidatedSell(
+            self.client,
+            query_id,
+            outcome,
+            shares,
+            limit_price if limit_price is not None else math.nan,
+        )
+        return cast(ConsolidatedSellQuote, json.loads(json_str))
 
     def get_best_prices(self, query_id: int, outcome: bool) -> BestPrices:
         """Get current bid/ask spread."""

@@ -310,8 +310,17 @@ class ConsolidatedFill(TypedDict):
     ``direct`` matches an order resting in the same outcome's book. ``mint``
     pairs two buys and ``burn`` pairs two sells, and both need the two prices
     to sum to exactly 100.
+
+    ``price`` is what each share on this leg pays or receives.
+    ``level_price`` is the ladder level the liquidity rested at, and the two
+    differ only on a sell: a direct match pays the seller the submitted limit
+    rather than each resting bid's own price, so one order can take several
+    bids and be paid the same on all of them. Anything showing which levels an
+    order consumed reads ``level_price``; anything totalling money reads
+    ``price``.
     """
     price: float
+    level_price: float
     shares: float
     path: ConsolidatedFillPath
 
@@ -551,6 +560,29 @@ _EXTENSION_NAMESPACE_ALIASES = {
     "sepolia": "sepolia_bridge",
     "ethereum": "ethereum_bridge",
 }
+
+
+def reflect_consolidated_order_book(
+    book: ConsolidatedOrderBook,
+) -> ConsolidatedOrderBook:
+    """Return the same market in the opposite outcome's frame, with no new read.
+
+    Both outcome views come from one ``get_full_market_depth`` response, so the
+    opposite view is an exact reflection rather than new information: prices
+    complement to 100, bids and asks swap, and native and inverse volume swap
+    with them, because a resting order belongs to the other outcome once the
+    frame flips.
+
+    Anything rendering both outcomes wants this rather than a second
+    :meth:`TNClient.get_consolidated_order_book` call. It halves the round trips
+    and removes the chance of stitching two different moments of the chain into
+    one view.
+
+    Args:
+        book: A book from :meth:`TNClient.get_consolidated_order_book`.
+    """
+    json_str = truf_sdk.ReflectConsolidatedBook(json.dumps(book))
+    return cast(ConsolidatedOrderBook, json.loads(json_str))
 
 
 def quote_consolidated_buy_from_book(

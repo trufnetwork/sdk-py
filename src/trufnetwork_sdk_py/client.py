@@ -3583,6 +3583,17 @@ class TNClient:
             >>> TNClient.decode_market_data(qc)["type"]
             'change_between'
         """
+        # "" is the sentinel the binding reads as an open tail, so it has to be
+        # refused here for the same reason create_index_change_in_range_market
+        # refuses it: nothing below this layer can tell an empty string apart
+        # from a deliberate None, and a caller who passes one by accident would
+        # get a market struck on different bounds than they asked for.
+        if min_change == "" or max_change == "":
+            raise ValueError(
+                "min_change and max_change cannot be empty strings; "
+                "use None for an open tail"
+            )
+
         res = truf_sdk.BuildIndexChangeInRangeQueryComponents(
             data_provider,
             stream_id,

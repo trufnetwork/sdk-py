@@ -127,6 +127,18 @@ def test_index_change_needs_at_least_one_bound():
         _build()
 
 
+def test_index_change_builder_refuses_an_empty_bound():
+    """The builder has to refuse "" for the same reason the create helper does.
+
+    An empty string is the sentinel the binding reads as an open tail, so it
+    would be accepted as one rather than rejected, and the caller would get a
+    market struck on different bounds than they asked for.
+    """
+    for lo, hi in (("", "3"), ("2", "")):
+        with pytest.raises(ValueError, match="cannot be empty strings"):
+            _build(lo, hi)
+
+
 def test_index_change_market_feeds_the_bucket_reader():
     """The decode output is what bucket_bounds_from_market_data consumes, so the
     two have to agree about where an open tail lives."""

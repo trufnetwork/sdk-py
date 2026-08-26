@@ -35,9 +35,9 @@ MARKET_CREATOR_PRIVATE_KEY = "a537437df2ed8d3bcb3b99b4f88818cadf8ac365cd0a66595b
 DATA_PROVIDER = "0x4710a8d8f0d845da110086812a32de6d90d7ff5c"
 STREAM_ID = "st9f212b7c208afd83705cc0dbdadfe8"
 
-# The last event time in that stream. Used only to show what the rate currently
-# is; the markets below observe their settlement time instead.
-LAST_RECORD_AT = 1783296000
+# Fallback observation point, used only if the stream's latest event time cannot
+# be read. The markets below observe their settlement time instead.
+FALLBACK_OBSERVED_AT = 1783296000
 
 YEAR_IN_SECONDS = 31_536_000
 
@@ -64,12 +64,33 @@ BUCKETS = [
 ]
 
 
-def describe_the_rate(client: TNClient) -> None:
-    """Show the number a market on this stream settles against.
+def describe_the_rate(client: TNClient) -> int:
+    """Show the number a market on this stream settles against, and return the
+    point in the stream it was measured at.
 
-    ``get_index_change`` is a plain read, so this costs nothing.
+    The point is read from the stream rather than hardcoded, so this stays honest
+    as the stream advances. A published index is not a live price -- CPI-style
+    data lands monthly -- so the latest reading is routinely weeks old, and
+    saying which day it belongs to matters more than calling it "current".
+
+    Both calls are plain reads and cost nothing.
     """
     print("--- What such a market measures ---")
+
+    observed_at = FALLBACK_OBSERVED_AT
+    try:
+        # get_last_record($data_provider, $stream_id, $before, $frozen_at,
+        #                 $use_cache)
+        latest = client.call_procedure(
+            "get_last_record", [DATA_PROVIDER, STREAM_ID, None, None, None]
+        )
+        columns = latest.get("column_names") or []
+        rows = latest.get("values") or []
+        if rows and "event_time" in columns:
+            observed_at = int(rows[0][columns.index("event_time")])
+    except Exception:
+        # Fall through on the constant; the rate below is still readable.
+        pass
 
     try:
         # get_index_change($data_provider, $stream_id, $from, $to, $frozen_at,
@@ -81,23 +102,25 @@ def describe_the_rate(client: TNClient) -> None:
         # None becomes SQL NULL, which this action treats as "no cache".
         result = client.call_procedure(
             "get_index_change",
-            [DATA_PROVIDER, STREAM_ID, LAST_RECORD_AT, LAST_RECORD_AT,
+            [DATA_PROVIDER, STREAM_ID, observed_at, observed_at,
              None, None, YEAR_IN_SECONDS, None],
         )
     except Exception as exc:
-        print(f"Could not read the current rate: {exc}\n")
-        return
+        print(f"Could not read the rate: {exc}\n")
+        return observed_at
 
     rows = result.get("values") or []
     if not rows:
         print("The stream has no value at that point.\n")
-        return
+        return observed_at
 
-    ending = datetime.fromtimestamp(LAST_RECORD_AT, timezone.utc).strftime("%Y-%m-%d")
-    print(f"Stream {STREAM_ID} moved {rows[0][-1]}% over the year ending {ending}.\n")
+    ending = datetime.fromtimestamp(observed_at, timezone.utc).strftime("%Y-%m-%d")
+    print(f"Stream {STREAM_ID} moved {rows[0][-1]}% over the year ending {ending},")
+    print("which is its latest reading, not today's date.\n")
+    return observed_at
 
 
-def read_the_buckets_offline() -> None:
+def read_the_buckets_offline(observed_at: int) -> None:
     """Build each bucket's query components and read them back without touching
     the network, which is where the encoding contract is easiest to see."""
     print("--- The bucket set, built and decoded locally ---")
@@ -106,7 +129,7 @@ def read_the_buckets_offline() -> None:
         components = TNClient.build_index_change_in_range_query_components(
             DATA_PROVIDER,
             STREAM_ID,
-            LAST_RECORD_AT,
+            observed_at,
             YEAR_IN_SECONDS,
             min_change=min_change,
             max_change=max_change,
@@ -172,8 +195,8 @@ def main() -> None:
     print(f"Endpoint: {TESTNET_URL}")
     print(f"Wallet:   {client.get_current_account()}\n")
 
-    describe_the_rate(client)
-    read_the_buckets_offline()
+    observed_at = describe_the_rate(client)
+    read_the_buckets_offline(observed_at)
     create_the_markets(client)
 
 

@@ -708,6 +708,37 @@ class TestBinaryMarketCreation:
                 max_change="2",
             )
 
+    def test_hoodi_tt_is_not_a_market_collateral_bridge(self, client):
+        """hoodi_tt is a real bridge namespace, but not one a market can settle in.
+
+        It is where the 2 TRUF creation fee is taken from on testnet. The node's
+        validate_bridge accepts hoodi_tt2, sepolia_bridge and ethereum_bridge
+        there, and eth_usdc / eth_truf on mainnet -- never hoodi_tt. It used to
+        pass this check and fail inside the binding instead.
+        """
+        from trufnetwork_sdk_py.client import (
+            VALID_BRIDGES,
+            VALID_BRIDGE_EXTENSIONS,
+        )
+
+        assert "hoodi_tt" not in VALID_BRIDGE_EXTENSIONS
+        # Still valid as an action prefix: hoodi_tt_wallet_balance and friends.
+        assert "hoodi_tt" in VALID_BRIDGES
+
+        with pytest.raises(ValueError, match="bridge must be one of"):
+            client.create_index_change_in_range_market(
+                data_provider=self.VALID_DATA_PROVIDER,
+                stream_id=self.VALID_STREAM_ID,
+                timestamp=1735689600,
+                time_interval=31536000,
+                bridge="hoodi_tt",
+                settle_time=int(time.time()) + 3600,
+                max_spread=5,
+                min_order_size=100,
+                min_change="2",
+                max_change="3",
+            )
+
     def test_binary_market_helpers_exist(self, client):
         """Verify all binary market helper methods are available"""
         assert hasattr(client, "create_price_above_threshold_market")

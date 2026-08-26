@@ -547,13 +547,20 @@ BINARY_ACTION_IDS = frozenset(
 #    Methods that fall in this group: create_market and the binary-market
 #    helpers.
 #
-# These two namespaces overlap on ``eth_truf`` / ``eth_usdc`` /
-# ``hoodi_tt`` / ``hoodi_tt2`` (where the extension name and action prefix
-# coincide) but diverge on ``sepolia`` (action prefix) vs ``sepolia_bridge``
-# (extension), and ``ethereum`` vs ``ethereum_bridge``. Validating both
-# against a single union list silently accepted nonsense (e.g.
+# These two namespaces overlap on ``eth_truf`` / ``eth_usdc`` / ``hoodi_tt2``
+# (where the extension name and action prefix coincide) but diverge on
+# ``sepolia`` (action prefix) vs ``sepolia_bridge`` (extension), and
+# ``ethereum`` vs ``ethereum_bridge``. Validating both against a single union
+# list silently accepted nonsense (e.g.
 # ``withdraw(bridge_identifier="sepolia_bridge")`` would build
 # ``sepolia_bridge_bridge_tokens``, which does not exist).
+#
+# ``hoodi_tt`` belongs only to the first list. It is a real bridge namespace on
+# testnet -- it is where the 2 TRUF market-creation fee is taken from -- but the
+# node's validate_bridge never accepts it as a market's collateral bridge:
+# testnet allows hoodi_tt2, sepolia_bridge and ethereum_bridge, and mainnet
+# allows eth_usdc and eth_truf. Listing it below let a caller past this check
+# only to fail inside the binding.
 
 # Action-prefix allowlist — methods that build ``<prefix>_<verb>`` action names.
 VALID_BRIDGES = [
@@ -570,7 +577,6 @@ VALID_BRIDGES = [
 VALID_BRIDGE_EXTENSIONS = [
     "eth_truf",
     "eth_usdc",
-    "hoodi_tt",
     "hoodi_tt2",
     "sepolia_bridge",
     "ethereum_bridge",

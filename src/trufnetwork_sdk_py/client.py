@@ -405,7 +405,7 @@ class RewardHistory(TypedDict):
 class BooleanResultOutput(TypedDict):
     """Output from parse_boolean_result"""
     result: bool  # The boolean outcome (TRUE/FALSE)
-    action_id: int  # The action ID (should be 6-9)
+    action_id: int  # The action ID (one of the binary ones: 6-9 or 12)
 
 
 class DecodedQueryComponents(TypedDict):
@@ -430,7 +430,11 @@ class MarketData(TypedDict):
     data_provider: str
     stream_id: str
     action_id: str
-    type: Literal["above", "below", "between", "equals", "unknown"]
+    type: Literal["above", "below", "between", "equals", "change_between", "unknown"]
+    # Strike values in the order the action declares them, one entry per slot.
+    # A "change_between" market may strike an open tail, which arrives as an
+    # empty string in place rather than a shorter list -- dropping it would
+    # slide the remaining bound into the wrong position.
     thresholds: list[str]
     timestamp: NotRequired[int | None]
     frozen_at: NotRequired[int | None]
@@ -474,7 +478,16 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "is_binary": False,
         "description": "Get the earliest record value",
     },
-    # Binary actions (IDs 6-9) - return bool (TRUE/FALSE)
+    # Binary actions - return bool (TRUE/FALSE).
+    #
+    # The ids here are not contiguous and the binary ones are not a range: the
+    # node also defines 10 (get_high_value) and 11 (get_low_value), which are
+    # numeric and have no input type, create helper or decode case in this SDK,
+    # so they are deliberately absent. Anything deciding whether an action is
+    # binary must ask this registry rather than compare against a bound --
+    # widening a bound to reach 12 would admit 10 and 11 as well, and a high or
+    # low price resolves YES for essentially any stream under the numeric
+    # "value > 0" rule.
     "price_above_threshold": {
         "id": 6,
         "name": "price_above_threshold",
@@ -499,6 +512,15 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "is_binary": True,
         "description": "TRUE if value = target ± tolerance",
     },
+    "index_change_in_range": {
+        "id": 12,
+        "name": "index_change_in_range",
+        "is_binary": True,
+        "description": (
+            "TRUE if min <= percentage change < max "
+            "(e.g., 'Will inflation land between 2% and 3%?')"
+        ),
+    },
 }
 
 # Valid attestation actions (both numeric and binary)
@@ -506,6 +528,11 @@ VALID_ATTESTATION_ACTIONS = list(ACTION_REGISTRY.keys())
 
 # Binary action names
 BINARY_ACTION_NAMES = [name for name, info in ACTION_REGISTRY.items() if info["is_binary"]]
+
+# Binary action ids. A set rather than a range: see the registry comment above.
+BINARY_ACTION_IDS = frozenset(
+    info["id"] for info in ACTION_REGISTRY.values() if info["is_binary"]
+)
 
 # Bridge identifiers come in two flavours that look similar but are NOT
 # interchangeable:
@@ -520,13 +547,20 @@ BINARY_ACTION_NAMES = [name for name, info in ACTION_REGISTRY.items() if info["i
 #    Methods that fall in this group: create_market and the binary-market
 #    helpers.
 #
-# These two namespaces overlap on ``eth_truf`` / ``eth_usdc`` /
-# ``hoodi_tt`` / ``hoodi_tt2`` (where the extension name and action prefix
-# coincide) but diverge on ``sepolia`` (action prefix) vs ``sepolia_bridge``
-# (extension), and ``ethereum`` vs ``ethereum_bridge``. Validating both
-# against a single union list silently accepted nonsense (e.g.
+# These two namespaces overlap on ``eth_truf`` / ``eth_usdc`` / ``hoodi_tt2``
+# (where the extension name and action prefix coincide) but diverge on
+# ``sepolia`` (action prefix) vs ``sepolia_bridge`` (extension), and
+# ``ethereum`` vs ``ethereum_bridge``. Validating both against a single union
+# list silently accepted nonsense (e.g.
 # ``withdraw(bridge_identifier="sepolia_bridge")`` would build
 # ``sepolia_bridge_bridge_tokens``, which does not exist).
+#
+# ``hoodi_tt`` belongs only to the first list. It is a real bridge namespace on
+# testnet -- it is where the 2 TRUF market-creation fee is taken from -- but the
+# node's validate_bridge never accepts it as a market's collateral bridge:
+# testnet allows hoodi_tt2, sepolia_bridge and ethereum_bridge, and mainnet
+# allows eth_usdc and eth_truf. Listing it below let a caller past this check
+# only to fail inside the binding.
 
 # Action-prefix allowlist — methods that build ``<prefix>_<verb>`` action names.
 VALID_BRIDGES = [
@@ -543,7 +577,6 @@ VALID_BRIDGES = [
 VALID_BRIDGE_EXTENSIONS = [
     "eth_truf",
     "eth_usdc",
-    "hoodi_tt",
     "hoodi_tt2",
     "sepolia_bridge",
     "ethereum_bridge",
@@ -661,13 +694,18 @@ def _normalize_bridge_for_extension(bridge: str) -> str:
 
 
 def is_binary_action(name: str) -> bool:
-    """Returns True if the action name corresponds to a binary action (IDs 6-9)"""
+    """Returns True if the action name corresponds to a binary action"""
     return ACTION_REGISTRY.get(name, {}).get("is_binary", False)
 
 
 def is_binary_action_id(action_id: int) -> bool:
-    """Returns True if the action ID corresponds to a binary action (6-9)"""
-    return 6 <= action_id <= 9
+    """Returns True if the action ID corresponds to a binary action.
+
+    Derived from ACTION_REGISTRY rather than compared against a range. The
+    binary ids are 6-9 and 12, with two numeric node actions sitting in the
+    gap, so a range test cannot express the set.
+    """
+    return action_id in BINARY_ACTION_IDS
 
 
 def get_action_id(name: str) -> int:
@@ -2651,31 +2689,39 @@ class TNClient:
         return cast(MarketInfo, data)
 
     def get_market_by_hash(self, query_hash: bytes) -> MarketInfo:
-        """Get market details by query hash."""
+        """Get market details by query hash.
+
+        The node's ``get_market_by_hash`` returns identity and timing only; it
+        does not carry the query components or the bridge. Read those with
+        ``get_market_info(result["id"])``.
+        """
         if len(query_hash) != 32:
             raise ValueError("query_hash must be exactly 32 bytes")
 
-        json_str = truf_sdk.GetMarketByHash(self.client, query_hash)
+        # The generated binding takes a Go slice, not Python bytes. Passing bytes
+        # straight through raises AttributeError on .handle before any network
+        # call, so this method never worked; the only test it had passed a
+        # too-short hash and stopped at the guard above.
+        json_str = truf_sdk.GetMarketByHash(self.client, go.Slice_byte(query_hash))
 
         if not json_str:
             raise RuntimeError("Market not found for given hash")
 
         data = json.loads(json_str)
 
-        # Validate required fields
-        data_hash = data.get("hash")
         data_creator = data.get("creator")
-        data_query_components = data.get("query_components")
-
-        if not data_hash or not isinstance(data_hash, str):
-            raise ValueError("MarketInfo response missing or invalid 'hash' field")
         if not data_creator or not isinstance(data_creator, str):
             raise ValueError("MarketInfo response missing or invalid 'creator' field")
-
-        data["hash"] = bytes.fromhex(data_hash.replace("0x", ""))
         data["creator"] = bytes.fromhex(data_creator.replace("0x", ""))
 
-        # Handle query_components (may be empty for legacy markets)
+        # The node action returns nine columns and the hash is not among them,
+        # so requiring one back would reject every well-formed response. Echo
+        # the caller's hash instead: it is the key the row was found by, so it
+        # is the hash of this market by construction.
+        data["hash"] = bytes(query_hash)
+
+        # query_components likewise only comes from get_market_info.
+        data_query_components = data.get("query_components")
         if data_query_components:
             data["query_components"] = bytes.fromhex(data_query_components.replace("0x", ""))
         else:
@@ -2709,7 +2755,7 @@ class TNClient:
         if len(query_hash) != 32:
             raise ValueError("query_hash must be exactly 32 bytes")
 
-        return truf_sdk.MarketExists(self.client, query_hash)
+        return truf_sdk.MarketExists(self.client, go.Slice_byte(query_hash))
 
     def validate_market_collateral(self, query_id: int) -> MarketValidation:
         """Validate market collateral integrity."""
@@ -3501,6 +3547,72 @@ class TNClient:
         return bytes(res)
 
     @staticmethod
+    def build_index_change_in_range_query_components(
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        time_interval: int,
+        min_change: str | None = None,
+        max_change: str | None = None,
+        base_time: int | None = None,
+        frozen_at: int | None = None,
+    ) -> bytes:
+        """
+        Build the query components for an index_change_in_range market without
+        submitting anything.
+
+        ``encode_action_args`` cannot express this action's arguments. It takes
+        JSON, where a bound is either a string (encoded as TEXT rather than
+        NUMERIC(36,18)) or a float (which loses digits at 18 decimal places),
+        and a JSON null cannot say which of the two bounds is the open one. This
+        goes through sdk-go instead, so the bytes are identical to the ones
+        ``create_index_change_in_range_market`` sends.
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID
+            timestamp: Unix timestamp to measure the change at
+            time_interval: Seconds to look back (31536000 for year-over-year)
+            min_change: Lower bound in percent, inclusive; None for an open tail
+            max_change: Upper bound in percent, exclusive; None for an open tail
+            base_time: Optional index base date
+            frozen_at: Optional Unix timestamp to freeze the value lookup
+
+        Returns:
+            ABI-encoded query_components bytes
+
+        Example:
+            >>> qc = TNClient.build_index_change_in_range_query_components(
+            ...     "0x4710...", "stcpiyoy...", 1735689600, 31536000,
+            ...     min_change="2", max_change="3",
+            ... )
+            >>> TNClient.decode_market_data(qc)["type"]
+            'change_between'
+        """
+        # "" is the sentinel the binding reads as an open tail, so it has to be
+        # refused here for the same reason create_index_change_in_range_market
+        # refuses it: nothing below this layer can tell an empty string apart
+        # from a deliberate None, and a caller who passes one by accident would
+        # get a market struck on different bounds than they asked for.
+        if min_change == "" or max_change == "":
+            raise ValueError(
+                "min_change and max_change cannot be empty strings; "
+                "use None for an open tail"
+            )
+
+        res = truf_sdk.BuildIndexChangeInRangeQueryComponents(
+            data_provider,
+            stream_id,
+            timestamp,
+            base_time if base_time is not None else -1,
+            time_interval,
+            min_change if min_change is not None else "",
+            max_change if max_change is not None else "",
+            frozen_at if frozen_at is not None else -1,
+        )
+        return bytes(res)
+
+    @staticmethod
     def decode_query_components(query_components: bytes) -> DecodedQueryComponents:
         """
         Decode ABI-encoded query components back to its parts.
@@ -3667,11 +3779,15 @@ class TNClient:
         """
         Parse a boolean result from a binary action attestation payload.
 
-        This is specifically for binary attestation actions (IDs 6-9):
+        This is specifically for binary attestation actions:
           - price_above_threshold (6)
           - price_below_threshold (7)
           - value_in_range (8)
           - value_equals (9)
+          - index_change_in_range (12)
+
+        Ids 10 and 11 sit in that gap and are numeric, so the binary set is not
+        a range.
 
         Args:
             payload: The canonical attestation payload (without signature)
@@ -3936,6 +4052,106 @@ class TNClient:
 
         if not tx_hash:
             raise RuntimeError("Failed to create value equals market")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
+    def create_index_change_in_range_market(
+        self,
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        time_interval: int,
+        bridge: str,
+        settle_time: int,
+        max_spread: int,
+        min_order_size: int,
+        min_change: str | None = None,
+        max_change: str | None = None,
+        base_time: int | None = None,
+        frozen_at: int | None = None,
+        wait: bool = True,
+    ) -> str:
+        """
+        Create a binary prediction market that settles TRUE if the stream's
+        percentage change over ``time_interval`` falls in
+        ``[min_change, max_change)`` at the timestamp.
+
+        Example: "Will year-over-year inflation land between 2% and 3%?"
+
+        Unlike the other binary markets, this one strikes on how far a stream
+        moved rather than on the level it published, so the bounds are in
+        percent and either may be left open.
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID
+            timestamp: Unix timestamp to measure the change at
+            time_interval: Seconds to look back for the comparison value
+                (31536000 for year-over-year)
+            bridge: Bridge namespace. Mainnet: "eth_usdc" (collateral) or
+                "eth_truf". Server-side validate_bridge rejects all other
+                values. Legacy testnet aliases are not accepted on mainnet.
+            settle_time: Unix timestamp when market can be settled
+            max_spread: Maximum spread for LP rewards (1-50 cents)
+            min_order_size: Minimum order size for LP rewards
+            min_change: Lower bound in percent, inclusive, as a decimal string.
+                None strikes an open tail, which is how the bottom bucket of a
+                set is struck.
+            max_change: Upper bound in percent, exclusive. None strikes an open
+                tail. Passing None for both is rejected.
+            base_time: Optional index base date; None uses the stream's default
+            frozen_at: Optional Unix timestamp to freeze the value lookup
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+
+        Raises:
+            ValueError: if the inputs cannot describe a market. ``min_change <
+                max_change`` is checked in sdk-go, where both bounds are already
+                parsed to NUMERIC(36,18) -- comparing them here as strings would
+                be wrong, since "2.0" and "2" are unequal and "10" sorts below
+                "9".
+        """
+        bridge = self._validate_binary_market_inputs(
+            data_provider, stream_id, bridge, max_spread, min_order_size
+        )
+        if time_interval <= 0:
+            raise ValueError("time_interval must be positive")
+        if min_change is None and max_change is None:
+            raise ValueError(
+                "at least one of min_change or max_change is required"
+            )
+        # "" is the sentinel the bindings read as an open tail, so a caller who
+        # passes it meaning "no bound" would silently get one, and a caller who
+        # passes it by accident would silently lose a bound.
+        if min_change == "" or max_change == "":
+            raise ValueError(
+                "min_change and max_change cannot be empty strings; "
+                "use None for an open tail"
+            )
+
+        tx_hash = truf_sdk.CreateIndexChangeInRangeMarket(
+            self.client,
+            data_provider,
+            stream_id,
+            timestamp,
+            base_time if base_time is not None else -1,
+            time_interval,
+            min_change if min_change is not None else "",
+            max_change if max_change is not None else "",
+            frozen_at if frozen_at is not None else -1,
+            bridge,
+            settle_time,
+            max_spread,
+            min_order_size,
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to create index change in range market")
 
         if wait:
             self.wait_for_tx(tx_hash)

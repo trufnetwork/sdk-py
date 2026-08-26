@@ -1221,6 +1221,102 @@ tx_hash = client.create_value_in_range_market(
 )
 ```
 
+#### `client.create_index_change_in_range_market(...) -> str`
+Create a binary prediction market that settles TRUE if the stream's **percentage change** over
+`time_interval` falls in `[min_change, max_change)` at the timestamp.
+
+Unlike the other binary markets, this one strikes on how far a stream moved rather than on the
+level it published, so the bounds are in percent. That is what lets a market ask about an
+inflation *rate* while reading a stream that publishes an index *level*.
+
+**Parameters:**
+- `data_provider: str` - 0x-prefixed Ethereum address of the data provider
+- `stream_id: str` - 32-character stream ID
+- `timestamp: int` - Unix timestamp to measure the change at
+- `time_interval: int` - Seconds to look back for the comparison value (`31536000` for year-over-year)
+- `bridge: str` - Bridge namespace (`hoodi_tt2`)
+- `settle_time: int` - Unix timestamp when market can be settled
+- `max_spread: int` - Maximum spread for LP rewards (1-50 cents)
+- `min_order_size: int` - Minimum order size for LP rewards
+- `min_change: str | None` - Lower bound in percent, inclusive. `None` strikes an open tail
+- `max_change: str | None` - Upper bound in percent, exclusive. `None` strikes an open tail
+- `base_time: int | None` - Optional index base date
+- `frozen_at: int | None` - Optional Unix timestamp to freeze the value lookup
+- `wait: bool` - If True, wait for transaction confirmation (default: True)
+
+**Returns:** Transaction hash
+
+Bounds are **half-open**, so a change landing exactly on a boundary belongs to the bucket above it.
+That is what lets a set of buckets tile the number line without two of them settling TRUE. Passing
+`None` for both bounds is rejected — it would be every outcome at once.
+
+**Example:**
+```python
+# "Where will year-over-year inflation land?" — five buckets over one settle time.
+# The outer two are struck with an open tail; only one of the five can settle TRUE.
+YEAR = 31_536_000
+buckets = [
+    (None, "1.5"),    # below 1.5%
+    ("1.5", "2.0"),
+    ("2.0", "2.5"),
+    ("2.5", "3.0"),
+    ("3.0", None),    # 3% and up
+]
+
+for min_change, max_change in buckets:
+    client.create_index_change_in_range_market(
+        data_provider="0x4710a8d8f0d845da110086812a32de6d90d7ff5c",
+        stream_id="stcpiyoy000000000000000000000000",
+        timestamp=settle_time,
+        time_interval=YEAR,
+        bridge="hoodi_tt2",
+        settle_time=settle_time,
+        max_spread=10,
+        min_order_size=1_000_000_000_000_000_000,
+        min_change=min_change,
+        max_change=max_change,
+    )
+```
+
+#### `TNClient.build_index_change_in_range_query_components(...) -> bytes`
+Build the query components for an index-change market without submitting anything — useful for
+computing a market's identity, or for decoding it back with `decode_market_data`.
+
+`encode_action_args` cannot express this action's arguments. It takes JSON, where a bound is either
+a string (encoded as TEXT rather than `NUMERIC(36,18)`) or a float (which loses digits at 18 decimal
+places), and a JSON null cannot say which of the two bounds is the open one.
+
+**Parameters:** `data_provider`, `stream_id`, `timestamp`, `time_interval`, and the optional
+`min_change`, `max_change`, `base_time`, `frozen_at` — same meanings as above.
+
+**Example:**
+```python
+qc = TNClient.build_index_change_in_range_query_components(
+    "0x4710a8d8f0d845da110086812a32de6d90d7ff5c",
+    "stcpiyoy000000000000000000000000",
+    timestamp=1735689600,
+    time_interval=31_536_000,
+    min_change="2",
+    max_change="3",
+)
+decoded = TNClient.decode_market_data(qc)
+decoded["type"]        # 'change_between'
+decoded["thresholds"]  # ['2.000000000000000000', '3.000000000000000000']
+```
+
+An open tail decodes as an **empty string holding its slot**, not as a shorter list:
+
+```python
+qc = TNClient.build_index_change_in_range_query_components(
+    "0x4710...", "stcpiyoy000000000000000000000000",
+    timestamp=1735689600, time_interval=31_536_000, max_change="1.5",
+)
+TNClient.decode_market_data(qc)["thresholds"]  # ['', '1.500000000000000000']
+```
+
+Dropping the empty entry would slide the surviving bound into the other position and turn
+"below 1.5%" into "1.5% and up".
+
 ### Market Queries
 
 #### `client.get_market_info(query_id: int) -> MarketInfo`

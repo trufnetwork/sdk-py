@@ -177,6 +177,27 @@ class TestMarketOperationsValidation:
         with pytest.raises(ValueError, match="query_hash must be exactly 32 bytes"):
             client.market_exists(b"invalid")
 
+    def test_market_exists_accepts_a_well_formed_hash(self, client):
+        """A 32-byte hash has to reach the node.
+
+        The length guard above is the only thing the older tests exercised, so
+        nothing ever passed a valid hash through to the binding, which wants a
+        Go slice rather than Python bytes.
+        """
+        assert client.market_exists(b"\x00" * 32) is False
+
+    def test_get_market_by_hash_reports_a_missing_market(self, client):
+        """Same path as above: a well-formed hash that matches nothing has to
+        come back as a node error, not as a marshalling error.
+
+        The message is not asserted. The node raises "Market not found for given
+        hash", but that text does not survive the view-action error rendering --
+        what arrives is an opaque pointer-shaped string. What matters here is
+        that the call reached the node at all.
+        """
+        with pytest.raises(RuntimeError):
+            client.get_market_by_hash(b"\x00" * 32)
+
 
 # ═══════════════════════════════════════════════════════════════
 # ORDER OPERATIONS TESTS
@@ -621,12 +642,110 @@ class TestBinaryMarketCreation:
                 min_order_size=100,
             )
 
+    def test_create_index_change_market_rejects_a_non_positive_interval(self, client):
+        """The interval is what places the second anchor, so zero has no meaning"""
+        with pytest.raises(ValueError, match="time_interval must be positive"):
+            client.create_index_change_in_range_market(
+                data_provider=self.VALID_DATA_PROVIDER,
+                stream_id=self.VALID_STREAM_ID,
+                timestamp=1735689600,
+                time_interval=0,
+                bridge="ethereum_bridge",
+                settle_time=int(time.time()) + 3600,
+                max_spread=5,
+                min_order_size=100,
+                min_change="2",
+                max_change="3",
+            )
+
+    def test_create_index_change_market_needs_at_least_one_bound(self, client):
+        """Both tails open is every outcome at once, which the node refuses"""
+        with pytest.raises(ValueError, match="at least one of min_change or max_change"):
+            client.create_index_change_in_range_market(
+                data_provider=self.VALID_DATA_PROVIDER,
+                stream_id=self.VALID_STREAM_ID,
+                timestamp=1735689600,
+                time_interval=31536000,
+                bridge="ethereum_bridge",
+                settle_time=int(time.time()) + 3600,
+                max_spread=5,
+                min_order_size=100,
+            )
+
+    def test_create_index_change_market_rejects_an_empty_bound(self, client):
+        """An empty string is the sentinel the bindings read as an open tail, so
+        nothing below this layer can tell it apart from a deliberate None. A
+        caller who passes one by accident would silently lose a bound."""
+        with pytest.raises(ValueError, match="cannot be empty strings"):
+            client.create_index_change_in_range_market(
+                data_provider=self.VALID_DATA_PROVIDER,
+                stream_id=self.VALID_STREAM_ID,
+                timestamp=1735689600,
+                time_interval=31536000,
+                bridge="ethereum_bridge",
+                settle_time=int(time.time()) + 3600,
+                max_spread=5,
+                min_order_size=100,
+                min_change="",
+                max_change="3",
+            )
+
+    def test_create_index_change_market_rejects_an_inverted_range(self, client):
+        """The ordering check lives in sdk-go, where both bounds are already
+        NUMERIC(36,18); "2.0" and "2" are unequal as strings and would pass a
+        comparison made here."""
+        with pytest.raises(Exception, match="min_change must be less than max_change"):
+            client.create_index_change_in_range_market(
+                data_provider=self.VALID_DATA_PROVIDER,
+                stream_id=self.VALID_STREAM_ID,
+                timestamp=1735689600,
+                time_interval=31536000,
+                bridge="ethereum_bridge",
+                settle_time=int(time.time()) + 3600,
+                max_spread=5,
+                min_order_size=100,
+                min_change="2.0",
+                max_change="2",
+            )
+
+    def test_hoodi_tt_is_not_a_market_collateral_bridge(self, client):
+        """hoodi_tt is a real bridge namespace, but not one a market can settle in.
+
+        It is where the 2 TRUF creation fee is taken from on testnet. The node's
+        validate_bridge accepts hoodi_tt2, sepolia_bridge and ethereum_bridge
+        there, and eth_usdc / eth_truf on mainnet -- never hoodi_tt. It used to
+        pass this check and fail inside the binding instead.
+        """
+        from trufnetwork_sdk_py.client import (
+            VALID_BRIDGES,
+            VALID_BRIDGE_EXTENSIONS,
+        )
+
+        assert "hoodi_tt" not in VALID_BRIDGE_EXTENSIONS
+        # Still valid as an action prefix: hoodi_tt_wallet_balance and friends.
+        assert "hoodi_tt" in VALID_BRIDGES
+
+        with pytest.raises(ValueError, match="bridge must be one of"):
+            client.create_index_change_in_range_market(
+                data_provider=self.VALID_DATA_PROVIDER,
+                stream_id=self.VALID_STREAM_ID,
+                timestamp=1735689600,
+                time_interval=31536000,
+                bridge="hoodi_tt",
+                settle_time=int(time.time()) + 3600,
+                max_spread=5,
+                min_order_size=100,
+                min_change="2",
+                max_change="3",
+            )
+
     def test_binary_market_helpers_exist(self, client):
         """Verify all binary market helper methods are available"""
         assert hasattr(client, "create_price_above_threshold_market")
         assert hasattr(client, "create_price_below_threshold_market")
         assert hasattr(client, "create_value_in_range_market")
         assert hasattr(client, "create_value_equals_market")
+        assert hasattr(client, "create_index_change_in_range_market")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -638,9 +757,18 @@ class TestActionRegistry:
     """Test action registry functionality"""
 
     def test_action_registry_has_all_actions(self):
-        """Test that all 9 actions are in the registry"""
+        """Test that every action this SDK supports is in the registry.
+
+        The count is 10, not 12: ids 10 and 11 (get_high_value, get_low_value)
+        are numeric node actions with no input type, create helper or decode
+        case here, so they are deliberately absent and the ids are not
+        contiguous.
+        """
         from trufnetwork_sdk_py.client import ACTION_REGISTRY
-        assert len(ACTION_REGISTRY) == 9
+        assert len(ACTION_REGISTRY) == 10
+        assert sorted(info["id"] for info in ACTION_REGISTRY.values()) == [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 12
+        ]
 
     def test_numeric_actions(self):
         """Test numeric action IDs 1-5"""
@@ -653,14 +781,28 @@ class TestActionRegistry:
             assert ACTION_REGISTRY[name]["id"] <= 5
 
     def test_binary_actions(self):
-        """Test binary action IDs 6-9"""
+        """Test the binary actions, whose ids are a set and not a range"""
         from trufnetwork_sdk_py.client import ACTION_REGISTRY
         binary_actions = ["price_above_threshold", "price_below_threshold",
-                         "value_in_range", "value_equals"]
+                         "value_in_range", "value_equals",
+                         "index_change_in_range"]
         for name in binary_actions:
             assert name in ACTION_REGISTRY
             assert ACTION_REGISTRY[name]["is_binary"]
             assert ACTION_REGISTRY[name]["id"] >= 6
+
+    def test_index_change_action_is_registered_as_binary(self):
+        """index_change_in_range settles a market, so it has to read as binary.
+
+        If it were registered numeric, parse_boolean_result would fall through
+        to the "value > 0 means YES" rule and a market would settle on the
+        wrong reading of its own result.
+        """
+        from trufnetwork_sdk_py.client import ACTION_REGISTRY, get_action_name
+        entry = ACTION_REGISTRY["index_change_in_range"]
+        assert entry["id"] == 12
+        assert entry["is_binary"]
+        assert get_action_name(12) == "index_change_in_range"
 
     def test_is_binary_action(self):
         """Test is_binary_action helper"""
@@ -676,7 +818,13 @@ class TestActionRegistry:
         assert not is_binary_action_id(5)
         assert is_binary_action_id(6)
         assert is_binary_action_id(9)
+        assert is_binary_action_id(12)
+        # 10 and 11 are get_high_value / get_low_value on the node: numeric, and
+        # sitting between the binary ids. A range test widened to reach 12 would
+        # admit them, and a high or low price resolves YES for nearly any stream
+        # under the numeric rule.
         assert not is_binary_action_id(10)
+        assert not is_binary_action_id(11)
 
     def test_get_action_id(self):
         """Test get_action_id helper"""

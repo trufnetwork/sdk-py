@@ -21,6 +21,10 @@ def bucket_bounds_from_market_data(
     Args:
         market_data: the result of ``TNClient.decode_market_data``.
 
+    A ``change_between`` market's bounds are percentages of change, not values
+    in the stream's own units. The caller has to know which it is holding; this
+    function cannot tell them apart from the numbers alone.
+
     Returns:
         ``(lower, upper)``, either of which may be None.
 
@@ -58,6 +62,35 @@ def bucket_bounds_from_market_data(
         # bucket and lower > upper is an inverted one. Neither can hold an
         # outcome, and both would quietly distort the tiling.
         if lower >= upper:
+            raise ValueError(
+                f"a {market_type!r} market needs lower < upper, "
+                f"got [{lower}, {upper})"
+            )
+        return lower, upper
+    def optional_threshold(index: int) -> float | None:
+        """Read a slot that may be struck open.
+
+        An open tail arrives as an empty string holding its position, not as a
+        shorter list, so the slot still has to exist.
+        """
+        if len(thresholds) <= index:
+            raise ValueError(
+                f"a {market_type!r} market needs {index + 1} threshold slot(s), "
+                f"got {len(thresholds)}"
+            )
+        if thresholds[index] == "":
+            return None
+        return threshold(index)
+
+    if market_type == "change_between":
+        lower, upper = optional_threshold(0), optional_threshold(1)
+        if lower is None and upper is None:
+            raise ValueError(
+                f"a {market_type!r} market needs at least one bound, got neither"
+            )
+        # Half-open [lower, upper), same as "between": equal bounds are an empty
+        # bucket and inverted ones cannot hold an outcome.
+        if lower is not None and upper is not None and lower >= upper:
             raise ValueError(
                 f"a {market_type!r} market needs lower < upper, "
                 f"got [{lower}, {upper})"

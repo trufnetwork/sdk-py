@@ -32,6 +32,68 @@ def test_between_market_is_an_interior_bucket():
     ) == (4.33, 4.62)
 
 
+def test_change_between_market_is_an_interior_bucket():
+    assert bucket_bounds_from_market_data(
+        {"type": "change_between", "thresholds": ["2.0", "3.0"]}
+    ) == (2.0, 3.0)
+
+
+def test_change_between_open_tails_come_back_as_none():
+    """An open tail arrives as an empty string holding its slot, not as a
+    shorter list. Dropping the empty entry would slide the surviving bound into
+    the other position and invert the bucket."""
+    assert bucket_bounds_from_market_data(
+        {"type": "change_between", "thresholds": ["", "1.0"]}
+    ) == (None, 1.0)
+    assert bucket_bounds_from_market_data(
+        {"type": "change_between", "thresholds": ["4.0", ""]}
+    ) == (4.0, None)
+
+
+def test_change_between_needs_at_least_one_bound():
+    with pytest.raises(ValueError, match="at least one bound"):
+        bucket_bounds_from_market_data(
+            {"type": "change_between", "thresholds": ["", ""]}
+        )
+
+
+def test_change_between_needs_both_slots_even_when_one_is_open():
+    """A one-element list is a market that was decoded wrong, not an open tail."""
+    with pytest.raises(ValueError, match="threshold slot"):
+        bucket_bounds_from_market_data(
+            {"type": "change_between", "thresholds": ["2.0"]}
+        )
+
+
+def test_inverted_or_empty_change_between_bucket_is_rejected():
+    for lower, upper in (("3.0", "3.0"), ("3.0", "2.0")):
+        with pytest.raises(ValueError, match="lower < upper"):
+            bucket_bounds_from_market_data(
+                {"type": "change_between", "thresholds": [lower, upper]}
+            )
+
+
+def test_change_between_buckets_tile_without_overlapping():
+    """The bounds are half-open, so each bucket's upper edge is the next one's
+    lower edge and a change landing there belongs to exactly one of them."""
+    edges = ["1.0", "2.0", "3.0", "4.0"]
+    strikes = (
+        [("", edges[0])]
+        + [(edges[i], edges[i + 1]) for i in range(len(edges) - 1)]
+        + [(edges[-1], "")]
+    )
+    bounds = [
+        bucket_bounds_from_market_data(
+            {"type": "change_between", "thresholds": [lo, hi]}
+        )
+        for lo, hi in strikes
+    ]
+    assert bounds[0][0] is None
+    assert bounds[-1][1] is None
+    for (_, upper), (lower, _) in zip(bounds, bounds[1:]):
+        assert upper == lower
+
+
 def test_equals_market_is_target_plus_minus_tolerance():
     """Its thresholds are (target, tolerance), NOT (lower, upper). Reading them
     positionally the way `between` is read would yield the bucket (5.25, 0.10):

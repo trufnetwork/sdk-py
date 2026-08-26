@@ -3110,6 +3110,57 @@ func EncodeActionArgs(argsJSON string) ([]byte, error) {
 	return contractsapi.EncodeActionArgs(args)
 }
 
+// BuildIndexChangeInRangeQueryComponents builds the ABI-encoded query components
+// for an index_change_in_range market without submitting anything.
+//
+// EncodeActionArgs cannot express this action's arguments: it takes JSON, where
+// a bound is either a string (encoded as TEXT, not NUMERIC(36,18)) or a float
+// (which loses digits at 18 decimal places), and a JSON null cannot say which
+// of the two bounds is open. Going through sdk-go keeps the bytes identical to
+// the ones CreateIndexChangeInRangeMarket sends.
+//
+// Optional arguments use the same sentinels as CreateIndexChangeInRangeMarket:
+// -1 for baseTime and frozenAt, "" for an open bound.
+func BuildIndexChangeInRangeQueryComponents(
+	dataProvider string,
+	streamID string,
+	timestamp int64,
+	baseTime int64,
+	timeInterval int64,
+	minChange string,
+	maxChange string,
+	frozenAt int64,
+) ([]byte, error) {
+	var baseTimePtr *int64
+	if baseTime >= 0 {
+		baseTimePtr = &baseTime
+	}
+	var frozenAtPtr *int64
+	if frozenAt >= 0 {
+		frozenAtPtr = &frozenAt
+	}
+	var minChangePtr, maxChangePtr *string
+	if minChange != "" {
+		v := minChange
+		minChangePtr = &v
+	}
+	if maxChange != "" {
+		v := maxChange
+		maxChangePtr = &v
+	}
+
+	return contractsapi.BuildIndexChangeInRangeQueryComponents(types.IndexChangeInRangeInput{
+		DataProvider: dataProvider,
+		StreamID:     streamID,
+		Timestamp:    timestamp,
+		BaseTime:     baseTimePtr,
+		TimeInterval: timeInterval,
+		MinChange:    minChangePtr,
+		MaxChange:    maxChangePtr,
+		FrozenAt:     frozenAtPtr,
+	})
+}
+
 // ═══════════════════════════════════════════════════════════════
 //           ACTION REGISTRY
 // ═══════════════════════════════════════════════════════════════
@@ -3124,12 +3175,14 @@ func GetActionName(id int) string {
 	return types.GetActionName(uint16(id))
 }
 
-// IsBinaryAction returns true if the action name corresponds to a binary action (IDs 6-9)
+// IsBinaryAction returns true if the action name corresponds to a binary action
 func IsBinaryAction(name string) bool {
 	return types.IsBinaryAction(name)
 }
 
-// IsBinaryActionID returns true if the action ID corresponds to a binary action (6-9)
+// IsBinaryActionID returns true if the action ID corresponds to a binary action.
+// The binary ids are 6-9 and 12; sdk-go decides membership from its registry
+// rather than from a bound, because 10 and 11 sit in the gap and are numeric.
 func IsBinaryActionID(id int) bool {
 	return types.IsBinaryActionID(uint16(id))
 }
@@ -3343,6 +3396,70 @@ func CreateValueEqualsMarket(
 	}
 
 	queryComponents, err := contractsapi.BuildValueEqualsQueryComponents(input)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to build query components")
+	}
+
+	return CreateMarket(client, bridge, queryComponents, settleTime, maxSpread, minOrderSize)
+}
+
+// CreateIndexChangeInRangeMarket creates a binary prediction market that settles
+// TRUE if the stream's percentage change over timeInterval falls in
+// [minChange, maxChange) at the timestamp.
+//
+// Example: "Will year-over-year inflation land between 2% and 3%?"
+//
+// gopy cannot carry Python's None into a Go scalar, so the optional arguments
+// arrive as sentinels: -1 for baseTime and frozenAt, and "" for either bound.
+// An empty bound is an open tail, which is how the outer two buckets of a set
+// are struck; sdk-go rejects both bounds being open.
+func CreateIndexChangeInRangeMarket(
+	client *tnclient.Client,
+	dataProvider string,
+	streamID string,
+	timestamp int64,
+	baseTime int64,
+	timeInterval int64,
+	minChange string,
+	maxChange string,
+	frozenAt int64,
+	bridge string,
+	settleTime int64,
+	maxSpread int,
+	minOrderSize int64,
+) (string, error) {
+	var baseTimePtr *int64
+	if baseTime >= 0 {
+		baseTimePtr = &baseTime
+	}
+	var frozenAtPtr *int64
+	if frozenAt >= 0 {
+		frozenAtPtr = &frozenAt
+	}
+	// Take the address of a copy: &minChange would alias the parameter, and both
+	// bounds would end up pointing at whichever string was assigned last.
+	var minChangePtr, maxChangePtr *string
+	if minChange != "" {
+		v := minChange
+		minChangePtr = &v
+	}
+	if maxChange != "" {
+		v := maxChange
+		maxChangePtr = &v
+	}
+
+	input := types.IndexChangeInRangeInput{
+		DataProvider: dataProvider,
+		StreamID:     streamID,
+		Timestamp:    timestamp,
+		BaseTime:     baseTimePtr,
+		TimeInterval: timeInterval,
+		MinChange:    minChangePtr,
+		MaxChange:    maxChangePtr,
+		FrozenAt:     frozenAtPtr,
+	}
+
+	queryComponents, err := contractsapi.BuildIndexChangeInRangeQueryComponents(input)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to build query components")
 	}

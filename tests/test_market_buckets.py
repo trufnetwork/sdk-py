@@ -375,6 +375,95 @@ def test_markets_differing_only_in_their_bridge_are_rejected():
         client.get_market_forecast(list(both))
 
 
+YEAR = 31536000
+MONTH = 2592000
+
+# A percent-change bucket set over the same stream and observation time as
+# MSFT_MARKETS, struck in percent rather than in the stream's own units.
+CHANGE_MARKETS = {
+    601: ({"type": "change_between", "thresholds": ["", "2"],
+           "timestamp": OBSERVED_AT, "time_interval": YEAR}, (1, None)),
+    602: ({"type": "change_between", "thresholds": ["2", "3"],
+           "timestamp": OBSERVED_AT, "time_interval": YEAR}, (16, 28)),
+    603: ({"type": "change_between", "thresholds": ["3", ""],
+           "timestamp": OBSERVED_AT, "time_interval": YEAR}, (44, 56)),
+}
+
+
+def test_change_market_set_forecasts_on_its_own():
+    """The identity check must separate the scales without refusing a set that
+    is entirely percent-change."""
+    f = fake_client(CHANGE_MARKETS).get_market_forecast(list(CHANGE_MARKETS))
+
+    assert f is not None
+    assert [b.query_id for b in f.buckets] == [601, 602, 603]
+
+
+def test_change_markets_differing_only_in_their_interval_are_rejected():
+    """Year-over-year and month-over-month over the same stream, observed at the
+    same moment, settling at the same moment. Every other identity field
+    matches, so only ``time_interval`` can tell these two events apart."""
+    monthly = {
+        query_id + 30: ({**market_data, "time_interval": MONTH}, quotes)
+        for query_id, (market_data, quotes) in CHANGE_MARKETS.items()
+    }
+    both = {**CHANGE_MARKETS, **monthly}
+    with pytest.raises(ValueError, match="different event"):
+        fake_client(both).get_market_forecast(list(both))
+
+
+def test_change_markets_differing_only_in_their_index_base_are_rejected():
+    """A different base date measures a different change on a composed stream,
+    where the base does not cancel out of the ratio."""
+    based = {
+        query_id + 60: ({**market_data, "base_time": 1600000000}, quotes)
+        for query_id, (market_data, quotes) in CHANGE_MARKETS.items()
+    }
+    both = {**CHANGE_MARKETS, **based}
+    with pytest.raises(ValueError, match="different event"):
+        fake_client(both).get_market_forecast(list(both))
+
+
+def test_percent_change_bucket_cannot_join_a_set_struck_in_stream_units():
+    """The collision that is actually reachable on mainnet: the index streams
+    these markets are built on already carry ``value_in_range`` sets observing
+    at their own settle time exactly as a change market does. Only the interval
+    separates them, and bounds around 4.04 must never be normalised against
+    bounds around 2.5."""
+    both = {**MSFT_MARKETS, **CHANGE_MARKETS}
+    with pytest.raises(ValueError, match="different event"):
+        fake_client(both).get_market_forecast(list(both))
+
+
+def test_change_market_without_a_readable_interval_is_rejected():
+    """A change market always carries a positive ``time_interval`` -- the node
+    action refuses to be created without one. Missing here means the bindings
+    were built against an sdk-go predating the field, which would leave this SDK
+    accepting bucket sets sdk-go and sdk-js both reject."""
+    stale = {
+        query_id: ({k: v for k, v in market_data.items() if k != "time_interval"}, quotes)
+        for query_id, (market_data, quotes) in CHANGE_MARKETS.items()
+    }
+    with pytest.raises(ValueError, match="no readable time_interval"):
+        fake_client(stale).get_market_forecast(list(stale))
+
+    # An explicit None is the same failure, and must not slip through as a value.
+    nulled = {
+        query_id: ({**market_data, "time_interval": None}, quotes)
+        for query_id, (market_data, quotes) in CHANGE_MARKETS.items()
+    }
+    with pytest.raises(ValueError, match="no readable time_interval"):
+        fake_client(nulled).get_market_forecast(list(nulled))
+
+
+def test_value_markets_need_no_interval():
+    """Only a change market carries one. Requiring it of every type would refuse
+    every well-formed 040 bucket set."""
+    f = fake_client().get_market_forecast(list(MSFT_MARKETS))
+
+    assert f is not None
+
+
 def test_unreadable_query_timestamp_is_rejected():
     """A None timestamp compares equal across buckets, so two malformed markets
     would collide on it and match each other. The key being ABSENT is different

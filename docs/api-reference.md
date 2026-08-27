@@ -1388,8 +1388,19 @@ Decodes ABI-encoded query components back into its basic parts.
 - `data_provider: str`
 - `stream_id: str`
 - `action_id: str`
-- `type: str` - One of: "above", "below", "between", "equals", "unknown"
-- `thresholds: List[str]` - Formatted numeric values as strings
+- `type: str` - One of: "above", "below", "between", "equals", "change_between", "unknown"
+- `thresholds: List[str]` - Formatted numeric values as strings, one entry per strike slot the
+  action declares. A `"change_between"` market may strike an open tail, which arrives as an **empty
+  string in place** rather than a shorter list — so `["", "2.000000000000000000"]` is "below 2%",
+  and dropping the empty entry would slide the surviving bound into the wrong slot.
+- `timestamp: int | None` - The point in the stream the query observes, unix seconds
+- `frozen_at: int | None` - Block height the data is pinned to; `None` means latest
+- `base_time: int | None` - `"change_between"` only; `None` means the stream's default base
+- `time_interval: int | None` - `"change_between"` only, in seconds; e.g. 31536000 for
+  year-over-year
+
+The last four come from `DecodeMarketData` in the compiled Go bindings, so read them with `.get()`:
+they are `NotRequired`, and absent if your bindings were built against an older sdk-go.
 
 #### `DecodedQueryComponents` (TypedDict)
 - `data_provider: str`
@@ -1760,13 +1771,23 @@ have its bucket counted twice, and mixing two markets would normalise unrelated
 probabilities into a single distribution — both are rejected rather than warned
 about. Buckets of one market differ only in their strike, so the identity
 compared is `(data_provider, stream_id, bridge, settle_time, timestamp,
-frozen_at)` — the bridge included because an identical question collateralised
-two ways is two markets with two separate books.
+frozen_at, base_time, time_interval)` — the bridge included because an identical
+question collateralised two ways is two markets with two separate books, and
+`base_time` / `time_interval` because a `"change_between"` market measures over
+an interval: a year-over-year set and a month-over-month set can otherwise match
+on every other field, and a percent-change bucket could join a set struck in the
+stream's own units.
 
-> `timestamp` and `frozen_at` come from `DecodeMarketData` in the compiled Go
-> bindings. If yours were built against an sdk-go predating those fields, the
-> call fails with a hint to rerun `make gopy_build` rather than forecasting on
-> a weaker identity than sdk-go and sdk-js apply to the same market.
+The **action id is deliberately not** part of the identity — a complete set tiles
+the line with one `price_below_threshold` bucket, one `price_above_threshold`,
+and `value_in_range` between, so three different actions is the normal shape of
+one market.
+
+> `timestamp`, `frozen_at`, `base_time` and `time_interval` come from
+> `DecodeMarketData` in the compiled Go bindings. If yours were built against an
+> sdk-go predating those fields, the call fails with a hint to rerun
+> `make gopy_build` rather than forecasting on a weaker identity than sdk-go and
+> sdk-js apply to the same market.
 
 **Cost:** two order-book reads plus one market-info read per bucket. Both the
 YES and NO books are fetched, because on this venue a resting BUY NO at *p* is

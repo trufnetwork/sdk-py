@@ -419,11 +419,12 @@ class DecodedQueryComponents(TypedDict):
 class MarketData(TypedDict):
     """Structured content of a prediction market's query components.
 
-    ``timestamp`` (the point in the stream the query observes, unix seconds) and
-    ``frozen_at`` (the block height the data is pinned to; None means latest)
-    are produced by ``contractsapi.DecodeMarketData`` in sdk-go, which this SDK
-    calls through its compiled bindings. They are ``NotRequired`` so that a
-    market decoded by bindings built against an older sdk-go still types, but
+    ``timestamp`` (the point in the stream the query observes, unix seconds),
+    ``frozen_at`` (the block height the data is pinned to; None means latest),
+    ``base_time`` and ``time_interval`` are produced by
+    ``contractsapi.DecodeMarketData`` in sdk-go, which this SDK calls through its
+    compiled bindings. They are ``NotRequired`` so that a market decoded by
+    bindings built against an older sdk-go still types, but
     ``get_market_forecast`` refuses such a market rather than forecasting on a
     weaker identity than sdk-go and sdk-js apply. Read them with ``.get()``.
     """
@@ -438,6 +439,14 @@ class MarketData(TypedDict):
     thresholds: list[str]
     timestamp: NotRequired[int | None]
     frozen_at: NotRequired[int | None]
+    # What a "change_between" market measures its change over: the index base
+    # date, and how far back to look for the comparison value. None for every
+    # other market type, which has no such argument. Both are part of a market's
+    # identity rather than presentation -- a year-over-year market and a
+    # month-over-month one over the same stream and observation time are asking
+    # different questions.
+    base_time: NotRequired[int | None]
+    time_interval: NotRequired[int | None]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -3284,10 +3293,43 @@ class TNClient:
                     f"market{hint}"
                 )
 
+            # A change market always carries a positive time_interval -- the node
+            # action refuses to be created without one. Missing or None here
+            # therefore means the same stale-bindings case as above, and letting
+            # it through would drop the one field that separates a
+            # year-over-year set from a month-over-month one, and a
+            # percent-change bucket from a set struck in the stream's own units.
+            if (
+                market_data.get("type") == "change_between"
+                and market_data.get("time_interval") is None
+            ):
+                raise ValueError(
+                    f"market {query_id} is a change market with no readable "
+                    f"time_interval, so it cannot be matched against the other "
+                    f"buckets of its market (if the decoded market has no "
+                    f"time_interval field at all, the C bindings were built "
+                    f"against an sdk-go predating it -- rebuild them with "
+                    f"`make gopy_build`)"
+                )
+
             # The bridge is the one identity field that lives outside the query
             # components: it is a create_market argument, so two markets can ask
             # an identical question while collateralising it differently. Those
             # are separate markets with separate books.
+            #
+            # base_time and time_interval are None for every market type except
+            # "change_between". Carrying them keeps a year-over-year set apart
+            # from a month-over-month one, and keeps a percent-change bucket out
+            # of a set struck in the stream's own units -- a collision that is
+            # reachable, because the index streams these markets are built on
+            # already carry value_in_range sets observing at their own settle
+            # time exactly as the new ones do. Bounds around 335 must never be
+            # normalised against bounds around 2.5.
+            #
+            # The action id is deliberately NOT here: a complete set tiles the
+            # line with one price_below_threshold bucket, one
+            # price_above_threshold, and value_in_range between, so three
+            # different actions is the normal shape of ONE market.
             this_identity = (
                 market_data.get("data_provider"),
                 market_data.get("stream_id"),
@@ -3295,6 +3337,8 @@ class TNClient:
                 info.get("settle_time"),
                 market_data.get("timestamp"),
                 market_data.get("frozen_at"),
+                market_data.get("base_time"),
+                market_data.get("time_interval"),
             )
             if identity is None:
                 identity = this_identity
@@ -3302,8 +3346,9 @@ class TNClient:
                 raise ValueError(
                     f"market {query_id} belongs to a different event than the "
                     f"first bucket: (data_provider, stream_id, bridge, settle_time, "
-                    f"timestamp, frozen_at) is {this_identity} against "
-                    f"{identity}. One forecast covers the buckets of ONE market."
+                    f"timestamp, frozen_at, base_time, time_interval) is "
+                    f"{this_identity} against {identity}. One forecast covers "
+                    f"the buckets of ONE market."
                 )
 
             lower, upper = bucket_bounds_from_market_data(market_data)

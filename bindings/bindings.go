@@ -2475,6 +2475,66 @@ func GetFullMarketDepth(client *tnclient.Client, queryID int) (string, error) {
 	return string(jsonBytes), nil
 }
 
+// GetMarketActivity returns filled volume and participation for one order book
+// over [fromTs, toTs], unix seconds, both ends inclusive.
+//
+// sdk-go reads the node action get_market_activity, which holds the one
+// definition of volume, and errors when the market does not exist. The JSON
+// keys are the action's column names.
+func GetMarketActivity(client *tnclient.Client, queryID int, fromTs int64, toTs int64) (string, error) {
+	ctx := context.Background()
+
+	orderBook, err := client.LoadOrderBook()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to load order book")
+	}
+
+	activity, err := orderBook.GetMarketActivity(ctx, types.GetMarketActivityInput{
+		QueryID: queryID,
+		FromTs:  fromTs,
+		ToTs:    toTs,
+	})
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get market activity")
+	}
+
+	jsonBytes, err := json.Marshal(marketActivityJSON(activity))
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal market activity")
+	}
+
+	return string(jsonBytes), nil
+}
+
+// marketActivityJSON shapes a MarketActivity for Python. The three cents fields
+// stay strings, because NUMERIC(78,0) exceeds what a JSON number holds exactly.
+// The fill times are null when nothing traded in the window.
+func marketActivityJSON(a *types.MarketActivity) map[string]any {
+	activity := map[string]any{
+		"bridge":              a.Bridge,
+		"volume_cents":        a.VolumeCents,
+		"direct_cents":        a.DirectCents,
+		"mint_burn_cents":     a.MintBurnCents,
+		"unique_traders":      a.UniqueTraders,
+		"fill_count":          a.FillCount,
+		"direct_fill_count":   a.DirectFillCount,
+		"shares_traded":       a.SharesTraded,
+		"first_event_ts":      nil,
+		"last_event_ts":       nil,
+		"coverage_from_block": a.CoverageFromBlock,
+		"coverage_complete":   a.CoverageComplete,
+	}
+
+	if a.FirstEventTs != nil {
+		activity["first_event_ts"] = *a.FirstEventTs
+	}
+	if a.LastEventTs != nil {
+		activity["last_event_ts"] = *a.LastEventTs
+	}
+
+	return activity
+}
+
 // GetBestPrices returns current bid/ask spread
 func GetBestPrices(client *tnclient.Client, queryID int, outcome bool) (string, error) {
 	ctx := context.Background()

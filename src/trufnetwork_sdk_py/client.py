@@ -272,6 +272,31 @@ class FullDepthLevel(TypedDict):
     sell_volume: int
 
 
+class MarketActivity(TypedDict):
+    """One market's filled volume and participation over a time window, as
+    get_market_activity returns it.
+
+    Volume is in cents of ``bridge``'s collateral token and is never summable
+    across bridges. ``volume_cents``, ``direct_cents`` and ``mint_burn_cents``
+    are decimal strings because NUMERIC(78,0) exceeds what a JSON number holds
+    exactly. Check ``coverage_complete`` before trusting a zero: when it is
+    False, the market was created before the earliest block the node still
+    holds, so fills may be missing.
+    """
+    bridge: str
+    volume_cents: str
+    direct_cents: str
+    mint_burn_cents: str
+    unique_traders: int
+    fill_count: int
+    direct_fill_count: int
+    shares_traded: int
+    first_event_ts: int | None
+    last_event_ts: int | None
+    coverage_from_block: int
+    coverage_complete: bool
+
+
 class ConsolidatedLevel(TypedDict):
     """One price level of a consolidated order book, in the requested frame.
 
@@ -3073,6 +3098,43 @@ class TNClient:
             return []
 
         return cast(list[FullDepthLevel], json.loads(json_str))
+
+    def get_market_activity(self, query_id: int, from_ts: int, to_ts: int) -> MarketActivity:
+        """Get one market's filled volume and unique traders over a time window.
+
+        ``get_market_depth`` and the other book reads answer what is resting
+        right now; this one answers how much traded. It reads the node action
+        ``get_market_activity``, which holds the one definition of volume, so
+        every SDK reads the same figures.
+
+        Volume counts each trade once, in cents of the market's own collateral.
+        A direct match counts its buy side at ``price * amount``, and a mint or
+        burn counts its YES side at ``100 * amount``. Splits, placements,
+        cancels, amends and settlement are not volume. ``volume_cents`` always
+        equals ``direct_cents + mint_burn_cents``, and ``direct_fill_count``
+        never exceeds ``fill_count``.
+
+        Volume is per bridge. Base units differ between collateral tokens by
+        orders of magnitude, so never add volumes from markets on different
+        bridges. Unique traders do compare across bridges.
+
+        A zero can be truncation. The node trims order events once they are
+        indexed and keeps a rolling window. When ``coverage_complete`` is
+        False, the market was created before the earliest block the node still
+        holds, so fills may be missing and a zero says nothing about activity.
+
+        Args:
+            query_id: The market to read.
+            from_ts: Window start, unix seconds, inclusive.
+            to_ts: Window end, unix seconds, inclusive. A window that ends
+                before it starts is an error rather than an empty result.
+
+        Raises:
+            RuntimeError: The market does not exist, an argument is out of
+                range, or the node does not carry ``get_market_activity``.
+        """
+        json_str = truf_sdk.GetMarketActivity(self.client, query_id, from_ts, to_ts)
+        return cast(MarketActivity, json.loads(json_str))
 
     def get_consolidated_order_book(
         self, query_id: int, outcome: bool = True

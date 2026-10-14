@@ -7,6 +7,7 @@ The shared library loading issue has been resolved with the patchelf fix.
 from __future__ import annotations
 
 import os
+import sys
 
 ENDPOINT = os.getenv("TN_ENDPOINT", "http://localhost:8484")
 PRIVATE_KEY = os.getenv(
@@ -15,7 +16,13 @@ PRIVATE_KEY = os.getenv(
 )
 
 
-def main() -> None:
+def main() -> int:
+    """Run the smoke steps and return the exit code for the process.
+
+    Returns 0 when every step passes. Also returns 0 when creating the client
+    fails with "connection refused" or "dial tcp", because the native build
+    jobs run the script without a node. Returns 1 on any other failure.
+    """
     print("=== TRUF NETWORK SDK TEST ===")
     
     # Test 1: Import the SDK (this was the original issue)
@@ -26,10 +33,10 @@ def main() -> None:
         print("   ✓ Shared library loading issue RESOLVED!")
     except ImportError as e:
         print(f"   ✗ Import failed: {e}")
-        return
+        return 1
     except Exception as e:
         print(f"   ✗ Unexpected error during import: {e}")
-        return
+        return 1
     
     # Test 2: Create client (requires network connectivity)
     print("2. Testing client creation...")
@@ -44,7 +51,7 @@ def main() -> None:
             print(f"   ✓ Account derived successfully: {account}")
         except Exception as e:
             print(f"   ✗ Account derivation failed: {e}")
-            return
+            return 1
             
     except Exception as e:
         error_msg = str(e)
@@ -54,7 +61,7 @@ def main() -> None:
             print("   ✓ The important part is that the SDK imports without shared library errors")
         else:
             print(f"   ✗ Unexpected client creation error: {e}")
-            return
+            return 1
     
     print("\n🎉 SUCCESS: The shared library loading issue has been completely resolved!")
     print("   • The SDK imports without any ImportError about missing .so files")
@@ -62,7 +69,8 @@ def main() -> None:
     print("   • No LD_LIBRARY_PATH workaround is needed")
     print("\nNote: To test full functionality, run with a TRUF.NETWORK node:")
     print("   docker run --rm -e TN_ENDPOINT=https://gateway.mainnet.truf.network tn-sdk-final")
+    return 0
 
 
 if __name__ == "__main__":
-    main() 
+    sys.exit(main())

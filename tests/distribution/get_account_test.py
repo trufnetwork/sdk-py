@@ -17,6 +17,12 @@ PRIVATE_KEY = os.getenv(
 
 
 def main() -> int:
+    """Run the smoke steps and return the exit code for the process.
+
+    Returns 0 when every step passes. Also returns 0 when creating the client
+    fails with "connection refused" or "dial tcp", because the native build
+    jobs run the script without a node. Returns 1 on any other failure.
+    """
     print("=== TRUF NETWORK SDK TEST ===")
     
     # Test 1: Import the SDK (this was the original issue)

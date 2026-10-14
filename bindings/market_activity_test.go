@@ -32,6 +32,9 @@ func decodeActivityJSON(t *testing.T, a *types.MarketActivity) map[string]any {
 	return got
 }
 
+// TestMarketActivityJSON_UsesTheActionColumnNames checks that every key is the
+// node action's column name and that each value keeps its type: the cents as
+// strings, the counts and times as numbers, the coverage flag as a bool.
 func TestMarketActivityJSON_UsesTheActionColumnNames(t *testing.T) {
 	first, last := int64(1791407913), int64(1791476117)
 	got := decodeActivityJSON(t, &types.MarketActivity{
@@ -68,8 +71,9 @@ func TestMarketActivityJSON_UsesTheActionColumnNames(t *testing.T) {
 	}
 }
 
+// TestMarketActivityJSON_KeepsCentsAsStrings checks that the cents fields reach
+// the JSON as strings, so a value above math.MaxInt64 keeps every digit.
 func TestMarketActivityJSON_KeepsCentsAsStrings(t *testing.T) {
-	// Above math.MaxInt64: only a string carries it exactly.
 	got := decodeActivityJSON(t, &types.MarketActivity{
 		Bridge:        "eth_usdc",
 		VolumeCents:   "123456789012345678901234567890",
@@ -88,6 +92,8 @@ func TestMarketActivityJSON_KeepsCentsAsStrings(t *testing.T) {
 	}
 }
 
+// TestMarketActivityJSON_NothingTraded checks that a market with no fills gets
+// null fill times, block 0 and false coverage in the JSON.
 func TestMarketActivityJSON_NothingTraded(t *testing.T) {
 	// What a node holding no order events returns for a market that exists.
 	got := decodeActivityJSON(t, &types.MarketActivity{

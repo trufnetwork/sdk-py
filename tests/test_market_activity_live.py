@@ -50,6 +50,7 @@ FROM_TS = TO_TS - ACTIVITY_WINDOW_SECONDS
 
 @pytest.fixture(scope="module")
 def live_client():
+    """A client on TN_LIVE_NODE_URL, signing with TN_LIVE_PRIVATE_KEY or a throwaway."""
     from eth_account import Account
 
     from trufnetwork_sdk_py.client import TNClient
@@ -99,6 +100,12 @@ def market_with_fills(live_client):
 
 
 def test_the_figures_hang_together(market_with_fills):
+    """One market's figures agree with each other.
+
+    Volume is the sum of its direct and mint or burn parts, the direct fills
+    are at most all the fills, the market has a bridge and at least one trader,
+    and both fill times fall inside the window.
+    """
     _, activity = market_with_fills
 
     assert activity["bridge"]
@@ -157,5 +164,6 @@ def test_the_window_includes_both_of_its_ends(live_client, market_with_fills):
 
 
 def test_a_market_that_does_not_exist_is_an_error(live_client):
+    """An id no market has raises the not found error instead of returning zeros."""
     with pytest.raises(RuntimeError, match="not found"):
         live_client.get_market_activity(MISSING_MARKET, FROM_TS, TO_TS)

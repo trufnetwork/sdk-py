@@ -33,15 +33,25 @@ ACTIVITY = {
 
 
 def _client_without_connect() -> TNClient:
-    # Bypass __init__ (which would open a network client); the wrapper only
-    # forwards self.client to the (monkeypatched) binding.
+    """A client that skips __init__, which would open a network client.
+
+    The wrapper only forwards self.client to the binding, which the tests
+    replace.
+    """
     c = TNClient.__new__(TNClient)
     c.client = object()
     return c
 
 
 def _binding_returning(monkeypatch, payload: str, captured: dict | None = None):
+    """Replace the Go binding with one that returns payload.
+
+    When captured is given, the stand-in records in it the three arguments the
+    wrapper passed.
+    """
+
     def fake_get_market_activity(client, query_id, from_ts, to_ts):
+        """Return payload as the binding would, recording the arguments if asked."""
         if captured is not None:
             captured["args"] = (query_id, from_ts, to_ts)
         return payload
@@ -52,6 +62,7 @@ def _binding_returning(monkeypatch, payload: str, captured: dict | None = None):
 
 
 def test_get_market_activity_forwards_the_window_in_order(monkeypatch):
+    """The market id and both ends of the window reach the binding in order."""
     captured: dict = {}
     _binding_returning(monkeypatch, json.dumps(ACTIVITY), captured)
 
@@ -61,6 +72,7 @@ def test_get_market_activity_forwards_the_window_in_order(monkeypatch):
 
 
 def test_get_market_activity_decodes_every_field(monkeypatch):
+    """Every key of the binding's JSON comes back with its value."""
     _binding_returning(monkeypatch, json.dumps(ACTIVITY))
 
     activity = _client_without_connect().get_market_activity(1835, 1788891555, 1791483555)
@@ -69,7 +81,12 @@ def test_get_market_activity_decodes_every_field(monkeypatch):
 
 
 def test_get_market_activity_keeps_cents_as_exact_strings(monkeypatch):
-    # Above 2**63. As a number it would not survive the trip; as a string it does.
+    """The cents fields stay the strings the binding sent.
+
+    The node action returns cents as NUMERIC(78,0), which can pass 2**63, so a
+    value that large must come back with every digit, and the parts must still
+    add up to the volume.
+    """
     big = {
         **ACTIVITY,
         "volume_cents": "123456789012345678901234567890",
@@ -88,6 +105,10 @@ def test_get_market_activity_keeps_cents_as_exact_strings(monkeypatch):
 
 
 def test_get_market_activity_keeps_null_fill_times_and_false_coverage(monkeypatch):
+    """A market with no fills keeps None for both fill times and False for coverage.
+
+    A 0 in place of None would read as a fill at time 0.
+    """
     # What a node holding no order events returns for a market that exists.
     quiet = {
         **ACTIVITY,
@@ -115,9 +136,14 @@ def test_get_market_activity_keeps_null_fill_times_and_false_coverage(monkeypatc
 
 
 def test_get_market_activity_raises_what_the_binding_raises(monkeypatch):
-    # sdk-go errors on a missing market; the binding turns that into a
-    # RuntimeError, and the wrapper must not swallow it into an empty dict.
+    """A missing market reaches the caller as the binding's RuntimeError.
+
+    sdk-go errors on a missing market, the binding turns that into a
+    RuntimeError, and the wrapper must not swallow it into an empty dict.
+    """
+
     def failing(client, query_id, from_ts, to_ts):
+        """Raise what the binding raises for a market that does not exist."""
         raise RuntimeError("failed to get market activity: market 99 not found")
 
     monkeypatch.setattr(client_mod.truf_sdk, "GetMarketActivity", failing, raising=False)
@@ -127,6 +153,11 @@ def test_get_market_activity_raises_what_the_binding_raises(monkeypatch):
 
 
 def test_get_market_activity_does_not_read_an_empty_answer_as_no_activity(monkeypatch):
+    """An empty answer from the binding raises instead of reading as no activity.
+
+    The binding returns one JSON object or an error, so an empty string is never
+    a real answer.
+    """
     _binding_returning(monkeypatch, "")
 
     with pytest.raises(ValueError):

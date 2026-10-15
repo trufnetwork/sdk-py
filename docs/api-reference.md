@@ -1739,6 +1739,79 @@ The quote assumes the order reaches the front of the queue at its price. Matchin
 is FIFO within a level, so an older order resting at the same price takes the
 counterparty first and the real fill comes up short.
 
+### Market Activity
+
+`get_market_depth` and the other book reads answer what is resting right now.
+`get_market_activity` answers how much traded: filled volume and unique traders
+for one order book over a time window.
+
+#### `client.get_market_activity(query_id: int, from_ts: int, to_ts: int) -> MarketActivity`
+
+**Parameters:**
+- `query_id: int` - The market to read
+- `from_ts: int` - Window start, unix seconds, inclusive
+- `to_ts: int` - Window end, unix seconds, inclusive. A window that ends before
+  it starts is an error rather than an empty result.
+
+Calls the node action `get_market_activity($query_id, $from_ts, $to_ts)` (node
+migration `058-order-book-market-activity.sql`) through sdk-go. The action holds
+the one definition of volume, so every SDK reads the same figures. Requires a
+node carrying that action. A market that does not exist raises `RuntimeError`
+whose message ends in `market <query_id> not found`. An argument out of range
+also raises `RuntimeError`, naming the argument.
+
+**Returns:** `MarketActivity`, a dict with these keys:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `bridge` | `str` | The collateral token the figures are in |
+| `volume_cents` | `str` | Filled volume in cents, `NUMERIC(78,0)` as a decimal string |
+| `direct_cents` | `str` | The part of `volume_cents` from counterparty matches |
+| `mint_burn_cents` | `str` | The part of `volume_cents` from mint and burn matches |
+| `unique_traders` | `int` | Distinct participants on either side of a fill |
+| `fill_count` | `int` | Fills, one per trade |
+| `direct_fill_count` | `int` | The part of `fill_count` that were counterparty matches |
+| `shares_traded` | `int` | Shares across those fills |
+| `first_event_ts` | `int \| None` | First fill inside the window, `None` when nothing traded |
+| `last_event_ts` | `int \| None` | Last fill inside the window, `None` when nothing traded |
+| `coverage_from_block` | `int` | Earliest block whose order events the node still holds |
+| `coverage_complete` | `bool` | False when the market is older than `coverage_from_block` |
+
+The three cents keys are strings because `NUMERIC(78,0)` can exceed what a JSON
+number holds exactly. `int()` reads them without loss.
+
+Volume counts each trade once. A direct match counts its buy side at
+`price * amount`, and a mint or burn counts its YES side at `100 * amount`.
+Splits, placements, cancels, amends and settlement are not volume.
+`volume_cents` always equals `direct_cents + mint_burn_cents`, and
+`direct_fill_count` never exceeds `fill_count`.
+
+**Example:**
+```python
+import time
+
+now = int(time.time())
+activity = client.get_market_activity(query_id=782, from_ts=now - 7 * 86400, to_ts=now)
+if activity["fill_count"] == 0 and not activity["coverage_complete"]:
+    print("no fills retained; the node may have trimmed them")
+print(f"{activity['volume_cents']} cents of {activity['bridge']} across "
+      f"{activity['fill_count']} fills by {activity['unique_traders']} traders")
+```
+
+**Volume is per bridge.** It is in cents of the market's own collateral. Base
+units differ between collateral tokens by orders of magnitude, so never add
+volumes from markets on different bridges. Unique traders do compare across
+bridges.
+
+**A zero can be truncation.** The node trims order events once they are indexed
+and keeps a rolling window. When `coverage_complete` is False, the market was
+created before the earliest block the node still holds, so fills may be missing
+and a zero says nothing about activity. It is also False on a node that holds no
+order events at all.
+
+**A call costs what its window holds.** The node indexes order events by market
+and time, so a short window reads only the events inside it.
+
 ### Market Forecasting
 
 Prediction markets price **ranges**, not values. A five-bucket EPS market says

@@ -50,11 +50,10 @@ walk up the cumulative probabilities until they cross 50% and interpolate
 within the bucket where the crossing happens. No distribution shape is
 assumed for anything interior. The published band is P10..P90 read the same
 way. When a requested percentile falls inside an OPEN-ENDED outer bucket the
-books contain no information about how far out it lies, so an exponential
-tail matched to the adjacent bucket's density supplies a number, and the
-result is flagged (`value_basis` / `p10_basis` / `p90_basis` = "tail") so
-consumers can decide whether to show it. Markets struck so that the mass
-stays between the outer boundaries never need the tail model at all.
+books contain no information about how far out it lies, so the outer strike
+itself is reported and the result is flagged (`value_basis` / `p10_basis` /
+`p90_basis` = "tail"): the value lies at or beyond that strike. Markets
+struck so that the mass stays between the outer boundaries never need it.
 
 A normal fit was the previous method and remains in the file as a diagnostic
 only. Its known failures (confidently wrong on bimodal books, grid-dependent
@@ -254,8 +253,8 @@ class MarketForecast:
     ``value`` is the MEDIAN of the implied distribution. ``p10``/``p90`` are
     the published band. Each carries a basis flag: "interior" means it was
     read between real strikes with no shape assumption; "tail" means it fell
-    inside an open-ended outer bucket and rests on the exponential tail model;
-    "unresolved" means the market has too few strikes to place it at all.
+    inside an open-ended outer bucket and is the outer strike, the value lying
+    at or beyond it; "unresolved" means the market has too few strikes to place it at all.
 
     ``margin_of_error`` is kept for downstream compatibility as half the
     P10..P90 band; ``sigma`` as the band scaled to a normal-equivalent
@@ -547,11 +546,12 @@ def _rank_quantile(
 
     Interior crossings interpolate between real strikes and assume nothing
     beyond uniform density within the bucket. A crossing inside an open-ended
-    outer bucket needs a shape for the tail; we use an exponential decay
-    matched to the adjacent interior bucket's density, and flag the result
-    "tail" so consumers know it rests on that assumption. With fewer than two
-    boundaries there is no interior at all and no density to anchor a tail,
-    so the answer is (None, "unresolved").
+    outer bucket has no outer bound, and the books say nothing about how far
+    past the strike it lies, so the outer strike itself is returned, flagged
+    "tail": the value lies at or beyond it. Extrapolating instead ran to absurd
+    values when an edge bucket was near-certain and its neighbour near-empty.
+    With fewer than two boundaries there is no interior at all, so the answer
+    is (None, "unresolved").
     """
     k = len(probs)
     cum: List[float] = []
@@ -570,19 +570,9 @@ def _rank_quantile(
                 return (lo_b + hi_b) / 2.0, "interior"
             frac = (q - lo_c) / (hi_c - lo_c)
             return lo_b + frac * (hi_b - lo_b), "interior"
-    widths = [bounds[i + 1] - bounds[i] for i in range(len(bounds) - 1)]
     if q < cum[0]:                                  # lower open tail
-        dens = probs[1] / widths[0] if widths[0] > 0 else 0.0
-        if dens <= 0 or cum[0] <= 0:
-            return None, "unresolved"
-        lam = dens / cum[0]
-        return bounds[0] + math.log(q / cum[0]) / lam, "tail"
-    upper_mass = probs[-1]                          # upper open tail
-    dens = probs[-2] / widths[-1] if widths[-1] > 0 else 0.0
-    if dens <= 0 or upper_mass <= 0:
-        return None, "unresolved"
-    lam = dens / upper_mass
-    return bounds[-1] - math.log(max((1.0 - q), 1e-12) / upper_mass) / lam, "tail"
+        return bounds[0], "tail"
+    return bounds[-1], "tail"                       # upper open tail
 
 
 def _count_peaks(bounds: Sequence[float], probs: Sequence[float]) -> int:
@@ -719,11 +709,11 @@ def _assemble(
         outside = probs[0] if probs[0] >= 0.5 else probs[-1]
         warnings.append(
             f"median lies beyond the outer strikes ({outside * 100:.0f}% of mass "
-            f"in an open-ended bucket); value depends on the assumed tail shape"
+            f"in an open-ended bucket); value is the outer strike, the outcome lies at or beyond it"
         )
     for nm, basis in (("p10", p10_basis), ("p90", p90_basis)):
         if basis == "tail":
-            warnings.append(f"{nm} falls in an open tail; tail-model dependent")
+            warnings.append(f"{nm} falls in an open tail; reported as the outer strike")
         elif basis == "unresolved":
             warnings.append(f"{nm} unresolvable from these strikes")
 

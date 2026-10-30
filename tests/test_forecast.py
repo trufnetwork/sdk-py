@@ -95,12 +95,12 @@ def test_forecast_lands_inside_the_leading_bucket():
 
 
 def test_open_tails_do_not_need_an_assumed_value():
-    """Heavy mass in the unbounded top bucket must still give a finite answer
-    that sits above the last boundary."""
+    """Heavy mass in the unbounded top bucket gives the last boundary itself,
+    flagged as a tail: the outcome lies at or above it."""
     f = forecast_from_buckets(build([1, 2, 7, 20, 70]))
     assert f is not None
-    assert math.isfinite(f.value)
-    assert f.value > 4.92
+    assert f.value == 4.92
+    assert f.value_basis == "tail"
 
 
 def test_probabilities_are_normalised():
@@ -217,3 +217,55 @@ def test_monotonic_cdf_is_enforced():
     transform must not see a decreasing CDF."""
     f = forecast_from_buckets(build([30, 1, 40, 1, 28]))
     assert f is not None and math.isfinite(f.value)
+
+
+# --- open edge buckets ---------------------------------------------------------
+
+# GOOGL EPS ladder from truflation/website#5091. Extrapolating a tail past the
+# outer strike forecast -47.78 for the first book below.
+GOOGL_BOUNDS = [(None, 2.6), (2.6, 2.98), (2.98, 3.36), (3.36, 3.73), (3.73, None)]
+
+NEAR_CERTAIN_LOWER = {
+    "near-empty neighbour": [(98, 99), (0, 1), (0, 1), (0, 1), (0, 1)],
+    "thin neighbour": [(98, 99), (1, 2), (0, 1), (0, 1), (0, 1)],
+}
+
+
+def quoted(quotes):
+    """Books quoted (bid, ask) per bucket, in cents."""
+    return [BucketBook(lo, hi, bid, ask) for (lo, hi), (bid, ask) in zip(GOOGL_BOUNDS, quotes)]
+
+
+@pytest.mark.parametrize("quotes", NEAR_CERTAIN_LOWER.values(), ids=NEAR_CERTAIN_LOWER.keys())
+def test_near_certain_lower_bucket_reports_the_lowest_strike(quotes):
+    f = forecast_from_buckets(quoted(quotes))
+    assert f is not None and f.method == "rank"
+    assert (f.value, f.p10, f.p90) == (2.6, 2.6, 2.6)
+    assert (f.value_basis, f.p10_basis, f.p90_basis) == ("tail", "tail", "tail")
+
+
+@pytest.mark.parametrize("quotes", NEAR_CERTAIN_LOWER.values(), ids=NEAR_CERTAIN_LOWER.keys())
+def test_near_certain_upper_bucket_reports_the_highest_strike(quotes):
+    f = forecast_from_buckets(quoted(list(reversed(quotes))))
+    assert f is not None and f.method == "rank"
+    assert (f.value, f.p10, f.p90) == (3.73, 3.73, 3.73)
+    assert (f.value_basis, f.p10_basis, f.p90_basis) == ("tail", "tail", "tail")
+
+
+def test_band_still_reads_its_interior_end_when_one_end_is_in_a_tail():
+    f = forecast_from_buckets(quoted([(69, 71), (19, 21), (0, 1), (0, 1), (0, 1)]))
+    assert f is not None
+    assert (f.value, f.value_basis, f.p10) == (2.6, "tail", 2.6)
+    assert f.p90_basis == "interior"
+    assert 2.6 < f.p90 < 2.98
+
+
+def test_tail_warnings_say_the_value_is_the_outer_strike():
+    f = forecast_from_buckets(quoted(NEAR_CERTAIN_LOWER["near-empty neighbour"]))
+    assert f is not None
+    assert any(
+        w.startswith("median lies beyond the outer strikes") and "value is the outer strike" in w
+        for w in f.warnings
+    )
+    assert "p10 falls in an open tail; reported as the outer strike" in f.warnings
+    assert "p90 falls in an open tail; reported as the outer strike" in f.warnings

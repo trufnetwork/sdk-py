@@ -1821,7 +1821,7 @@ bucket of one market into the single number they collectively imply.
 
 ```text
 market says                     ->  forecast says
-"34% between 2.06 and 2.21"         "2.14, p10..p90 1.91..2.38"
+"34% between 2.06 and 2.21"         "2.14, p10..p90 1.91..2.35"
 ```
 
 #### `client.get_market_forecast(query_ids: list[int]) -> MarketForecast | None`
@@ -1876,14 +1876,13 @@ if forecast is None:
 print(f"{forecast.value:.4f}")              # 2.1363
 
 # value_basis is "tail" when the median sits beyond the outer strikes. The
-# number then rests on the assumed tail shape rather than on a real strike,
-# and can land far outside the quoted range.
+# number is then the outer strike itself, and the outcome lies at or beyond it.
 if forecast.value_basis == "tail":
-    print("  ! read from the tail model, not between real strikes")
+    print("  ! median at or beyond the outer strike")
 
 # p10/p90 are None when the market has too few strikes to place them.
 if forecast.p10 is not None and forecast.p90 is not None:
-    print(f"{forecast.p10:.4f}..{forecast.p90:.4f}")   # 1.9058..2.3792
+    print(f"{forecast.p10:.4f}..{forecast.p90:.4f}")   # 1.9100..2.3500
 else:
     print("band unresolved")
 
@@ -1899,7 +1898,7 @@ for warning in forecast.warnings:
 | Field | Type | Meaning |
 |-------|------|---------|
 | `value` | `float` | The point estimate: the **median** of the implied distribution |
-| `p10`, `p90` | `float \| None` | The published band. The market implies an 80% chance the outcome lands inside it |
+| `p10`, `p90` | `float \| None` | The published band. When both ends are interior, the market implies an 80% chance the outcome lands inside it; an end flagged `"tail"` is the outer strike, and the band then holds less than 80% |
 | `margin_of_error` | `float` | Half the P10..P90 band. **Not** a standard error — see below |
 | `sigma` | `float` | The band scaled to a normal-equivalent standard deviation |
 | `value_basis` | `str` | `"interior"`, `"tail"`, or `"unresolved"` — see below |
@@ -1908,7 +1907,7 @@ for warning in forecast.warnings:
 | `buckets` | `list[BucketEstimate]` | Per-bucket detail |
 | `warnings` | `list[str]` | Book-quality problems worth surfacing |
 | `multimodal`, `n_peaks` | `bool`, `int` | Whether the book implies more than one peak |
-| `low`, `high` | `float` | `value -/+ margin_of_error` |
+| `low`, `high` | `float` | `value -/+ margin_of_error`. Either can fall past the outer strikes, for example when `value_basis` is `"tail"`, so `p10` and `p90` are the ones to show |
 | `as_dict()` | `dict` | Flat, JSON-serialisable form |
 
 Each `BucketEstimate` carries `query_id`, `lower`, `upper`, `probability`
@@ -1918,15 +1917,18 @@ Each `BucketEstimate` carries `query_id`, `lower`, `upper`, `probability`
 **`margin_of_error` is a band, not a precision.** It is half the P10..P90
 spread, so it describes how uncertain the **outcome** is, not how tightly the
 book pins your estimate. Expect it to be large — on a live five-bucket EPS
-market, roughly 0.24 against a value of 2.14. Publishing it as "± 0.24" is
-correct; reading it as "our estimate is accurate to 0.24" is not.
+market, roughly 0.22 against a value of 2.14. Publishing it as "± 0.22" is
+correct; reading it as "our estimate is accurate to 0.22" is not. The margin
+is 0 when `p10` and `p90` both sit at the same outer strike (both flagged
+`"tail"`), which means the book puts nearly all its mass past that strike, not
+that the value is certain.
 
 **Check the `_basis` flags before displaying a number.** The outer two buckets
 are open-ended, so the books say nothing about how far out they extend. When a
 percentile falls inside one, the number is the outer strike; the value lies at
-or beyond it, and the corresponding flag reads `"tail"`. `"interior"` means it was read between
-real strikes with no shape assumption. `"unresolved"` means the market has too
-few strikes to place it at all.
+or beyond it, and the corresponding flag reads `"tail"`. `"interior"` means it
+was read between real strikes with no shape assumption. `"unresolved"` means
+the market has too few strikes to place it at all.
 
 **Read `warnings`.** Unquoted or one-sided buckets, crossed books, and
 dutch-book deviations are reported rather than silently smoothed over.

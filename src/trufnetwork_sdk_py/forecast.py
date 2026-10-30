@@ -65,14 +65,22 @@ depth so no external constant is needed. It does not move the median; it is
 published as book quality and drives warnings.
 """
 
-# Ported verbatim from truflation/prediction-bots @ main 21fe4f3 (PR #37),
+# Ported from truflation/prediction-bots @ main 21fe4f3 (PR #37),
 # whose last change to this file was fafe52b. Upstream path:
 # market-maker-bot/src/market_maker_bot/forecast.py
 #
-# Kept byte-identical on purpose: the algorithm is validated against live
+# Kept close to upstream on purpose: the algorithm is validated against live
 # mainnet books there and is still moving fast, so re-syncing must stay a diff
-# rather than a re-write. Change it upstream first, then copy the file across.
-# To check for drift, diff this file against upstream ignoring this header.
+# rather than a re-write. The SDKs differ from upstream in one rule: a
+# percentile in an open edge bucket returns the outer strike, flagged "tail",
+# where upstream still extrapolates an exponential tail
+# (trufnetwork/sdk-js#186, trufnetwork/sdk-py#143, trufnetwork/sdk-go#208).
+# Keep that rule when porting upstream changes, and change it in all three
+# SDKs together. Change the algorithm upstream first, then port the change
+# here; copying the file across wholesale would bring the tail model back. To
+# check for drift, diff this file against upstream ignoring this header; the
+# open-tail rule and the docstrings and warnings that describe it are the
+# expected differences.
 
 from __future__ import annotations
 
@@ -254,7 +262,8 @@ class MarketForecast:
     the published band. Each carries a basis flag: "interior" means it was
     read between real strikes with no shape assumption; "tail" means it fell
     inside an open-ended outer bucket and is the outer strike, the value lying
-    at or beyond it; "unresolved" means the market has too few strikes to place it at all.
+    at or beyond it; "unresolved" means the market has too few strikes to
+    place it at all.
 
     ``margin_of_error`` is kept for downstream compatibility as half the
     P10..P90 band; ``sigma`` as the band scaled to a normal-equivalent

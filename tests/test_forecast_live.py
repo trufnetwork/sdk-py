@@ -217,7 +217,11 @@ def test_value_falls_in_the_bucket_where_the_cdf_crosses_half(live_forecast):
     if bucket.lower is not None:
         assert forecast.value >= bucket.lower
     if bucket.upper is not None:
-        assert forecast.value < bucket.upper
+        # A lower-tail median is the outer strike itself, this bucket's upper.
+        if forecast.value_basis == "tail":
+            assert forecast.value == bucket.upper
+        else:
+            assert forecast.value < bucket.upper
 
 
 def test_band_brackets_the_value(live_forecast):
@@ -226,7 +230,11 @@ def test_band_brackets_the_value(live_forecast):
         pytest.skip("band unresolvable from this market's strikes")
 
     assert forecast.p10 <= forecast.value <= forecast.p90
-    assert forecast.margin_of_error > 0
+    if forecast.p10 == forecast.p90:
+        assert (forecast.p10_basis, forecast.p90_basis) == ("tail", "tail")
+        assert forecast.margin_of_error == 0
+    else:
+        assert forecast.margin_of_error > 0
 
 
 def test_buckets_are_ordered_and_tile_the_line(live_forecast):

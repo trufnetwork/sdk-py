@@ -242,6 +242,7 @@ def test_near_certain_lower_bucket_reports_the_lowest_strike(quotes):
     assert f is not None and f.method == "rank"
     assert (f.value, f.p10, f.p90) == (2.6, 2.6, 2.6)
     assert (f.value_basis, f.p10_basis, f.p90_basis) == ("tail", "tail", "tail")
+    assert (f.margin_of_error, f.sigma) == (0, 0)
 
 
 @pytest.mark.parametrize("quotes", NEAR_CERTAIN_LOWER.values(), ids=NEAR_CERTAIN_LOWER.keys())
@@ -250,6 +251,7 @@ def test_near_certain_upper_bucket_reports_the_highest_strike(quotes):
     assert f is not None and f.method == "rank"
     assert (f.value, f.p10, f.p90) == (3.73, 3.73, 3.73)
     assert (f.value_basis, f.p10_basis, f.p90_basis) == ("tail", "tail", "tail")
+    assert (f.margin_of_error, f.sigma) == (0, 0)
 
 
 def test_band_still_reads_its_interior_end_when_one_end_is_in_a_tail():
@@ -257,7 +259,37 @@ def test_band_still_reads_its_interior_end_when_one_end_is_in_a_tail():
     assert f is not None
     assert (f.value, f.value_basis, f.p10) == (2.6, "tail", 2.6)
     assert f.p90_basis == "interior"
-    assert 2.6 < f.p90 < 2.98
+    assert f.p90 == pytest.approx(2.83465, abs=1e-12)
+    assert f.margin_of_error == pytest.approx((f.p90 - 2.6) / 2, abs=1e-12)
+
+
+# A neighbour with no quote at all once left the median unresolvable, and the
+# discrete fallback forecast 2.4287 for the first book below.
+EMPTY_NEIGHBOUR = {
+    "lower": ([(98, 99), (0, 0), (0, 1), (0, 1), (0, 1)], 2.6),
+    "upper": ([(0, 1), (0, 1), (0, 1), (0, 0), (98, 99)], 3.73),
+}
+
+
+@pytest.mark.parametrize("quotes, strike", EMPTY_NEIGHBOUR.values(), ids=EMPTY_NEIGHBOUR.keys())
+def test_exactly_empty_neighbour_still_reports_the_outer_strike(quotes, strike):
+    f = forecast_from_buckets(quoted(quotes))
+    assert f is not None and f.method == "rank"
+    assert (f.value, f.p10, f.p90) == (strike, strike, strike)
+    assert (f.value_basis, f.p10_basis, f.p90_basis) == ("tail", "tail", "tail")
+    assert (f.margin_of_error, f.sigma) == (0, 0)
+    assert not any("falling back to discrete estimate" in w for w in f.warnings)
+
+
+def test_band_resolves_when_an_empty_bucket_sits_beside_its_tail_end():
+    f = forecast_from_buckets(quoted([(14, 16), (0, 0), (55, 57), (20, 22), (5, 7)]))
+    assert f is not None and f.method == "rank"
+    assert f.value_basis == "interior"
+    assert f.value == pytest.approx(3.210714285714286, abs=1e-12)
+    assert (f.p10, f.p10_basis, f.p90_basis) == (2.6, "tail", "interior")
+    assert f.margin_of_error > 0
+    assert f.margin_of_error == pytest.approx(0.5315238095238095, abs=1e-12)
+    assert not any(w.startswith("band unresolvable") for w in f.warnings)
 
 
 def test_tail_warnings_say_the_value_is_the_outer_strike():

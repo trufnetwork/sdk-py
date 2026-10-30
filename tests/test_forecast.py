@@ -277,6 +277,7 @@ def test_exactly_empty_neighbour_still_reports_the_outer_strike(quotes, strike):
     assert f is not None and f.method == "rank"
     assert (f.value, f.p10, f.p90) == (strike, strike, strike)
     assert (f.value_basis, f.p10_basis, f.p90_basis) == ("tail", "tail", "tail")
+    assert (f.margin_of_error, f.sigma) == (0, 0)
     assert not any("falling back to discrete estimate" in w for w in f.warnings)
 
 

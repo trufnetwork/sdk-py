@@ -3,14 +3,15 @@
 Modular Agent Address (MAA / "agent wallet") lifecycle smoke test.
 
 Runs the full agent-wallet lifecycle against a live TRUF.NETWORK node where ``maa_exec`` is activated
-(testnet from height 6523123). It proves, end-to-end through the Python SDK, the properties that make
-an agent wallet useful and safe:
+(testnet from height 6523123). It proves, end-to-end through the Python SDK, these properties of
+an agent wallet:
 
   * a restricted AGENT key registers an immutable rule;
   * an unrestricted OWNER key joins it to derive a wallet (the MAA) and funds it;
   * the agent runs allow-listed actions AS the MAA — the node rewrites @caller to the wallet, so the
     streams it creates are owned by the MAA and every fee is debited from the MAA's OWN escrow;
-  * the agent CANNOT move the funds out (owner-exit actions are reserved for the owner);
+  * the agent's maa_withdraw is refused and moves nothing (owner-exit actions are reserved for
+    the owner);
   * the owner withdraws the remaining escrow at any time, paying the agent its commission.
 
 This mirrors the node's canonical oracle, tests/streams/maa/data_agent_test.go.
@@ -257,7 +258,7 @@ def main() -> int:
     print("Proven on-chain via the Python SDK:")
     print("  • @caller rewritten to the MAA (the stream is owned by the wallet, not the agent key)")
     print("  • fees debit the MAA's own escrow")
-    print("  • the restricted agent cannot move funds out")
+    print("  • the restricted agent's maa_withdraw is refused and moves nothing")
     print("  • the owner withdraws with the agreed commission")
     print("  • an owner can read the wallet's order-book positions/collateral by address (051)")
     return 0

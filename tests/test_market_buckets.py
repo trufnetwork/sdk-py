@@ -94,6 +94,29 @@ def test_change_between_buckets_tile_without_overlapping():
         assert upper == lower
 
 
+def test_range_market_reads_like_change_between_in_stream_units():
+    """value_in_range_v2 decodes as "range": half-open, either tail may be
+    open, and the open slot keeps its place."""
+    assert bucket_bounds_from_market_data(
+        {"type": "range", "thresholds": ["4.33", "4.62"]}
+    ) == (4.33, 4.62)
+    assert bucket_bounds_from_market_data(
+        {"type": "range", "thresholds": ["", "4.04"]}
+    ) == (None, 4.04)
+    assert bucket_bounds_from_market_data(
+        {"type": "range", "thresholds": ["4.92", ""]}
+    ) == (4.92, None)
+
+
+def test_range_market_refuses_what_cannot_be_a_bucket():
+    with pytest.raises(ValueError, match="at least one bound"):
+        bucket_bounds_from_market_data({"type": "range", "thresholds": ["", ""]})
+    with pytest.raises(ValueError, match="threshold slot"):
+        bucket_bounds_from_market_data({"type": "range", "thresholds": ["4.33"]})
+    with pytest.raises(ValueError, match="lower < upper"):
+        bucket_bounds_from_market_data({"type": "range", "thresholds": ["4.62", "4.62"]})
+
+
 def test_equals_market_is_target_plus_minus_tolerance():
     """Its thresholds are (target, tolerance), NOT (lower, upper). Reading them
     positionally the way `between` is read would yield the bucket (5.25, 0.10):
@@ -454,6 +477,60 @@ def test_change_market_without_a_readable_interval_is_rejected():
     }
     with pytest.raises(ValueError, match="no readable time_interval"):
         fake_client(nulled).get_market_forecast(list(nulled))
+
+
+# The MSFT ladder struck on value_in_range_v2 (id 16), with the daily defaults.
+V2_MARKETS = {
+    701: ({"type": "range", "action_id": "value_in_range_v2", "thresholds": ["", "4.04"],
+           "timestamp": OBSERVED_AT, "window": 259200, "tolerance": 86400}, (1, None)),
+    702: ({"type": "range", "action_id": "value_in_range_v2", "thresholds": ["4.04", "4.33"],
+           "timestamp": OBSERVED_AT, "window": 259200, "tolerance": 86400}, (16, 28)),
+    703: ({"type": "range", "action_id": "value_in_range_v2", "thresholds": ["4.33", "4.62"],
+           "timestamp": OBSERVED_AT, "window": 259200, "tolerance": 86400}, (44, 56)),
+    704: ({"type": "range", "action_id": "value_in_range_v2", "thresholds": ["4.62", ""],
+           "timestamp": OBSERVED_AT, "window": 259200, "tolerance": 86400}, (9, 21)),
+}
+
+
+def test_v2_market_set_forecasts_on_its_own():
+    f = fake_client(V2_MARKETS).get_market_forecast(list(V2_MARKETS))
+
+    assert f is not None
+    assert [b.query_id for b in f.buckets] == [701, 702, 703, 704]
+    # The open outer tails tile the line, so there is no layout warning.
+    assert not any("not open" in w or "gap" in w for w in f.warnings)
+
+
+def test_v1_and_v2_buckets_on_the_same_timestamp_are_rejected():
+    """The same strikes on the same timestamp, but a v1 bucket can stay open
+    forever while a v2 one is refunded at timestamp + window. Only window and
+    tolerance tell them apart."""
+    both = {**MSFT_MARKETS, **V2_MARKETS}
+    with pytest.raises(ValueError, match="different event"):
+        fake_client(both).get_market_forecast(list(both))
+
+
+def test_v2_sets_differing_only_in_window_or_tolerance_are_rejected():
+    for field, value in (("window", 1728000), ("tolerance", 3600)):
+        other = {
+            query_id + 50: ({**market_data, field: value}, quotes)
+            for query_id, (market_data, quotes) in V2_MARKETS.items()
+        }
+        both = {**V2_MARKETS, **other}
+        with pytest.raises(ValueError, match="different event"):
+            fake_client(both).get_market_forecast(list(both))
+
+
+def test_v2_market_without_a_readable_window_is_rejected():
+    """An outcome action always carries a window and a tolerance. Missing means
+    the bindings predate them, and the set could then join a v1 one."""
+    for field in ("window", "tolerance"):
+        stale = {
+            query_id: ({k: v for k, v in market_data.items() if k != field}, quotes)
+            for query_id, (market_data, quotes) in V2_MARKETS.items()
+        }
+        with pytest.raises(ValueError, match="make gopy_build"):
+            fake_client(stale).get_market_forecast(list(stale))
 
 
 def test_value_markets_need_no_interval():

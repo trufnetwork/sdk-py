@@ -26,6 +26,7 @@ See tests in `tests/test_cache_support.py` for working examples.
 import json
 import math
 import warnings
+from collections.abc import Mapping
 
 import trufnetwork_sdk_c_bindings.exports as truf_sdk
 import trufnetwork_sdk_c_bindings.go as go
@@ -197,14 +198,21 @@ class TaxonomyDefinition(BaseModel):
 
 
 class MarketInfo(TypedDict):
-    """Market information"""
+    """Market information.
+
+    ``winning_outcome`` is True when YES won and False when NO won. None means
+    not settled while ``settled`` is False, and refunded while ``settled`` is
+    True: the market settled INVALID, every YES and NO share was paid $0.50
+    and every open bid refunded at its locked price. Use
+    :func:`is_market_refunded`.
+    """
     id: int
     hash: bytes
     query_components: bytes  # ABI-encoded (address, bytes32, string, bytes)
     bridge: str  # Bridge namespace (mainnet: eth_usdc, eth_truf)
     settle_time: int
     settled: bool
-    winning_outcome: bool | None
+    winning_outcome: bool | None  # None: not settled, or refunded when settled
     settled_at: int | None
     max_spread: int
     min_order_size: int
@@ -213,12 +221,16 @@ class MarketInfo(TypedDict):
 
 
 class MarketSummary(TypedDict):
-    """Market summary for list results"""
+    """Market summary for list results.
+
+    ``winning_outcome`` reads as in :class:`MarketInfo`: None with ``settled``
+    True means refunded, not unsettled.
+    """
     id: int
     hash: bytes
     settle_time: int
     settled: bool
-    winning_outcome: bool | None
+    winning_outcome: bool | None  # None: not settled, or refunded when settled
     max_spread: int
     min_order_size: int
     created_at: int
@@ -433,6 +445,12 @@ class BooleanResultOutput(TypedDict):
     action_id: int  # The action ID (one of the binary ones: 6-9 or 12)
 
 
+class OutcomeResultOutput(TypedDict):
+    """Output from parse_outcome_result"""
+    outcome: Literal[1, 0, -1]  # OUTCOME_YES, OUTCOME_NO or OUTCOME_INVALID
+    action_id: int  # The action ID (one of the outcome ones: 13-16)
+
+
 class DecodedQueryComponents(TypedDict):
     """Decoded query components"""
     data_provider: str  # 0x-prefixed Ethereum address
@@ -452,26 +470,40 @@ class MarketData(TypedDict):
     bindings built against an older sdk-go still types, but
     ``get_market_forecast`` refuses such a market rather than forecasting on a
     weaker identity than sdk-go and sdk-js apply. Read them with ``.get()``.
+
+    The outcome actions (ids 13-16) reuse the types whose rule they share:
+    price_above_threshold_v2 is "above", price_below_threshold_v2 "below" and
+    index_change_in_range_v2 "change_between". value_in_range_v2 is "range":
+    its bounds are half-open and either may be open, unlike "between" (id 8),
+    which includes both ends and always has two numbers. ``action_id`` tells a
+    v2 market from a v1 one.
     """
     data_provider: str
     stream_id: str
     action_id: str
-    type: Literal["above", "below", "between", "equals", "change_between", "unknown"]
+    type: Literal["above", "below", "between", "equals", "change_between", "range", "unknown"]
     # Strike values in the order the action declares them, one entry per slot.
-    # A "change_between" market may strike an open tail, which arrives as an
-    # empty string in place rather than a shorter list -- dropping it would
-    # slide the remaining bound into the wrong position.
+    # A "change_between" or "range" market may strike an open tail, which
+    # arrives as an empty string in place rather than a shorter list --
+    # dropping it would slide the remaining bound into the wrong position.
     thresholds: list[str]
     timestamp: NotRequired[int | None]
+    # None for the outcome actions, which have no frozen_at.
     frozen_at: NotRequired[int | None]
     # What a "change_between" market measures its change over: the index base
     # date, and how far back to look for the comparison value. None for every
-    # other market type, which has no such argument. Both are part of a market's
-    # identity rather than presentation -- a year-over-year market and a
+    # other market type, which has no such argument; base_time is None for
+    # index_change_in_range_v2 as well. Both are part of a market's identity
+    # rather than presentation -- a year-over-year market and a
     # month-over-month one over the same stream and observation time are asking
     # different questions.
     base_time: NotRequired[int | None]
     time_interval: NotRequired[int | None]
+    # Outcome actions (ids 13-16) only, in seconds: how long after timestamp
+    # the market waits for the print before it is refunded, and how far from
+    # timestamp a record's stamp may be. None for every other action.
+    window: NotRequired[int | None]
+    tolerance: NotRequired[int | None]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -486,30 +518,35 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "id": 1,
         "name": "get_record",
         "is_binary": False,
+        "is_outcome": False,
         "description": "Get record value at a specific timestamp",
     },
     "get_index": {
         "id": 2,
         "name": "get_index",
         "is_binary": False,
+        "is_outcome": False,
         "description": "Get index value at a specific timestamp",
     },
     "get_change_over_time": {
         "id": 3,
         "name": "get_change_over_time",
         "is_binary": False,
+        "is_outcome": False,
         "description": "Get change in value over a time period",
     },
     "get_last_record": {
         "id": 4,
         "name": "get_last_record",
         "is_binary": False,
+        "is_outcome": False,
         "description": "Get the most recent record value",
     },
     "get_first_record": {
         "id": 5,
         "name": "get_first_record",
         "is_binary": False,
+        "is_outcome": False,
         "description": "Get the earliest record value",
     },
     # Binary actions - return bool (TRUE/FALSE).
@@ -526,38 +563,76 @@ ACTION_REGISTRY: dict[str, dict[str, Any]] = {
         "id": 6,
         "name": "price_above_threshold",
         "is_binary": True,
+        "is_outcome": False,
         "description": "TRUE if value > threshold",
     },
     "price_below_threshold": {
         "id": 7,
         "name": "price_below_threshold",
         "is_binary": True,
+        "is_outcome": False,
         "description": "TRUE if value < threshold",
     },
     "value_in_range": {
         "id": 8,
         "name": "value_in_range",
         "is_binary": True,
+        "is_outcome": False,
         "description": "TRUE if min <= value <= max",
     },
     "value_equals": {
         "id": 9,
         "name": "value_equals",
         "is_binary": True,
+        "is_outcome": False,
         "description": "TRUE if value = target ± tolerance",
     },
     "index_change_in_range": {
         "id": 12,
         "name": "index_change_in_range",
         "is_binary": True,
+        "is_outcome": False,
         "description": (
             "TRUE if min <= percentage change < max "
             "(e.g., 'Will inflation land between 2% and 3%?')"
         ),
     },
+    # Outcome actions (IDs 13-16, node migration 063) - return one numeric row
+    # whose value is 1 (YES), 0 (NO) or -1 (INVALID). They are not binary:
+    # parse_boolean_result refuses them and parse_outcome_result reads them. A
+    # market on one is refunded when its print has not arrived by block time
+    # timestamp + window.
+    "index_change_in_range_v2": {
+        "id": 13,
+        "name": "index_change_in_range_v2",
+        "is_binary": False,
+        "is_outcome": True,
+        "description": "YES if min <= percentage change < max, INVALID if the print never arrives",
+    },
+    "price_above_threshold_v2": {
+        "id": 14,
+        "name": "price_above_threshold_v2",
+        "is_binary": False,
+        "is_outcome": True,
+        "description": "YES if value > threshold, INVALID if the print never arrives",
+    },
+    "price_below_threshold_v2": {
+        "id": 15,
+        "name": "price_below_threshold_v2",
+        "is_binary": False,
+        "is_outcome": True,
+        "description": "YES if value < threshold, INVALID if the print never arrives",
+    },
+    "value_in_range_v2": {
+        "id": 16,
+        "name": "value_in_range_v2",
+        "is_binary": False,
+        "is_outcome": True,
+        "description": "YES if min <= value < max, INVALID if the print never arrives",
+    },
 }
 
-# Valid attestation actions (both numeric and binary)
+# Valid attestation actions (numeric, binary and outcome)
 VALID_ATTESTATION_ACTIONS = list(ACTION_REGISTRY.keys())
 
 # Binary action names
@@ -567,6 +642,23 @@ BINARY_ACTION_NAMES = [name for name, info in ACTION_REGISTRY.items() if info["i
 BINARY_ACTION_IDS = frozenset(
     info["id"] for info in ACTION_REGISTRY.values() if info["is_binary"]
 )
+
+# Outcome action names and ids (13-16)
+OUTCOME_ACTION_NAMES = [name for name, info in ACTION_REGISTRY.items() if info["is_outcome"]]
+OUTCOME_ACTION_IDS = frozenset(
+    info["id"] for info in ACTION_REGISTRY.values() if info["is_outcome"]
+)
+
+# What parse_outcome_result returns as "outcome"
+OUTCOME_YES = 1
+OUTCOME_NO = 0
+OUTCOME_INVALID = -1
+
+# Node bounds on the outcome action args, in seconds. window and time_interval
+# are at most OUTCOME_MAX_SPAN_SECONDS (10 years of 365 days), tolerance at
+# most OUTCOME_MAX_TOLERANCE_SECONDS (45 days).
+OUTCOME_MAX_SPAN_SECONDS = 315360000
+OUTCOME_MAX_TOLERANCE_SECONDS = 3888000
 
 # Bridge identifiers come in two flavours that look similar but are NOT
 # interchangeable:
@@ -740,6 +832,65 @@ def is_binary_action_id(action_id: int) -> bool:
     gap, so a range test cannot express the set.
     """
     return action_id in BINARY_ACTION_IDS
+
+
+def is_outcome_action(name: str) -> bool:
+    """Returns True if the action name is an outcome action (YES, NO or INVALID)"""
+    return ACTION_REGISTRY.get(name, {}).get("is_outcome", False)
+
+
+def is_outcome_action_id(action_id: int) -> bool:
+    """Returns True if the action ID is an outcome action (13-16).
+
+    The outcome actions are not binary: is_binary_action_id is False for them.
+    """
+    return action_id in OUTCOME_ACTION_IDS
+
+
+def is_market_refunded(market: Mapping[str, Any]) -> bool:
+    """Returns True if a market settled with no winner (INVALID).
+
+    A refunded market paid every YES and NO share $0.50 and refunded every
+    open bid at its locked price, with no fee. It reads as ``settled`` True
+    with ``winning_outcome`` None. ``winning_outcome`` None alone does not mean
+    unsettled.
+
+    Args:
+        market: A ``MarketInfo`` or ``MarketSummary``, or any mapping with
+            ``settled`` and ``winning_outcome``, such as an indexer market, where
+            a missing ``winning_outcome`` reads as None.
+    """
+    return bool(market.get("settled")) and market.get("winning_outcome") is None
+
+
+def _outcome_threshold(threshold: str | None) -> str:
+    """Refuse a missing threshold (ids 14, 15). The node refuses NULL too."""
+    if threshold is None or threshold == "":
+        raise ValueError("threshold is required")
+    return threshold
+
+
+def _outcome_bounds(
+    min_param: str, max_param: str, min_value: str | None, max_value: str | None
+) -> tuple[str, str]:
+    """Turn a [min, max) pair (ids 13, 16) into the binding's args.
+
+    The binding reads "" as an open tail, so "" from a caller is refused here:
+    nothing below can tell it apart from None. min < max is left to sdk-go,
+    which compares them as NUMERIC(36,18) ("2.0" and "2" are equal there, not
+    as strings).
+    """
+    if min_value is None and max_value is None:
+        raise ValueError(f"at least one of {min_param} or {max_param} is required")
+    if min_value == "" or max_value == "":
+        raise ValueError(
+            f"{min_param} and {max_param} cannot be empty strings; "
+            "use None for an open tail"
+        )
+    return (
+        min_value if min_value is not None else "",
+        max_value if max_value is not None else "",
+    )
 
 
 def get_action_id(name: str) -> int:
@@ -3374,6 +3525,21 @@ class TNClient:
                     f"`make gopy_build`)"
                 )
 
+            # An outcome action (ids 13-16) always carries a window and a
+            # tolerance. Missing or None here is the same stale-bindings case,
+            # and would let a v2 bucket join a v1 set on the same timestamp.
+            if is_outcome_action(market_data.get("action_id", "")) and (
+                market_data.get("window") is None
+                or market_data.get("tolerance") is None
+            ):
+                raise ValueError(
+                    f"market {query_id} is an outcome market with no readable "
+                    f"window or tolerance, so it cannot be matched against the "
+                    f"other buckets of its market (if the decoded market has no "
+                    f"window field at all, the C bindings were built against an "
+                    f"sdk-go predating it -- rebuild them with `make gopy_build`)"
+                )
+
             # The bridge is the one identity field that lives outside the query
             # components: it is a create_market argument, so two markets can ask
             # an identical question while collateralising it differently. Those
@@ -3388,6 +3554,11 @@ class TNClient:
             # time exactly as the new ones do. Bounds around 335 must never be
             # normalised against bounds around 2.5.
             #
+            # window and tolerance are None for every action except the outcome
+            # actions (ids 13-16). They keep a v1 set and a v2 set on the same
+            # timestamp apart, and two v2 sets that read the stream over
+            # different spans.
+            #
             # The action id is deliberately NOT here: a complete set tiles the
             # line with one price_below_threshold bucket, one
             # price_above_threshold, and value_in_range between, so three
@@ -3401,6 +3572,8 @@ class TNClient:
                 market_data.get("frozen_at"),
                 market_data.get("base_time"),
                 market_data.get("time_interval"),
+                market_data.get("window"),
+                market_data.get("tolerance"),
             )
             if identity is None:
                 identity = this_identity
@@ -3408,7 +3581,8 @@ class TNClient:
                 raise ValueError(
                     f"market {query_id} belongs to a different event than the "
                     f"first bucket: (data_provider, stream_id, bridge, settle_time, "
-                    f"timestamp, frozen_at, base_time, time_interval) is "
+                    f"timestamp, frozen_at, base_time, time_interval, window, "
+                    f"tolerance) is "
                     f"{this_identity} against {identity}. One forecast covers "
                     f"the buckets of ONE market."
                 )
@@ -3720,6 +3894,133 @@ class TNClient:
         return bytes(res)
 
     @staticmethod
+    def build_price_above_threshold_v2_query_components(
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        window: int,
+        tolerance: int,
+        threshold: str,
+    ) -> bytes:
+        """
+        Build the query components of a price_above_threshold_v2 market (id 14)
+        without submitting anything. The bytes are the ones
+        ``create_price_above_threshold_v2_market`` sends.
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID
+            timestamp: T, unix seconds. The latest record stamped in
+                [T - tolerance, T] is read.
+            window: Seconds after T the market waits for the print before it
+                is refunded
+            tolerance: Seconds before T a record may be stamped
+            threshold: Decimal string; YES if the value is above it
+
+        Returns:
+            ABI-encoded query_components bytes
+        """
+        res = truf_sdk.BuildPriceAboveThresholdV2QueryComponents(
+            data_provider, stream_id, timestamp, window, tolerance,
+            _outcome_threshold(threshold),
+        )
+        return bytes(res)
+
+    @staticmethod
+    def build_price_below_threshold_v2_query_components(
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        window: int,
+        tolerance: int,
+        threshold: str,
+    ) -> bytes:
+        """
+        Build the query components of a price_below_threshold_v2 market (id 15)
+        without submitting anything. Same arguments as
+        ``build_price_above_threshold_v2_query_components``; YES if the value
+        is below the threshold.
+        """
+        res = truf_sdk.BuildPriceBelowThresholdV2QueryComponents(
+            data_provider, stream_id, timestamp, window, tolerance,
+            _outcome_threshold(threshold),
+        )
+        return bytes(res)
+
+    @staticmethod
+    def build_value_in_range_v2_query_components(
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        window: int,
+        tolerance: int,
+        min_value: str | None = None,
+        max_value: str | None = None,
+    ) -> bytes:
+        """
+        Build the query components of a value_in_range_v2 market (id 16)
+        without submitting anything.
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID
+            timestamp: T, unix seconds. The latest record stamped in
+                [T - tolerance, T] is read.
+            window: Seconds after T the market waits for the print before it
+                is refunded
+            tolerance: Seconds before T a record may be stamped
+            min_value: Lower bound, inclusive; None for an open tail
+            max_value: Upper bound, exclusive; None for an open tail
+
+        Returns:
+            ABI-encoded query_components bytes
+        """
+        min_arg, max_arg = _outcome_bounds("min_value", "max_value", min_value, max_value)
+        res = truf_sdk.BuildValueInRangeV2QueryComponents(
+            data_provider, stream_id, timestamp, window, tolerance, min_arg, max_arg,
+        )
+        return bytes(res)
+
+    @staticmethod
+    def build_index_change_in_range_v2_query_components(
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        window: int,
+        tolerance: int,
+        time_interval: int,
+        min_change: str | None = None,
+        max_change: str | None = None,
+    ) -> bytes:
+        """
+        Build the query components of an index_change_in_range_v2 market
+        (id 13) without submitting anything.
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID
+            timestamp: T, unix seconds. The current record is the first one
+                stamped in [T, T + tolerance].
+            window: Seconds after T the market waits for the print before it
+                is refunded
+            tolerance: Seconds after T the current record may be stamped, and
+                how far the prior record may sit from current - time_interval
+            time_interval: Seconds between the prior and the current record
+                (31536000 for year-over-year)
+            min_change: Lower bound in percent, inclusive; None for an open tail
+            max_change: Upper bound in percent, exclusive; None for an open tail
+
+        Returns:
+            ABI-encoded query_components bytes
+        """
+        min_arg, max_arg = _outcome_bounds("min_change", "max_change", min_change, max_change)
+        res = truf_sdk.BuildIndexChangeInRangeV2QueryComponents(
+            data_provider, stream_id, timestamp, window, tolerance, time_interval,
+            min_arg, max_arg,
+        )
+        return bytes(res)
+
+    @staticmethod
     def decode_query_components(query_components: bytes) -> DecodedQueryComponents:
         """
         Decode ABI-encoded query components back to its parts.
@@ -3894,7 +4195,8 @@ class TNClient:
           - index_change_in_range (12)
 
         Ids 10 and 11 sit in that gap and are numeric, so the binary set is not
-        a range.
+        a range. The outcome actions (13-16) are refused, since a boolean
+        cannot carry INVALID; read them with ``parse_outcome_result``.
 
         Args:
             payload: The canonical attestation payload (without signature)
@@ -3903,13 +4205,45 @@ class TNClient:
             BooleanResultOutput with result (bool) and action_id (int)
 
         Raises:
-            ValueError: If payload is not from a binary action
+            ValueError: If the payload is too short
+            RuntimeError: If the payload is not from a binary action
         """
         if len(payload) < 20:
             raise ValueError(f"payload too short ({len(payload)} bytes)")
 
-        json_str = truf_sdk.ParseBooleanResult(payload)
+        # The binding takes a Go slice; Python bytes raise AttributeError.
+        json_str = truf_sdk.ParseBooleanResult(go.Slice_byte(list(payload)))
         return cast(BooleanResultOutput, json.loads(json_str))
+
+    @staticmethod
+    def parse_outcome_result(payload: bytes) -> OutcomeResultOutput:
+        """
+        Parse the result of an outcome action attestation payload:
+          - index_change_in_range_v2 (13)
+          - price_above_threshold_v2 (14)
+          - price_below_threshold_v2 (15)
+          - value_in_range_v2 (16)
+
+        The result is one row whose value is 1e18, 0 or -1e18. ``outcome`` is
+        OUTCOME_YES (1), OUTCOME_NO (0) or OUTCOME_INVALID (-1). INVALID means
+        the print never arrived and a market on this query is refunded.
+
+        Args:
+            payload: The canonical attestation payload (without signature)
+
+        Returns:
+            OutcomeResultOutput with outcome (1, 0 or -1) and action_id (int)
+
+        Raises:
+            ValueError: If the payload is too short
+            RuntimeError: If the payload is not from an outcome action, or the
+                result is not exactly one of those three values
+        """
+        if len(payload) < 20:
+            raise ValueError(f"payload too short ({len(payload)} bytes)")
+
+        json_str = truf_sdk.ParseOutcomeResult(go.Slice_byte(list(payload)))
+        return cast(OutcomeResultOutput, json.loads(json_str))
 
     # ═══════════════════════════════════════════════════════════════
     # BINARY MARKET CREATION HELPERS
@@ -4265,6 +4599,296 @@ class TNClient:
 
         return tx_hash
 
+    # ═══════════════════════════════════════════════════════════════
+    # OUTCOME MARKET CREATION HELPERS (ids 13-16, node v2.6.8)
+    # ═══════════════════════════════════════════════════════════════
+    #
+    # A market on an outcome action always settles: YES or NO once the print
+    # arrives, or INVALID at block time timestamp + window when it has not.
+    # INVALID refunds the market: every YES and NO share is paid $0.50, every
+    # open bid is refunded at its locked price, and no fee is taken.
+    #
+    # The query inputs (data_provider, stream_id, timestamp, window,
+    # tolerance, time_interval, threshold, bounds) are checked by sdk-go
+    # against the node's bounds, never stricter:
+    #   0 <= timestamp; 0 < window <= OUTCOME_MAX_SPAN_SECONDS;
+    #   0 <= tolerance <= OUTCOME_MAX_TOLERANCE_SECONDS; window >= tolerance;
+    #   id 13: 0 < time_interval <= OUTCOME_MAX_SPAN_SECONDS and
+    #   2 * tolerance < time_interval; bounds not both None; min < max.
+    #
+    # Defaults:
+    #   month-start series (CPI, PCE) on id 13: timestamp = the data month
+    #     start, tolerance 172800, window 7776000, time_interval 31536000;
+    #   daily ladders on 14-16: timestamp = the market's reference time,
+    #     tolerance 86400, window 259200;
+    #   EPS level markets on 14-16: timestamp after the stamp (the settle
+    #     time), tolerance 1728000, window 1728000.
+    # Strike every bucket of a ladder with value_in_range_v2, the outer two
+    # with an open tail: a top bucket on price_above_threshold_v2 would pay no
+    # bucket when the value lands exactly on its strike.
+
+    def create_price_above_threshold_v2_market(
+        self,
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        window: int,
+        tolerance: int,
+        threshold: str,
+        bridge: str,
+        settle_time: int,
+        max_spread: int,
+        min_order_size: int,
+        wait: bool = True,
+    ) -> str:
+        """
+        Create a market on price_above_threshold_v2 (id 14). It settles YES if
+        the latest record stamped in [timestamp - tolerance, timestamp] is above
+        the threshold, NO if not, and is refunded if no such record exists by
+        block time timestamp + window.
+
+        Example: "Will BTC close above $100,000 on 31 Dec?" with timestamp at
+        the reference time, tolerance 86400 and window 259200.
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID (a primitive stream)
+            timestamp: T, unix seconds
+            window: Seconds after T the market waits for the print
+            tolerance: Seconds before T a record may be stamped
+            threshold: Decimal string; YES if the value is above it
+            bridge: Bridge namespace. Mainnet: "eth_usdc" or "eth_truf".
+            settle_time: Unix timestamp when market can be settled
+            max_spread: Maximum spread for LP rewards (1-50 cents)
+            min_order_size: Minimum order size for LP rewards
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
+        bridge = self._validate_market_params(bridge, max_spread, min_order_size)
+        threshold = _outcome_threshold(threshold)
+
+        tx_hash = truf_sdk.CreatePriceAboveThresholdV2Market(
+            self.client,
+            data_provider,
+            stream_id,
+            timestamp,
+            window,
+            tolerance,
+            threshold,
+            bridge,
+            settle_time,
+            max_spread,
+            min_order_size,
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to create price above threshold v2 market")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
+    def create_price_below_threshold_v2_market(
+        self,
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        window: int,
+        tolerance: int,
+        threshold: str,
+        bridge: str,
+        settle_time: int,
+        max_spread: int,
+        min_order_size: int,
+        wait: bool = True,
+    ) -> str:
+        """
+        Create a market on price_below_threshold_v2 (id 15). It settles YES if
+        the latest record stamped in [timestamp - tolerance, timestamp] is below
+        the threshold, NO if not, and is refunded if no such record exists by
+        block time timestamp + window.
+
+        Args: same as ``create_price_above_threshold_v2_market``.
+
+        Returns:
+            Transaction hash
+        """
+        bridge = self._validate_market_params(bridge, max_spread, min_order_size)
+        threshold = _outcome_threshold(threshold)
+
+        tx_hash = truf_sdk.CreatePriceBelowThresholdV2Market(
+            self.client,
+            data_provider,
+            stream_id,
+            timestamp,
+            window,
+            tolerance,
+            threshold,
+            bridge,
+            settle_time,
+            max_spread,
+            min_order_size,
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to create price below threshold v2 market")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
+    def create_value_in_range_v2_market(
+        self,
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        window: int,
+        tolerance: int,
+        bridge: str,
+        settle_time: int,
+        max_spread: int,
+        min_order_size: int,
+        min_value: str | None = None,
+        max_value: str | None = None,
+        wait: bool = True,
+    ) -> str:
+        """
+        Create a market on value_in_range_v2 (id 16). It settles YES if the
+        latest record stamped in [timestamp - tolerance, timestamp] is in
+        [min_value, max_value), NO if not, and is refunded if no such record
+        exists by block time timestamp + window.
+
+        Unlike ``create_value_in_range_market``, the range is half-open and
+        either bound may be None for an open tail, so the buckets of a ladder
+        tile the line and exactly one settles YES.
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID (a primitive stream)
+            timestamp: T, unix seconds
+            window: Seconds after T the market waits for the print
+            tolerance: Seconds before T a record may be stamped
+            bridge: Bridge namespace. Mainnet: "eth_usdc" or "eth_truf".
+            settle_time: Unix timestamp when market can be settled
+            max_spread: Maximum spread for LP rewards (1-50 cents)
+            min_order_size: Minimum order size for LP rewards
+            min_value: Lower bound, inclusive, as a decimal string; None for an
+                open tail
+            max_value: Upper bound, exclusive; None for an open tail. Passing
+                None for both is refused.
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
+        bridge = self._validate_market_params(bridge, max_spread, min_order_size)
+        min_arg, max_arg = _outcome_bounds("min_value", "max_value", min_value, max_value)
+
+        tx_hash = truf_sdk.CreateValueInRangeV2Market(
+            self.client,
+            data_provider,
+            stream_id,
+            timestamp,
+            window,
+            tolerance,
+            min_arg,
+            max_arg,
+            bridge,
+            settle_time,
+            max_spread,
+            min_order_size,
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to create value in range v2 market")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
+    def create_index_change_in_range_v2_market(
+        self,
+        data_provider: str,
+        stream_id: str,
+        timestamp: int,
+        window: int,
+        tolerance: int,
+        time_interval: int,
+        bridge: str,
+        settle_time: int,
+        max_spread: int,
+        min_order_size: int,
+        min_change: str | None = None,
+        max_change: str | None = None,
+        wait: bool = True,
+    ) -> str:
+        """
+        Create a market on index_change_in_range_v2 (id 13). It settles YES if
+        the stream's percent change over ``time_interval`` is in
+        [min_change, max_change), NO if not, and is refunded if a record is
+        missing by block time timestamp + window, or the prior is zero.
+
+        The current record is the first one stamped in
+        [timestamp, timestamp + tolerance]; the prior is the one nearest
+        current - time_interval, at most tolerance away. There is no base_time:
+        the change is read from the stream's own records.
+
+        Example: "Will year-over-year CPI land between 2% and 3%?" with
+        timestamp at the data month start, tolerance 172800, window 7776000
+        and time_interval 31536000.
+
+        Args:
+            data_provider: 0x-prefixed Ethereum address of the data provider
+            stream_id: 32-character stream ID (a primitive stream)
+            timestamp: T, unix seconds: the earliest stamp the current record
+                may carry
+            window: Seconds after T the market waits for the print
+            tolerance: Seconds after T the current record may be stamped
+            time_interval: Seconds between the prior and the current record
+            bridge: Bridge namespace. Mainnet: "eth_usdc" or "eth_truf".
+            settle_time: Unix timestamp when market can be settled
+            max_spread: Maximum spread for LP rewards (1-50 cents)
+            min_order_size: Minimum order size for LP rewards
+            min_change: Lower bound in percent, inclusive; None for an open tail
+            max_change: Upper bound in percent, exclusive; None for an open
+                tail. Passing None for both is refused.
+            wait: If True, wait for transaction confirmation
+
+        Returns:
+            Transaction hash
+        """
+        bridge = self._validate_market_params(bridge, max_spread, min_order_size)
+        min_arg, max_arg = _outcome_bounds("min_change", "max_change", min_change, max_change)
+
+        tx_hash = truf_sdk.CreateIndexChangeInRangeV2Market(
+            self.client,
+            data_provider,
+            stream_id,
+            timestamp,
+            window,
+            tolerance,
+            time_interval,
+            min_arg,
+            max_arg,
+            bridge,
+            settle_time,
+            max_spread,
+            min_order_size,
+        )
+
+        if not tx_hash:
+            raise RuntimeError("Failed to create index change in range v2 market")
+
+        if wait:
+            self.wait_for_tx(tx_hash)
+
+        return tx_hash
+
     def get_history(
         self,
         bridge_identifier: str,
@@ -4347,6 +4971,20 @@ class TNClient:
             raise ValueError("data_provider must be 0x-prefixed 40-character hex string")
         if len(stream_id) != 32:
             raise ValueError("stream_id must be exactly 32 characters")
+        return self._validate_market_params(bridge, max_spread, min_order_size)
+
+    def _validate_market_params(
+        self,
+        bridge: str,
+        max_spread: int,
+        min_order_size: int,
+    ) -> str:
+        """Validate the market (not query) inputs of a create helper.
+
+        The outcome market helpers use this alone: sdk-go checks their query
+        inputs against the node's bounds. Returns the normalized bridge, as
+        ``_validate_binary_market_inputs`` does.
+        """
         bridge = _normalize_bridge_for_extension(bridge)
         if bridge not in VALID_BRIDGE_EXTENSIONS:
             raise ValueError(f"bridge must be one of: {', '.join(VALID_BRIDGE_EXTENSIONS)}")

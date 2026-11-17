@@ -1317,6 +1317,183 @@ TNClient.decode_market_data(qc)["thresholds"]  # ['', '1.500000000000000000']
 Dropping the empty entry would slide the surviving bound into the other position and turn
 "below 1.5%" into "1.5% and up".
 
+### Outcome Markets
+
+Requires node v2.6.8 (migration 063).
+
+A market on an outcome action (ids 13 to 16) always ends. Each action answers YES, NO or INVALID.
+When the print the market waits for has not arrived by block time `timestamp + window`, the
+market settles INVALID and is **refunded**: every YES and NO share is paid $0.50, every open bid
+is refunded at its locked price, and no fee is taken.
+
+| ID | Action | Args, in order | YES when |
+|----|--------|----------------|----------|
+| 13 | `index_change_in_range_v2` | data_provider, stream_id, timestamp, window, tolerance, time_interval, min_change, max_change | `min_change <= change % < max_change` |
+| 14 | `price_above_threshold_v2` | data_provider, stream_id, timestamp, window, tolerance, threshold | `value > threshold` |
+| 15 | `price_below_threshold_v2` | data_provider, stream_id, timestamp, window, tolerance, threshold | `value < threshold` |
+| 16 | `value_in_range_v2` | data_provider, stream_id, timestamp, window, tolerance, min_value, max_value | `min_value <= value < max_value` |
+
+These actions take no `frozen_at` and no `base_time`. `None` for a bound of 13 or 16 is an open
+tail; `None` for both is refused. Unlike `value_in_range` (id 8), the range of
+`value_in_range_v2` is half-open, so a set of buckets tiles the line and exactly one settles YES.
+
+Which records are read:
+
+- 14, 15 and 16 read the latest record stamped in `[timestamp - tolerance, timestamp]`.
+- 13 reads the first record stamped in `[timestamp, timestamp + tolerance]` as the current value,
+  and the record nearest `current - time_interval`, at most `tolerance` away, as the prior. A
+  zero prior is INVALID.
+- With no record, a capture keeps waiting until block time `timestamp + window`, then answers
+  INVALID.
+- Only primitive streams can be read; `create_market` refuses a composed stream.
+
+**Bounds.** sdk-go checks the query inputs against the node's bounds, never stricter ones, and
+raises `RuntimeError` when one fails. The Python layer itself only refuses `""` for a bound (use
+`None`), both bounds `None`, and a missing threshold, with `ValueError`.
+
+| Input | Rule |
+|-------|------|
+| `data_provider` | `0x` (or `0X`) and 40 hex characters; lowercased in the args |
+| `stream_id` | exactly 32 characters |
+| `timestamp` | `>= 0`. The node also refuses one more than 10 years past the block time |
+| `window` | `0 < window <= OUTCOME_MAX_SPAN_SECONDS` (315360000, 10 years) |
+| `tolerance` | `0 <= tolerance <= OUTCOME_MAX_TOLERANCE_SECONDS` (3888000, 45 days), and `window >= tolerance` |
+| `time_interval` (13) | `0 < time_interval <= OUTCOME_MAX_SPAN_SECONDS` and `2 * tolerance < time_interval` |
+| `threshold` (14, 15) | required, a number; `NaN` is refused |
+| bounds (13, 16) | not both `None`; `NaN` is refused; `min < max`, compared as NUMERIC(36,18), so `"2.0"` and `"2"` are equal |
+
+**Defaults.**
+
+| Series | Actions | `timestamp` | `tolerance` | `window` | `time_interval` |
+|--------|---------|-------------|-------------|----------|-----------------|
+| Month-start series (CPI, PCE), year over year | 13 | the data month start | 172800 (2 days) | 7776000 (90 days) | 31536000 |
+| Daily ladders | 14 to 16 | the market's reference time | 86400 (1 day) | 259200 (3 days) | |
+| EPS level markets | 14 to 16 | after the stamp (the settle time) | 1728000 (20 days) | 1728000 | |
+
+Strike every bucket of a ladder with `value_in_range_v2`, the two outer ones with open tails. A
+top bucket on `price_above_threshold_v2` would pay nothing when the value lands exactly on its
+strike: the bucket below it stops short of the strike, and the top one needs a value above it.
+
+#### `client.create_index_change_in_range_v2_market(...) -> str`
+#### `client.create_price_above_threshold_v2_market(...) -> str`
+#### `client.create_price_below_threshold_v2_market(...) -> str`
+#### `client.create_value_in_range_v2_market(...) -> str`
+
+**Parameters:**
+- `data_provider: str`, `stream_id: str` - the stream to read (a primitive stream)
+- `timestamp: int`, `window: int`, `tolerance: int` - see above, in seconds
+- `time_interval: int` - 13 only
+- `threshold: str` - 14 and 15 only, a decimal string
+- `min_change: str | None`, `max_change: str | None` - 13 only; `None` is an open tail
+- `min_value: str | None`, `max_value: str | None` - 16 only; `None` is an open tail
+- `bridge: str`, `settle_time: int`, `max_spread: int`, `min_order_size: int` - as for the other
+  create helpers
+- `wait: bool` - If True, wait for transaction confirmation (default: True)
+
+**Returns:** Transaction hash
+
+**Example:** a daily BTC ladder, one bucket per band, open at both ends.
+
+```python
+edges = ["95000", "100000", "105000"]
+strikes = [(None, edges[0])] + list(zip(edges, edges[1:])) + [(edges[-1], None)]
+
+for min_value, max_value in strikes:
+    client.create_value_in_range_v2_market(
+        data_provider="0x4710a8d8f0d845da110086812a32de6d90d7ff5c",
+        stream_id="stbtcusd000000000000000000000000",
+        timestamp=reference_time,   # the moment the ladder asks about
+        window=259200,
+        tolerance=86400,
+        bridge="eth_usdc",
+        settle_time=reference_time + 86400,
+        max_spread=5,
+        min_order_size=20,
+        min_value=min_value,        # None: open below
+        max_value=max_value,        # None: open above
+    )
+```
+
+**Example:** a year-over-year CPI bucket on the month-start defaults.
+
+```python
+client.create_index_change_in_range_v2_market(
+    data_provider="0x4710a8d8f0d845da110086812a32de6d90d7ff5c",
+    stream_id="stcpiyoy000000000000000000000000",
+    timestamp=data_month_start,
+    window=7776000,
+    tolerance=172800,
+    time_interval=31536000,
+    bridge="eth_usdc",
+    settle_time=print_due + 86400,  # after the month's print is due
+    max_spread=5,
+    min_order_size=20,
+    min_change="2",
+    max_change="3",
+)
+```
+
+#### `TNClient.build_*_v2_query_components(...) -> bytes`
+
+`build_index_change_in_range_v2_query_components`, `build_price_above_threshold_v2_query_components`,
+`build_price_below_threshold_v2_query_components` and `build_value_in_range_v2_query_components`
+take the query parameters above and return the `query_components` without sending anything. The
+bytes are the ones the create helpers send, and they match sdk-go and sdk-js byte for byte:
+INT8 for the four time fields, NUMERIC(36,18) for thresholds and bounds, NULL for an open tail, and
+the data provider lowercased so one question has one market hash.
+
+```python
+qc = TNClient.build_value_in_range_v2_query_components(
+    "0x4710a8d8f0d845da110086812a32de6d90d7ff5c",
+    "stbtcusd000000000000000000000000",
+    timestamp=1767139200, window=259200, tolerance=86400,
+    min_value="105000",
+)
+data = TNClient.decode_market_data(qc)
+data["type"]        # 'range'
+data["thresholds"]  # ['105000.000000000000000000', '']
+data["window"], data["tolerance"]  # (259200, 86400)
+```
+
+#### Refunded markets
+
+`is_market_refunded(market) -> bool`
+
+A market that settled with no winner has `settled == True` and `winning_outcome is None`.
+`is_market_refunded` reports exactly that, for a `MarketInfo`, a `MarketSummary` or an indexer
+market (where a missing `winning_outcome` reads as `None`). `winning_outcome is None` alone does
+not mean unsettled.
+
+| `settled` | `winning_outcome` | Meaning |
+|-----------|-------------------|---------|
+| `False` | `None` | not settled |
+| `True` | `True` / `False` | YES / NO won |
+| `True` | `None` | refunded: every share paid $0.50, open bids refunded at their locked price |
+
+A refunded market pays no fees, so `get_distribution_summary` returns `None` for it for good.
+
+```python
+from trufnetwork_sdk_py import is_market_refunded
+
+market = client.get_market_info(query_id)
+if is_market_refunded(market):
+    print("no result, refunded")
+elif market["settled"]:
+    print("YES won" if market["winning_outcome"] else "NO won")
+```
+
+#### Registry
+
+`ACTION_REGISTRY` lists ids 13 to 16 with `"is_outcome": True` and `"is_binary": False`.
+`is_outcome_action(name)`, `is_outcome_action_id(id)` and `OUTCOME_ACTION_IDS` report them;
+`is_binary_action_id` stays False for them. `OUTCOME_MAX_SPAN_SECONDS` and
+`OUTCOME_MAX_TOLERANCE_SECONDS` hold the node bounds.
+
+`request_attestation` sends its args as JSON, which cannot carry the NUMERIC(36,18) a threshold or
+bound must be. Every outcome action needs at least one of them, so the node refuses a
+`request_attestation` for ids 13 to 16. The network's settlement captures these attestations
+itself.
+
 ### Market Queries
 
 #### `client.get_market_info(query_id: int) -> MarketInfo`
@@ -1327,7 +1504,9 @@ Get detailed information about a market.
 - `hash: bytes` - Market hash
 - `settle_time: int` - Settlement timestamp
 - `settled: bool` - Whether market is settled
-- `winning_outcome: bool | None` - Winning outcome (if settled)
+- `winning_outcome: bool | None` - `True` if YES won, `False` if NO won. `None` means not settled
+  while `settled` is False, and **refunded** while `settled` is True; see
+  [Refunded markets](#refunded-markets)
 - `max_spread: int` - Maximum spread for LP rewards
 - `min_order_size: int` - Minimum order size
 
@@ -1388,19 +1567,38 @@ Decodes ABI-encoded query components back into its basic parts.
 - `data_provider: str`
 - `stream_id: str`
 - `action_id: str`
-- `type: str` - One of: "above", "below", "between", "equals", "change_between", "unknown"
+- `type: str` - One of: "above", "below", "between", "equals", "change_between", "range",
+  "unknown"
 - `thresholds: List[str]` - Formatted numeric values as strings, one entry per strike slot the
-  action declares. A `"change_between"` market may strike an open tail, which arrives as an **empty
-  string in place** rather than a shorter list — so `["", "2.000000000000000000"]` is "below 2%",
-  and dropping the empty entry would slide the surviving bound into the wrong slot.
+  action declares. A `"change_between"` or `"range"` market may strike an open tail, which arrives
+  as an **empty string in place** rather than a shorter list — so `["", "2.000000000000000000"]` is
+  "below 2%", and dropping the empty entry would slide the surviving bound into the wrong slot.
 - `timestamp: int | None` - The point in the stream the query observes, unix seconds
-- `frozen_at: int | None` - Block height the data is pinned to; `None` means latest
-- `base_time: int | None` - `"change_between"` only; `None` means the stream's default base
+- `frozen_at: int | None` - Block height the data is pinned to; `None` means latest. Always `None`
+  for the outcome actions, which have no `frozen_at`
+- `base_time: int | None` - `index_change_in_range` only; `None` means the stream's default base
 - `time_interval: int | None` - `"change_between"` only, in seconds; e.g. 31536000 for
   year-over-year
+- `window: int | None` - outcome actions (ids 13-16) only: seconds after `timestamp` the market
+  waits for the print before it is refunded
+- `tolerance: int | None` - outcome actions (ids 13-16) only: how far from `timestamp` a record's
+  stamp may be, in seconds
 
-The last four come from `DecodeMarketData` in the compiled Go bindings, so read them with `.get()`:
+The last six come from `DecodeMarketData` in the compiled Go bindings, so read them with `.get()`:
 they are `NotRequired`, and absent if your bindings were built against an older sdk-go.
+
+The outcome actions reuse the types whose rule they share, and `action_id` tells them apart from
+the v1 actions:
+
+| Action | `type` | `thresholds` |
+|--------|--------|--------------|
+| `price_above_threshold_v2` (14) | `"above"` | `[threshold]` |
+| `price_below_threshold_v2` (15) | `"below"` | `[threshold]` |
+| `value_in_range_v2` (16) | `"range"` | `[min_value, max_value]`, `""` for an open tail |
+| `index_change_in_range_v2` (13) | `"change_between"` | `[min_change, max_change]`, `""` for an open tail |
+
+`"range"` is new because its bounds are half-open and may be open, while `"between"` (id 8) is
+inclusive at both ends and always has two numbers.
 
 #### `DecodedQueryComponents` (TypedDict)
 - `data_provider: str`
@@ -1844,21 +2042,23 @@ have its bucket counted twice, and mixing two markets would normalise unrelated
 probabilities into a single distribution — both are rejected rather than warned
 about. Buckets of one market differ only in their strike, so the identity
 compared is `(data_provider, stream_id, bridge, settle_time, timestamp,
-frozen_at, base_time, time_interval)` — the bridge included because an identical
-question collateralised two ways is two markets with two separate books, and
-`base_time` / `time_interval` because a `"change_between"` market measures over
-an interval: a year-over-year set and a month-over-month set can otherwise match
-on every other field, and a percent-change bucket could join a set struck in the
-stream's own units.
+frozen_at, base_time, time_interval, window, tolerance)` — the bridge included
+because an identical question collateralised two ways is two markets with two
+separate books, and `base_time` / `time_interval` because a `"change_between"`
+market measures over an interval: a year-over-year set and a month-over-month
+set can otherwise match on every other field, and a percent-change bucket could
+join a set struck in the stream's own units. `window` and `tolerance` are set
+only for the outcome actions (ids 13-16): they keep a v1 set and a v2 set on the
+same timestamp apart, and two v2 sets that read the stream over different spans.
 
 The **action id is deliberately not** part of the identity — a complete set tiles
 the line with one `price_below_threshold` bucket, one `price_above_threshold`,
 and `value_in_range` between, so three different actions is the normal shape of
 one market.
 
-> `timestamp`, `frozen_at`, `base_time` and `time_interval` come from
-> `DecodeMarketData` in the compiled Go bindings. If yours were built against an
-> sdk-go predating those fields, the call fails with a hint to rerun
+> `timestamp`, `frozen_at`, `base_time`, `time_interval`, `window` and
+> `tolerance` come from `DecodeMarketData` in the compiled Go bindings. If yours
+> were built against an sdk-go predating those fields, the call fails with a hint to rerun
 > `make gopy_build` rather than forecasting on a weaker identity than sdk-go and
 > sdk-js apply to the same market.
 
@@ -1998,7 +2198,7 @@ the last open above (`upper=None`).
 
 `bucket_bounds_from_market_data(market_data)` converts the output of
 `decode_market_data` into a `(lower, upper)` pair, handling the `below`,
-`between`, `above` and `equals` market types.
+`between`, `above`, `equals`, `change_between` and `range` market types.
 
 ### Settlement
 
@@ -2010,6 +2210,11 @@ The settlement process:
 3. TEE signs the attestation cryptographically
 4. Settlement executes and determines the winner
 5. Payouts are distributed to winning positions
+
+A market on an outcome action (ids 13-16) can also settle INVALID when its print never arrives.
+It then has no winner: `settled` is True, `winning_outcome` is None, every YES and NO share is
+paid $0.50, every open bid is refunded at its locked price, and no fee is taken. See
+[Outcome Markets](#outcome-markets).
 
 ### Price Representation
 
@@ -2051,6 +2256,31 @@ Parses a canonical attestation payload (without signature) into structured data.
   - `action_id: int`
   - `arguments: List[Any]` (decoded arguments)
   - `result: List[Dict[str, Any]]` (decoded result rows)
+
+For an outcome action (ids 13-16) there is one row whose value is `"1"` (YES), `"0"` (NO) or
+`"-1"` (INVALID).
+
+### `TNClient.parse_boolean_result(payload: bytes) -> BooleanResultOutput`
+
+Reads the result of a binary action (ids 6-9 and 12) from a canonical payload. Returns
+`{"result": bool, "action_id": int}`. Any other action, including the outcome actions 13-16, raises
+`RuntimeError`, since a boolean cannot carry INVALID.
+
+### `TNClient.parse_outcome_result(payload: bytes) -> OutcomeResultOutput`
+
+Reads the result of an outcome action (ids 13-16) from a canonical payload. Returns
+`{"outcome": 1 | 0 | -1, "action_id": int}`: `OUTCOME_YES` (1), `OUTCOME_NO` (0) or
+`OUTCOME_INVALID` (-1, the market is refunded). Any other action id, a value other than `1e18`,
+`0` or `-1e18`, or a number of rows other than one raises `RuntimeError`.
+
+```python
+from trufnetwork_sdk_py import OUTCOME_INVALID
+
+verification = client.verify_attestation_signature(signed)
+result = TNClient.parse_outcome_result(verification["canonical_payload"])
+if result["outcome"] == OUTCOME_INVALID:
+    print("no print arrived: the market is refunded")
+```
 
 ## Bridge Actions
 

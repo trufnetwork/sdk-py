@@ -1,5 +1,12 @@
 UNAME_S := $(shell uname)
 
+# gopy v0.4.10 emits `typedef uint8_t bool;` into the bindings. C23 makes
+# `bool` a keyword, so that line fails ("two or more data types in
+# declaration specifiers") on any compiler that defaults to C23, such as
+# GCC 15 on Ubuntu 26.04. Build the bindings as C17. `go env CC` keeps any
+# CC the caller set, and both the cgo build and the final link use it.
+export CC := $(shell go env CC) -std=gnu17
+
 # On macOS, decouple both gopy artifacts from a specific libpython:
 #   * `-dynamic-link=true` switches the #cgo LDFLAGS in the generated .go
 #     file from `-L... -lpython3.12` to LDSHARED-derived flags

@@ -5,7 +5,7 @@ Queries the order book state using SDK methods to verify the E2E test results.
 """
 
 import os
-from trufnetwork_sdk_py.client import TNClient
+from trufnetwork_sdk_py.client import TNClient, is_market_refunded
 
 # Testnet configuration
 TESTNET_URL = "http://ec2-3-141-77-16.us-east-2.compute.amazonaws.com:8484"
@@ -59,7 +59,9 @@ def main():
         print(f"  Bridge: {market['bridge']}")
         print(f"  Settle Time: {market['settle_time']}")
         print(f"  Settled: {market['settled']}")
-        if market['settled']:
+        if is_market_refunded(market):
+            print("  Winning Outcome: none (refunded)")
+        elif market['settled']:
             print(f"  Winning Outcome: {'YES' if market['winning_outcome'] else 'NO'}")
         print(f"  Max Spread: {market['max_spread']}c")
         print(f"  Min Order Size: {market['min_order_size']}")

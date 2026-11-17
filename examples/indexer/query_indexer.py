@@ -41,7 +41,10 @@ def query_markets():
     for m in data["data"]:
         status = "SETTLED" if m["settled"] else "ACTIVE"
         outcome = ""
-        if m.get("winning_outcome") is not None:
+        if m["settled"] and m.get("winning_outcome") is None:
+            # Settled with no winner: every share was refunded at 50c.
+            outcome = " (no result, refunded)"
+        elif m.get("winning_outcome") is not None:
             outcome = f" (YES wins)" if m["winning_outcome"] else f" (NO wins)"
         print(f"  Market #{m['query_id']}: {status}{outcome}")
         print(f"    Hash: {m['query_hash'][:16]}...")

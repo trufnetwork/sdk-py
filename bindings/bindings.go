@@ -3260,6 +3260,7 @@ func GetActionRegistry() (string, error) {
 			"id":          info.ID,
 			"name":        info.Name,
 			"is_binary":   info.IsBinary,
+			"is_outcome":  info.IsOutcome,
 			"description": info.Description,
 		}
 	}
@@ -3275,7 +3276,8 @@ func GetActionRegistry() (string, error) {
 // ═══════════════════════════════════════════════════════════════
 
 // ParseBooleanResult extracts a boolean result from a binary action attestation payload.
-// This is specifically for binary attestation actions (IDs 6-9).
+// This is specifically for binary attestation actions (IDs 6-9 and 12). The
+// outcome actions (IDs 13-16) are refused; read them with ParseOutcomeResult.
 // Returns JSON with result (bool) and action_id (int).
 func ParseBooleanResult(payload []byte) (string, error) {
 	result, actionID, err := contractsapi.ParseBooleanResult(payload)

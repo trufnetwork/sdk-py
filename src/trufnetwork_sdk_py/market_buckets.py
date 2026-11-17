@@ -23,7 +23,8 @@ def bucket_bounds_from_market_data(
 
     A ``change_between`` market's bounds are percentages of change, not values
     in the stream's own units. The caller has to know which it is holding; this
-    function cannot tell them apart from the numbers alone.
+    function cannot tell them apart from the numbers alone. A ``range`` market
+    (value_in_range_v2) is struck in the stream's own units.
 
     Returns:
         ``(lower, upper)``, either of which may be None.
@@ -82,7 +83,9 @@ def bucket_bounds_from_market_data(
             return None
         return threshold(index)
 
-    if market_type == "change_between":
+    if market_type in ("change_between", "range"):
+        # Both are half-open [lower, upper) upstream and may strike one open
+        # tail, so the bounds pass through.
         lower, upper = optional_threshold(0), optional_threshold(1)
         if lower is None and upper is None:
             raise ValueError(

@@ -749,6 +749,10 @@ class TestBinaryMarketCreation:
         assert hasattr(client, "create_value_in_range_market")
         assert hasattr(client, "create_value_equals_market")
         assert hasattr(client, "create_index_change_in_range_market")
+        assert hasattr(client, "create_price_above_threshold_v2_market")
+        assert hasattr(client, "create_price_below_threshold_v2_market")
+        assert hasattr(client, "create_value_in_range_v2_market")
+        assert hasattr(client, "create_index_change_in_range_v2_market")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -762,16 +766,62 @@ class TestActionRegistry:
     def test_action_registry_has_all_actions(self):
         """Test that every action this SDK supports is in the registry.
 
-        The count is 10, not 12: ids 10 and 11 (get_high_value, get_low_value)
+        The count is 14, not 16: ids 10 and 11 (get_high_value, get_low_value)
         are numeric node actions with no input type, create helper or decode
         case here, so they are deliberately absent and the ids are not
         contiguous.
         """
         from trufnetwork_sdk_py.client import ACTION_REGISTRY
-        assert len(ACTION_REGISTRY) == 10
+        assert len(ACTION_REGISTRY) == 14
         assert sorted(info["id"] for info in ACTION_REGISTRY.values()) == [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 12
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 15, 16
         ]
+
+    def test_registry_matches_sdk_go(self):
+        """The Python registry is a copy of sdk-go's, so the two must not drift."""
+        import json
+        import trufnetwork_sdk_c_bindings.exports as truf_sdk
+        from trufnetwork_sdk_py.client import ACTION_REGISTRY
+
+        def flags(registry):
+            return {
+                name: (info["id"], info["name"], info["is_binary"], info["is_outcome"])
+                for name, info in registry.items()
+            }
+
+        assert flags(ACTION_REGISTRY) == flags(json.loads(truf_sdk.GetActionRegistry()))
+
+    def test_outcome_actions_are_registered_as_outcome_not_binary(self):
+        """ids 13-16 answer YES, NO or INVALID. Read as binary, an INVALID
+        result would have no reading at all."""
+        from trufnetwork_sdk_py.client import (
+            ACTION_REGISTRY,
+            get_action_id,
+            get_action_name,
+            is_binary_action,
+            is_binary_action_id,
+            is_outcome_action,
+            is_outcome_action_id,
+        )
+        outcome_actions = {
+            "index_change_in_range_v2": 13,
+            "price_above_threshold_v2": 14,
+            "price_below_threshold_v2": 15,
+            "value_in_range_v2": 16,
+        }
+        for name, action_id in outcome_actions.items():
+            assert ACTION_REGISTRY[name]["is_outcome"]
+            assert not ACTION_REGISTRY[name]["is_binary"]
+            assert get_action_id(name) == action_id
+            assert get_action_name(action_id) == name
+            assert is_outcome_action(name)
+            assert is_outcome_action_id(action_id)
+            assert not is_binary_action(name)
+            assert not is_binary_action_id(action_id)
+        for action_id in (1, 5, 6, 9, 10, 11, 12, 17):
+            assert not is_outcome_action_id(action_id)
+        assert not is_outcome_action("price_above_threshold")
+        assert not is_outcome_action("unknown_action")
 
     def test_numeric_actions(self):
         """Test numeric action IDs 1-5"""

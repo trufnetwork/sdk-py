@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+import trufnetwork_sdk_py.client as client_mod
 from trufnetwork_sdk_py.client import (
     BINARY_ACTION_IDS,
     OUTCOME_ACTION_IDS,
@@ -284,6 +285,61 @@ MARKET = {"bridge": "eth_usdc", "settle_time": T + 4 * DAY, "max_spread": 5, "mi
 def test_create_helpers_check_their_inputs_before_sending(create, inputs, message):
     with pytest.raises(ValueError, match=message):
         getattr(_offline_client(), create)(**inputs, wait=False)
+
+
+# Each case sets one bound only, so a min/max swap moves the market to the
+# other tail and changes the bytes.
+CREATE_WIRING = [
+    ("create_price_above_threshold_v2_market", "CreatePriceAboveThresholdV2Market",
+     "BuildPriceAboveThresholdV2QueryComponents",
+     "build_price_above_threshold_v2_query_components", daily(threshold="100000")),
+    ("create_price_below_threshold_v2_market", "CreatePriceBelowThresholdV2Market",
+     "BuildPriceBelowThresholdV2QueryComponents",
+     "build_price_below_threshold_v2_query_components", daily(threshold="100000")),
+    ("create_value_in_range_v2_market", "CreateValueInRangeV2Market",
+     "BuildValueInRangeV2QueryComponents",
+     "build_value_in_range_v2_query_components", daily(min_value=None, max_value="90")),
+    ("create_value_in_range_v2_market", "CreateValueInRangeV2Market",
+     "BuildValueInRangeV2QueryComponents",
+     "build_value_in_range_v2_query_components", daily(min_value="110", max_value=None)),
+    ("create_index_change_in_range_v2_market", "CreateIndexChangeInRangeV2Market",
+     "BuildIndexChangeInRangeV2QueryComponents",
+     "build_index_change_in_range_v2_query_components",
+     month_start(min_change=None, max_change="1.5")),
+    ("create_index_change_in_range_v2_market", "CreateIndexChangeInRangeV2Market",
+     "BuildIndexChangeInRangeV2QueryComponents",
+     "build_index_change_in_range_v2_query_components",
+     month_start(min_change="3", max_change=None)),
+]
+
+
+@pytest.mark.parametrize("create,binding,build_binding,builder,query", CREATE_WIRING)
+def test_create_helpers_send_what_the_builders_build(
+    monkeypatch, create, binding, build_binding, builder, query
+):
+    """The create bindings take their inputs by position. Rebuilt from what the
+    binding received, the bytes must equal the builder's for the same kwargs,
+    or the market is struck on inputs nobody asked for."""
+    calls = []
+
+    def record(*args):
+        calls.append(args)
+        return "0xtx"
+
+    monkeypatch.setattr(client_mod.truf_sdk, binding, record)
+    client = _offline_client()
+    client.client = object()
+
+    assert getattr(client, create)(**query, **MARKET, wait=False) == "0xtx"
+
+    (args,) = calls
+    assert args[0] is client.client
+    query_args, market_args = args[1:-4], args[-4:]
+    sent = bytes(getattr(client_mod.truf_sdk, build_binding)(*query_args))
+    assert sent == getattr(TNClient, builder)(**query)
+    assert market_args == (
+        MARKET["bridge"], MARKET["settle_time"], MARKET["max_spread"], MARKET["min_order_size"]
+    )
 
 
 # --- reading the result ----------------------------------------------------------

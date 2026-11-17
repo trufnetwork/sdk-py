@@ -3441,8 +3441,10 @@ class TNClient:
         On a v2 outcome market (action ids 13-16) the probabilities include
         the INVALID refund. Such a market pays $0.50 per YES and per NO share
         when it resolves INVALID, so a bucket's YES price is about
-        P(YES) + 0.5 * P(INVALID). The forecast reads YES midpoints as
-        probabilities and normalises them, so for a v2 set the bucket
+        P(YES) + 0.5 * P(INVALID). The forecast prices each bucket from its
+        full YES and NO books, weighted by committed notional, and a NO price
+        read as YES (1 minus the NO price) carries the same refund share. It
+        normalises those bucket prices, so for a v2 set the bucket
         probabilities, the value and the band include that refund value and
         are not a distribution over valid outcomes only. The estimator is the
         same for v1 and v2 sets; a v2 set gets ``OUTCOME_REFUND_WARNING`` in

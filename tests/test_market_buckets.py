@@ -501,6 +501,24 @@ def test_v2_market_set_forecasts_on_its_own():
     assert not any("not open" in w or "gap" in w for w in f.warnings)
 
 
+def test_only_a_v2_set_warns_that_its_prices_include_the_invalid_refund():
+    """INVALID pays $0.50 per YES share on a v2 market, so its YES prices are
+    not P(YES). The estimator is unchanged; the result says so instead."""
+    from trufnetwork_sdk_py import OUTCOME_REFUND_WARNING
+
+    v2 = fake_client(V2_MARKETS).get_market_forecast(list(V2_MARKETS))
+    v1 = fake_client().get_market_forecast(list(MSFT_MARKETS))
+
+    assert OUTCOME_REFUND_WARNING in v2.warnings
+    assert v2.warnings.count(OUTCOME_REFUND_WARNING) == 1
+    assert OUTCOME_REFUND_WARNING not in v1.warnings
+    assert OUTCOME_REFUND_WARNING == (
+        "v2 outcome markets: each YES price includes the $0.50 per share an "
+        "INVALID result pays, so these probabilities include that refund value "
+        "and are not a distribution over valid outcomes only"
+    )
+
+
 def test_v1_and_v2_buckets_on_the_same_timestamp_are_rejected():
     """The same strikes on the same timestamp, but a v1 bucket can stay open
     forever while a v2 one is refunded at timestamp + window. Only window and

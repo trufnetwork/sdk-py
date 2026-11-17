@@ -660,6 +660,15 @@ OUTCOME_INVALID = -1
 OUTCOME_MAX_SPAN_SECONDS = 315360000
 OUTCOME_MAX_TOLERANCE_SECONDS = 3888000
 
+# Added to MarketForecast.warnings by get_market_forecast when a bucket of the
+# set is an outcome action (ids 13-16). INVALID pays $0.50 per YES and per NO
+# share, so a v2 YES price is about P(YES) + 0.5 * P(INVALID).
+OUTCOME_REFUND_WARNING = (
+    "v2 outcome markets: each YES price includes the $0.50 per share an "
+    "INVALID result pays, so these probabilities include that refund value "
+    "and are not a distribution over valid outcomes only"
+)
+
 # Bridge identifiers come in two flavours that look similar but are NOT
 # interchangeable:
 #
@@ -3429,6 +3438,16 @@ class TNClient:
         ignoring it would discard real quotes. That costs two order-book reads
         per bucket.
 
+        On a v2 outcome market (action ids 13-16) the probabilities include
+        the INVALID refund. Such a market pays $0.50 per YES and per NO share
+        when it resolves INVALID, so a bucket's YES price is about
+        P(YES) + 0.5 * P(INVALID). The forecast reads YES midpoints as
+        probabilities and normalises them, so for a v2 set the bucket
+        probabilities, the value and the band include that refund value and
+        are not a distribution over valid outcomes only. The estimator is the
+        same for v1 and v2 sets; a v2 set gets ``OUTCOME_REFUND_WARNING`` in
+        ``warnings``.
+
         Args:
             query_ids: The bucket query_ids of ONE market. Order does not
                 matter, they are sorted by lower bound here. The buckets are
@@ -3456,6 +3475,7 @@ class TNClient:
 
         books: list[BucketDepth] = []
         identity: tuple | None = None
+        has_outcome_bucket = False
         for query_id in query_ids:
             info = self.get_market_info(query_id)
             query_components = info.get("query_components") or b""
@@ -3528,7 +3548,9 @@ class TNClient:
             # An outcome action (ids 13-16) always carries a window and a
             # tolerance. Missing or None here is the same stale-bindings case,
             # and would let a v2 bucket join a v1 set on the same timestamp.
-            if is_outcome_action(market_data.get("action_id", "")) and (
+            is_outcome = is_outcome_action(market_data.get("action_id", ""))
+            has_outcome_bucket = has_outcome_bucket or is_outcome
+            if is_outcome and (
                 market_data.get("window") is None
                 or market_data.get("tolerance") is None
             ):
@@ -3620,6 +3642,10 @@ class TNClient:
         if forecast is None:
             return None
         forecast.warnings[:0] = layout
+        # The estimator stays a port of the shared upstream code, so the v2
+        # refund value is reported here rather than removed from the prices.
+        if has_outcome_bucket:
+            forecast.warnings.append(OUTCOME_REFUND_WARNING)
         return forecast
 
     def _order_book_ladders(
